@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+# Wrapper — requires `lex` CLI on PATH.
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec lex run "$SCRIPT_DIR/../src/tui/main.lex" "$@"

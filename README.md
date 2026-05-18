@@ -8,8 +8,11 @@ A Lex-native coding assistant — think Claude Code or Cursor, built entirely in
 # set provider key
 export ANTHROPIC_API_KEY=sk-...
 
-# build mode (default)
+# build mode (default), interactive REPL
 lex run src/tui/main.lex
+
+# one-shot CLI mode (exits after the task)
+lex run src/tui/main.lex "implement list.zip"
 
 # plan mode
 lex run src/tui/main.lex -- --plan
@@ -24,6 +27,26 @@ lex run src/bootstrap/run.lex
 lex run src/server/api.lex
 ```
 
+## Install as a binary
+
+```sh
+# installs to /usr/local/bin/lex-code and /usr/local/lib/lex-code/
+make install
+
+# custom prefix
+make install PREFIX=~/.local
+
+# uninstall
+make uninstall
+```
+
+After install, `lex` must still be on your PATH (it’s the interpreter).
+
+```sh
+lex-code "implement list.zip"
+lex-code --plan --ollama "how should we structure the session module?"
+```
+
 ## Agent Modes
 
 | Flag | Mode | Role |
@@ -36,6 +59,44 @@ lex run src/server/api.lex
 | `--test` | Test | Write unit and property tests |
 | `--review` | Review | Code-review: correctness, style, effects |
 | `--multi` | Multi | Run Build + Test in parallel via `std.conc` |
+
+## Providers
+
+| Flag | Provider | Model | Key required |
+|------|----------|-------|--------------|
+| *(default)* | Anthropic | claude-sonnet-4-6 | `ANTHROPIC_API_KEY` |
+| `--openai` | OpenAI | gpt-4o | `OPENAI_API_KEY` |
+| `--google` | Google | gemini-2.0-flash | `GOOGLE_API_KEY` |
+| `--mistral` | Mistral | mistral-large-latest | `MISTRAL_API_KEY` |
+| `--ollama` | Ollama (local) | codellama | none |
+| `--vllm` | vLLM (local/remote) | `$VLLM_MODEL` | none |
+
+### Ollama
+
+```sh
+ollama pull codellama   # or llama3, deepseek-coder, qwen2.5-coder, …
+lex run src/tui/main.lex --ollama
+```
+
+### vLLM
+
+```sh
+# start vLLM server
+python -m vllm.entrypoints.openai.api_server \
+  --model mistralai/Mistral-7B-Instruct-v0.3
+
+# run lex-code against it
+VLLM_MODEL=mistralai/Mistral-7B-Instruct-v0.3 \
+  lex run src/tui/main.lex --vllm "implement list.zip"
+
+# remote GPU box
+VLLM_BASE_URL=http://gpu-box:8000/v1/chat/completions \
+VLLM_MODEL=deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct \
+  lex run src/tui/main.lex --vllm
+```
+
+`VLLM_MODEL` defaults to `mistralai/Mistral-7B-Instruct-v0.3`.
+`VLLM_BASE_URL` defaults to `http://localhost:8000/v1/chat/completions`.
 
 ## Tools
 
@@ -78,15 +139,29 @@ lex run src/server/api.lex
 | `lex_store_apply` | Apply a store patch |
 | `lex_store_merge` | Merge two store snapshots |
 
-## Providers
+### VCS tools (lex-vcs / AST-level)
 
-| Flag | Provider | Model |
-|------|----------|-------|
-| *(default)* | Anthropic | claude-3-7-sonnet |
-| `--openai` | OpenAI | gpt-4o |
-| `--google` | Google | gemini-2.0-flash |
-| `--mistral` | Mistral | mistral-large-latest |
-| `--ollama` | Ollama (local) | llama3 |
+The agent can read and drive lex-vcs directly via these tools.
+
+| Tool | CLI command | Description |
+|------|-------------|-------------|
+| `ast_diff` | `lex diff <a> <b>` | AST-level diff between two files |
+| `op_show` | `lex op show <id>` | Inspect a content-addressed operation |
+| `op_log` | `lex op log` | Show the operation log |
+| `op_push` | `lex op push` | Push ops to remote |
+| `op_pull` | `lex op pull` | Pull ops from remote |
+| `branch_list` | `lex branch list` | List branches |
+| `branch_current` | `lex branch current` | Show active branch |
+| `branch_show` | `lex branch show <name>` | Inspect a branch |
+| `branch_create` | `lex branch create <name>` | Create a branch |
+| `branch_use` | `lex branch use <name>` | Switch branch |
+| `branch_peek` | `lex branch peek <name>` | Read-only view of another branch |
+| `branch_overlay` | `lex branch overlay <name>` | Overlay a branch without switching |
+| `merge_start` | `lex merge start <branch>` | Begin a merge session |
+| `merge_status` | `lex merge status` | Show pending conflicts |
+| `merge_resolve` | `lex merge resolve <id>` | Resolve a conflict |
+| `merge_defer` | `lex merge defer <id>` | Defer a conflict for later |
+| `merge_commit` | `lex merge commit` | Commit a completed merge |
 
 ## Architecture
 
@@ -98,17 +173,20 @@ lex-code
 │   ├── tools/           # Tool implementations
 │   │   ├── standard/    # read, write, edit, grep, glob, bash, todowrite
 │   │   ├── lex_*.lex    # check, audit, run, test, spec_check, spec_smt
-│   │   └── lex_store_*  # sigid, attestations, effects, diff, apply, merge
+│   │   ├── lex_store_*  # sigid, attestations, effects, diff, apply, merge
+│   │   └── vcs/         # 17 lex-vcs tools (ast_diff, op_*, branch_*, merge_*)
 │   ├── permissions/     # lex-spec Spec values per agent mode
 │   ├── server/
-│   │   ├── session.lex  # Session type, run_turn, AgentMode
+│   │   ├── session.lex      # Session type, run_turn, AgentMode
 │   │   ├── multi_agent.lex  # std.conc parallel dispatch
-│   │   ├── persist.lex  # lex-trail log helpers
-│   │   └── api.lex      # A2A (JSON-RPC 2.0) server
-│   ├── tui/main.lex     # CLI REPL
+│   │   ├── persist.lex      # lex-trail log helpers
+│   │   └── api.lex          # A2A (JSON-RPC 2.0) server
+│   ├── tui/main.lex     # CLI REPL + one-shot mode
 │   ├── vscode/          # VSCode extension (TypeScript)
 │   ├── web/             # Web frontend (vanilla JS)
 │   └── bootstrap/run.lex  # Demo 4-phase pipeline
+├── bin/lex-code      # Shell wrapper (used by make install)
+├── Makefile          # install / uninstall targets
 └── lex.toml
 ```
 
@@ -171,7 +249,7 @@ let test_steps := conc.ask(test_actor, Execute(test_task))
 
 Each agent mode has a `lex-spec` `Spec` value (in `src/permissions/rules.lex`) that
 allowlists its tool set. At construction time, `with_permission_gate` (from `lex-llm`)
-filters the tool list using the spec, so agents can only call the tools they're
+filters the tool list using the spec, so agents can only call the tools they’re
 authorised to use.
 
 ## Roadmap
@@ -179,3 +257,4 @@ authorised to use.
 - [x] v0.1 — agents, tools, TUI REPL, A2A server, lex-trail persistence
 - [x] v0.2 — refactor/spec/test/review agents, store tools, lex-spec permissions, Mistral provider
 - [x] v0.3 — parallel multi-agent (`std.conc`), VSCode extension, web frontend, bootstrap script
+- [x] v0.4 — lex-vcs tools (17), CLI one-shot mode, Ollama + vLLM providers, install target
