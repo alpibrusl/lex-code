@@ -31,3 +31,12 @@ fn ollama_agent() -> ag.AgentDef {
     tools:    tools.review_tools(),
     options:  { temperature: None, top_p: None, max_steps: Some(25), max_tokens: None } }
 }
+
+fn vllm_agent() -> ag.AgentDef {
+  { name:     "review",
+    goal:     rvp.system(),
+    model:    prov.vllm(providers.vllm_model()),
+    provider: providers.vllm_local(),
+    tools:    tools.review_tools(),
+    options:  { temperature: None, top_p: None, max_steps: Some(25), max_tokens: None } }
+}

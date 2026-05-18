@@ -31,3 +31,12 @@ fn ollama_agent() -> ag.AgentDef {
     tools:    tools.refactor_tools(),
     options:  { temperature: None, top_p: None, max_steps: Some(40), max_tokens: None } }
 }
+
+fn vllm_agent() -> ag.AgentDef {
+  { name:     "refactor",
+    goal:     rp.system(),
+    model:    prov.vllm(providers.vllm_model()),
+    provider: providers.vllm_local(),
+    tools:    tools.refactor_tools(),
+    options:  { temperature: None, top_p: None, max_steps: Some(40), max_tokens: None } }
+}

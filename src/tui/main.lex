@@ -83,6 +83,7 @@ fn select_provider_tag(argv :: List[Str]) -> Str {
   else if has_flag(argv, "--openai")  then "openai"
   else if has_flag(argv, "--google")  then "google"
   else if has_flag(argv, "--ollama")  then "ollama"
+  else if has_flag(argv, "--vllm")    then "vllm"
   else "anthropic"
 }
 
@@ -116,7 +117,7 @@ fn main() -> [io, net, llm, proc, sql, time] Nil {
     None =>
       io.print("lex-code v0.3 — Lex-specialized coding assistant")
       io.print("modes:     --plan | --explore | --refactor | --spec | --test | --review | --multi")
-      io.print("providers: --mistral | --openai | --google | --ollama  (default: anthropic)")
+      io.print("providers: --mistral | --openai | --google | --ollama | --vllm  (default: anthropic)")
       io.print("Ctrl-D to exit")
       if has_flag(argv, "--multi") then
         multi_repl(provider_tag)

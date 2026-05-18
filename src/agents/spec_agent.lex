@@ -31,3 +31,12 @@ fn ollama_agent() -> ag.AgentDef {
     tools:    tools.spec_tools(),
     options:  { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None } }
 }
+
+fn vllm_agent() -> ag.AgentDef {
+  { name:     "spec",
+    goal:     sp.system(),
+    model:    prov.vllm(providers.vllm_model()),
+    provider: providers.vllm_local(),
+    tools:    tools.spec_tools(),
+    options:  { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None } }
+}
