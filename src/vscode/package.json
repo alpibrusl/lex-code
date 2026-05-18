@@ -1,0 +1,58 @@
+{
+  "name": "lex-code",
+  "displayName": "Lex Code",
+  "description": "Lex-native coding assistant — build, plan, refactor, spec, test, review",
+  "version": "0.3.0",
+  "publisher": "alpibrusl",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other", "Programming Languages"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "lexcode.openPanel",    "title": "Lex Code: Open Chat" },
+      { "command": "lexcode.buildMode",   "title": "Lex Code: Build mode" },
+      { "command": "lexcode.planMode",    "title": "Lex Code: Plan mode" },
+      { "command": "lexcode.refactorMode","title": "Lex Code: Refactor mode" },
+      { "command": "lexcode.specMode",    "title": "Lex Code: Spec mode" },
+      { "command": "lexcode.testMode",    "title": "Lex Code: Test mode" },
+      { "command": "lexcode.reviewMode",  "title": "Lex Code: Review mode" }
+    ],
+    "keybindings": [
+      { "command": "lexcode.openPanel", "key": "ctrl+shift+l", "mac": "cmd+shift+l" }
+    ],
+    "configuration": {
+      "title": "Lex Code",
+      "properties": {
+        "lexcode.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:7700",
+          "description": "URL of the lex-code A2A server"
+        },
+        "lexcode.defaultMode": {
+          "type": "string",
+          "enum": ["build", "plan", "explore", "refactor", "spec", "test", "review"],
+          "default": "build",
+          "description": "Default agent mode"
+        },
+        "lexcode.provider": {
+          "type": "string",
+          "enum": ["anthropic", "openai", "google", "mistral", "ollama"],
+          "default": "anthropic",
+          "description": "LLM provider"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --platform=node --format=cjs",
+    "watch": "npm run build -- --watch",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  }
+}
