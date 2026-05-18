@@ -104,6 +104,7 @@ fn select_provider_tag(argv :: List[Str]) -> Str {
   else if has_flag(argv, "--openai")  then "openai"
   else if has_flag(argv, "--google")  then "google"
   else if has_flag(argv, "--ollama")  then "ollama"
+  else if has_flag(argv, "--vllm")    then "vllm"
   else "anthropic"
 }
 
@@ -119,7 +120,7 @@ fn main() -> [io, net, llm, proc, sql, time] Nil {
       # Interactive REPL.
       io.println("lex-code — Lex-specialized coding assistant")
       io.println("modes:     --plan | --explore | --refactor | --spec | --test | --review | --multi")
-      io.println("providers: --mistral | --openai | --google | --ollama  (default: anthropic)")
+      io.println("providers: --mistral | --openai | --google | --ollama | --vllm  (default: anthropic)")
       io.println("one-shot:  lex run src/tui/main.lex -- [flags] \"your task\"")
       io.println("Ctrl-D to exit")
       if has_flag(argv, "--multi") then

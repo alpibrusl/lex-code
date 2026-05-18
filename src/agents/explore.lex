@@ -22,3 +22,21 @@ fn mistral_agent() -> ag.AgentDef {
     tools:    tools.read_only_tools(),
     options:  { temperature: None, top_p: None, max_steps: Some(20), max_tokens: None } }
 }
+
+fn ollama_agent() -> ag.AgentDef {
+  { name:     "explore",
+    goal:     ep.system(),
+    model:    prov.ollama("codellama"),
+    provider: providers.ollama_local(),
+    tools:    tools.read_only_tools(),
+    options:  { temperature: None, top_p: None, max_steps: Some(20), max_tokens: None } }
+}
+
+fn vllm_agent() -> ag.AgentDef {
+  { name:     "explore",
+    goal:     ep.system(),
+    model:    prov.vllm(providers.vllm_model()),
+    provider: providers.vllm_local(),
+    tools:    tools.read_only_tools(),
+    options:  { temperature: None, top_p: None, max_steps: Some(20), max_tokens: None } }
+}
