@@ -10,15 +10,23 @@ import "std.list" as list
 import "std.iter" as iter
 import "std.str"  as str
 
-import "../agents/build"   as build_agent
-import "../agents/plan"    as plan_agent
-import "../agents/explore" as explore_agent
-import "./persist"         as persist
+import "../agents/build"       as build_agent
+import "../agents/plan"        as plan_agent
+import "../agents/explore"     as explore_agent
+import "../agents/refactor"    as refactor_agent
+import "../agents/spec_agent"  as spec_a
+import "../agents/test_agent"  as test_a
+import "../agents/review"      as review_a
+import "./persist"             as persist
 
 type AgentMode =
     Build
   | Plan
   | Explore
+  | Refactor
+  | Spec
+  | Test
+  | Review
 
 type Session = {
   id       :: Str,
@@ -37,15 +45,23 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> ag.AgentDef {
   match provider_tag {
     "mistral" =>
       match mode {
-        Build   => build_agent.mistral_agent(),
-        Plan    => plan_agent.mistral_agent(),
-        Explore => explore_agent.mistral_agent(),
+        Build    => build_agent.mistral_agent(),
+        Plan     => plan_agent.mistral_agent(),
+        Explore  => explore_agent.mistral_agent(),
+        Refactor => refactor_agent.mistral_agent(),
+        Spec     => spec_a.mistral_agent(),
+        Test     => test_a.mistral_agent(),
+        Review   => review_a.mistral_agent(),
       }
     _ =>
       match mode {
-        Build   => build_agent.agent(),
-        Plan    => plan_agent.agent(),
-        Explore => explore_agent.agent(),
+        Build    => build_agent.agent(),
+        Plan     => plan_agent.agent(),
+        Explore  => explore_agent.agent(),
+        Refactor => refactor_agent.agent(),
+        Spec     => spec_a.agent(),
+        Test     => test_a.agent(),
+        Review   => review_a.agent(),
       }
   }
 }
@@ -59,11 +75,7 @@ fn new_session_with_provider(id :: Str, mode :: AgentMode, provider_tag :: Str)
   match persist.open_ephemeral() {
     Err(e) => Err(e),
     Ok(log) =>
-      Ok({ id:            id,
-           mode:          mode,
-           messages:      [],
-           log:           log,
-           parent:        None })
+      Ok({ id: id, mode: mode, messages: [], log: log, parent: None })
   }
 }
 
@@ -88,11 +100,8 @@ fn run_turn_with_provider(
       None    => messages,
       Some(m) => list.concat(messages, [m]),
     }
-  let updated := { id:       session.id,
-                   mode:     session.mode,
-                   messages: new_msgs,
-                   log:      session.log,
-                   parent:   None }
+  let updated := { id: session.id, mode: session.mode,
+                   messages: new_msgs, log: session.log, parent: None }
   { steps: steps, session: updated }
 }
 
@@ -108,8 +117,5 @@ fn find_done_msg(steps :: List[d.Step]) -> Option[msg.Message] {
 }
 
 fn is_done(step :: d.Step) -> Bool {
-  match step {
-    d.StepDone(_) => true,
-    _             => false,
-  }
+  match step { d.StepDone(_) => true, _ => false }
 }
