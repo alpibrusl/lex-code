@@ -1,5 +1,6 @@
-import "lex-llm/agent"      as ag
-import "lex-llm/provider"   as prov
+import "lex-llm/agent"     as ag
+import "lex-llm/provider"  as prov
+import "lex-llm/providers" as providers
 
 import "../tools/index"     as tools
 import "../prompts/explore" as ep
@@ -8,7 +9,16 @@ fn agent() -> ag.AgentDef {
   { name:     "explore",
     goal:     ep.system(),
     model:    prov.claude_sonnet(),
-    provider: prov.anthropic(),
+    provider: providers.anthropic(),
+    tools:    tools.read_only_tools(),
+    options:  { temperature: None, top_p: None, max_steps: Some(20), max_tokens: None } }
+}
+
+fn mistral_agent() -> ag.AgentDef {
+  { name:     "explore",
+    goal:     ep.system(),
+    model:    prov.mistral_small(),
+    provider: providers.mistral(),
     tools:    tools.read_only_tools(),
     options:  { temperature: None, top_p: None, max_steps: Some(20), max_tokens: None } }
 }

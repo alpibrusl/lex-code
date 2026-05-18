@@ -1,11 +1,14 @@
-import "lex-llm/agent"   as ag
-import "lex-llm/message" as msg
-import "lex-llm/delta"   as d
+import "lex-llm/agent"     as ag
+import "lex-llm/message"   as msg
+import "lex-llm/delta"     as d
+import "lex-llm/provider"  as prov
+import "lex-llm/providers" as providers
 
-import "lex-trail/log"   as trail_log
+import "lex-trail/log"     as trail_log
 
 import "std.list" as list
 import "std.iter" as iter
+import "std.str"  as str
 
 import "../agents/build"   as build_agent
 import "../agents/plan"    as plan_agent
@@ -30,43 +33,53 @@ type TurnResult = {
   session :: Session,
 }
 
-fn agent_for(mode :: AgentMode) -> ag.AgentDef {
-  match mode {
-    Build   => build_agent.agent(),
-    Plan    => plan_agent.agent(),
-    Explore => explore_agent.agent(),
+fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> ag.AgentDef {
+  match provider_tag {
+    "mistral" =>
+      match mode {
+        Build   => build_agent.mistral_agent(),
+        Plan    => plan_agent.mistral_agent(),
+        Explore => explore_agent.mistral_agent(),
+      }
+    _ =>
+      match mode {
+        Build   => build_agent.agent(),
+        Plan    => plan_agent.agent(),
+        Explore => explore_agent.agent(),
+      }
   }
 }
 
 fn new_session(id :: Str, mode :: AgentMode) -> [sql] Result[Session, Str] {
+  new_session_with_provider(id, mode, "anthropic")
+}
+
+fn new_session_with_provider(id :: Str, mode :: AgentMode, provider_tag :: Str)
+  -> [sql] Result[Session, Str] {
   match persist.open_ephemeral() {
     Err(e) => Err(e),
     Ok(log) =>
-      Ok({ id:       id,
-           mode:     mode,
-           messages: [],
-           log:      log,
-           parent:   None })
-  }
-}
-
-fn new_persistent_session(id :: Str, mode :: AgentMode) -> [sql, io] Result[Session, Str] {
-  match persist.open_persistent(id) {
-    Err(e) => Err(e),
-    Ok(log) =>
-      Ok({ id:       id,
-           mode:     mode,
-           messages: [],
-           log:      log,
-           parent:   None })
+      Ok({ id:            id,
+           mode:          mode,
+           messages:      [],
+           log:           log,
+           parent:        None })
   }
 }
 
 fn run_turn(session :: Session, user_input :: Str)
   -> [net, llm, io, proc, sql, time] TurnResult {
+  run_turn_with_provider(session, user_input, "anthropic")
+}
+
+fn run_turn_with_provider(
+  session      :: Session,
+  user_input   :: Str,
+  provider_tag :: Str
+) -> [net, llm, io, proc, sql, time] TurnResult {
   let user_msg  := msg.user(user_input)
   let messages  := list.concat(session.messages, [user_msg])
-  let agent     := agent_for(session.mode)
+  let agent     := pick_agent(session.mode, provider_tag)
   let step_iter := ag.run_loop_traced(agent, messages, session.log, session.parent)
   let steps     := iter.to_list(step_iter)
   let final_msg := find_done_msg(steps)
