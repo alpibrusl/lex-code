@@ -42,6 +42,17 @@ fn repl(session :: sess.Session, provider_tag :: Str) -> [io, net, llm, proc, sq
   }
 }
 
+fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str)
+  -> [io, net, llm, proc, sql, time] Nil {
+  match sess.new_session_with_provider("cli", mode, provider_tag) {
+    Err(e)      => io.println(str.concat("error: ", e)),
+    Ok(session) =>
+      let result := sess.run_turn_with_provider(session, task, provider_tag)
+      let _ := list.map(result.steps, fn (s :: d.Step) -> [io] Nil { print_step(s) })
+      io.println(""),
+  }
+}
+
 fn multi_repl(provider_tag :: Str) -> [io, net, llm, proc, sql, time] Nil {
   io.print("\n[multi] task> ")
   match io.readline() {
@@ -68,6 +79,16 @@ fn has_flag(argv :: List[Str], flag :: Str) -> Bool {
   }
 }
 
+# First non-flag argument is the task (one-shot CLI mode).
+fn find_task(argv :: List[Str]) -> Option[Str] {
+  list.find(argv, fn (a :: Str) -> Bool {
+    match str.chars(a) {
+      []         => false,
+      [c, .._]   => str.neq(str.from_char(c), "-"),
+    }
+  })
+}
+
 fn select_mode(argv :: List[Str]) -> sess.AgentMode {
   if has_flag(argv, "--plan")     then sess.Plan
   else if has_flag(argv, "--explore")  then sess.Explore
@@ -87,43 +108,26 @@ fn select_provider_tag(argv :: List[Str]) -> Str {
   else "anthropic"
 }
 
-# Returns the first non-flag argument as a one-shot task.
-fn find_task(argv :: List[Str]) -> Option[Str] {
-  list.find(argv, fn (a :: Str) -> Bool {
-    match str.chars(a) {
-      []       => false,
-      [c, .._] => str.neq(str.from_char(c), "-"),
-    }
-  })
-}
-
-fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str)
-  -> [io, net, llm, proc, sql, time] Nil {
-  match sess.new_session_with_provider("cli", mode, provider_tag) {
-    Err(e)      => io.println(str.concat("error: ", e)),
-    Ok(session) =>
-      let result := sess.run_turn_with_provider(session, task, provider_tag)
-      let _ := list.map(result.steps, fn (s :: d.Step) -> [io] Nil { print_step(s) })
-      io.println(""),
-  }
-}
-
 fn main() -> [io, net, llm, proc, sql, time] Nil {
   let argv         := io.argv()
   let provider_tag := select_provider_tag(argv)
   let mode         := select_mode(argv)
   match find_task(argv) {
-    Some(task) => run_once(task, mode, provider_tag),
+    Some(task) =>
+      # Non-interactive: run one turn and exit.
+      run_once(task, mode, provider_tag),
     None =>
-      io.print("lex-code v0.3 — Lex-specialized coding assistant")
-      io.print("modes:     --plan | --explore | --refactor | --spec | --test | --review | --multi")
-      io.print("providers: --mistral | --openai | --google | --ollama | --vllm  (default: anthropic)")
-      io.print("Ctrl-D to exit")
+      # Interactive REPL.
+      io.println("lex-code — Lex-specialized coding assistant")
+      io.println("modes:     --plan | --explore | --refactor | --spec | --test | --review | --multi")
+      io.println("providers: --mistral | --openai | --google | --ollama | --vllm  (default: anthropic)")
+      io.println("one-shot:  lex run src/tui/main.lex -- [flags] \"your task\"")
+      io.println("Ctrl-D to exit")
       if has_flag(argv, "--multi") then
         multi_repl(provider_tag)
       else
         match sess.new_session_with_provider("tui", mode, provider_tag) {
-          Err(e)      => io.print(str.concat("startup error: ", e)),
+          Err(e)      => io.println(str.concat("startup error: ", e)),
           Ok(session) => repl(session, provider_tag),
         },
   }
