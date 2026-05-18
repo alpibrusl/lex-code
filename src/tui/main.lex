@@ -86,19 +86,44 @@ fn select_provider_tag(argv :: List[Str]) -> Str {
   else "anthropic"
 }
 
+# Returns the first non-flag argument as a one-shot task.
+fn find_task(argv :: List[Str]) -> Option[Str] {
+  list.find(argv, fn (a :: Str) -> Bool {
+    match str.chars(a) {
+      []       => false,
+      [c, .._] => str.neq(str.from_char(c), "-"),
+    }
+  })
+}
+
+fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str)
+  -> [io, net, llm, proc, sql, time] Nil {
+  match sess.new_session_with_provider("cli", mode, provider_tag) {
+    Err(e)      => io.println(str.concat("error: ", e)),
+    Ok(session) =>
+      let result := sess.run_turn_with_provider(session, task, provider_tag)
+      let _ := list.map(result.steps, fn (s :: d.Step) -> [io] Nil { print_step(s) })
+      io.println(""),
+  }
+}
+
 fn main() -> [io, net, llm, proc, sql, time] Nil {
-  io.print("lex-code v0.2 — Lex-specialized coding assistant")
-  io.print("modes:     --plan | --explore | --refactor | --spec | --test | --review | --multi")
-  io.print("providers: --mistral | --openai | --google | --ollama  (default: anthropic)")
-  io.print("Ctrl-D to exit")
   let argv         := io.argv()
   let provider_tag := select_provider_tag(argv)
-  if has_flag(argv, "--multi") then
-    multi_repl(provider_tag)
-  else
-    let mode := select_mode(argv)
-    match sess.new_session_with_provider("tui", mode, provider_tag) {
-      Err(e)      => io.print(str.concat("startup error: ", e)),
-      Ok(session) => repl(session, provider_tag),
-    }
+  let mode         := select_mode(argv)
+  match find_task(argv) {
+    Some(task) => run_once(task, mode, provider_tag),
+    None =>
+      io.print("lex-code v0.3 — Lex-specialized coding assistant")
+      io.print("modes:     --plan | --explore | --refactor | --spec | --test | --review | --multi")
+      io.print("providers: --mistral | --openai | --google | --ollama  (default: anthropic)")
+      io.print("Ctrl-D to exit")
+      if has_flag(argv, "--multi") then
+        multi_repl(provider_tag)
+      else
+        match sess.new_session_with_provider("tui", mode, provider_tag) {
+          Err(e)      => io.print(str.concat("startup error: ", e)),
+          Ok(session) => repl(session, provider_tag),
+        },
+  }
 }

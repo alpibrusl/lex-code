@@ -53,6 +53,16 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> ag.AgentDef {
         Test     => test_a.mistral_agent(),
         Review   => review_a.mistral_agent(),
       }
+    "ollama" =>
+      match mode {
+        Build    => build_agent.ollama_agent(),
+        Plan     => plan_agent.ollama_agent(),
+        Explore  => explore_agent.ollama_agent(),
+        Refactor => refactor_agent.ollama_agent(),
+        Spec     => spec_a.ollama_agent(),
+        Test     => test_a.ollama_agent(),
+        Review   => review_a.ollama_agent(),
+      }
     _ =>
       match mode {
         Build    => build_agent.agent(),

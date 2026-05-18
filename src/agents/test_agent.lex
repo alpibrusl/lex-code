@@ -22,3 +22,12 @@ fn mistral_agent() -> ag.AgentDef {
     tools:    tools.test_tools(),
     options:  { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None } }
 }
+
+fn ollama_agent() -> ag.AgentDef {
+  { name:     "test",
+    goal:     tp.system(),
+    model:    prov.ollama("codellama"),
+    provider: providers.ollama_local(),
+    tools:    tools.test_tools(),
+    options:  { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None } }
+}
