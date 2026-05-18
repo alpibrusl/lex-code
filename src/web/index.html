@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lex Code</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>lex-code</h1>
+    <div id="controls">
+      <label>Mode
+        <select id="mode-select">
+          <option value="build">Build</option>
+          <option value="plan">Plan</option>
+          <option value="explore">Explore</option>
+          <option value="refactor">Refactor</option>
+          <option value="spec">Spec</option>
+          <option value="test">Test</option>
+          <option value="review">Review</option>
+        </select>
+      </label>
+      <label>Provider
+        <select id="provider-select">
+          <option value="anthropic">Anthropic</option>
+          <option value="openai">OpenAI</option>
+          <option value="mistral">Mistral</option>
+          <option value="google">Google</option>
+          <option value="ollama">Ollama</option>
+        </select>
+      </label>
+      <button id="clear-btn">Clear</button>
+    </div>
+  </header>
+  <div id="messages"></div>
+  <footer>
+    <textarea id="input" rows="3" placeholder="Ask lex-code…"></textarea>
+    <button id="send-btn">Send</button>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

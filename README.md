@@ -1,117 +1,181 @@
 # lex-code
 
-A Lex-specialized coding assistant. Equivalent to Claude Code / Cursor / Aider for Lex codebases, built on top of `lex-llm` + `lex-agent` + `lex-trail` + `lex-spec`.
-
-## Why Lex-specific?
-
-| Generic assistant | lex-code |
-|---|---|
-| grep + LSP for search | SigId lookup — content-addressed identity |
-| Guesses purity from comments | Effect-row aware — knows `[net]` vs `[pure]` from types |
-| Run-then-recover | Pre-flight `lex check` before committing edits |
-| File-level diff | AST-level structural merge via `lex-store` |
-| Session log = chat transcript | `lex-trail` — content-hashed, replayable, attestable |
+A Lex-native coding assistant — think Claude Code or Cursor, built entirely in the Lex ecosystem.
 
 ## Quickstart
 
 ```sh
-export ANTHROPIC_API_KEY=sk-ant-...
-# or MISTRAL_API_KEY / OPENAI_API_KEY / GOOGLE_API_KEY
+# set provider key
+export ANTHROPIC_API_KEY=sk-...
 
-lex run src/tui/main.lex main                    # build mode (default)
-lex run src/tui/main.lex main --plan             # plan mode
-lex run src/tui/main.lex main --explore          # explore mode
-lex run src/tui/main.lex main --refactor         # refactor mode
-lex run src/tui/main.lex main --spec             # spec mode
-lex run src/tui/main.lex main --test             # test mode
-lex run src/tui/main.lex main --review           # review mode
-lex run src/tui/main.lex main --multi            # impl + test agents in sequence
-lex run src/tui/main.lex main --multi --mistral  # same, via Mistral
+# build mode (default)
+lex run src/tui/main.lex
+
+# plan mode
+lex run src/tui/main.lex -- --plan
+
+# mistral provider
+lex run src/tui/main.lex -- --mistral
+
+# bootstrap demo: impl → spec → test → review
+lex run src/bootstrap/run.lex
+
+# A2A server
+lex run src/server/api.lex
 ```
 
-## Agent modes
+## Agent Modes
 
-| Flag | Agent | Tools | Purpose |
-|---|---|---|---|
-| _(none)_ | `build` | all | Default developer agent |
-| `--plan` | `plan` | read-only + todowrite | Writes plan to `.lex/plans/` |
-| `--explore` | `explore` | read-only + lex_audit | Codebase navigation and Q&A |
-| `--refactor` | `refactor` | read/write/edit + lex_store_* + sigid/effects | SigId-aware rename, signature changes, effect-row migration |
-| `--spec` | `spec` | read/write/edit + lex_spec_check + lex_spec_smt | Property spec author + random-check loop |
-| `--test` | `test` | read/write/edit + lex_test + lex_run | Test suite author |
-| `--review` | `review` | read-only + attestation_query + effects_of | Attestation-aware code review |
-| `--multi` | impl + test | all | Impl agent then test agent on the same task |
+| Flag | Mode | Role |
+|------|------|------|
+| *(default)* | Build | Write and edit Lex source files |
+| `--plan` | Plan | Produce implementation plans, no writes |
+| `--explore` | Explore | Read + grep, understand the codebase |
+| `--refactor` | Refactor | Restructure code, rename, inline |
+| `--spec` | Spec | Generate lex-spec `Spec` values |
+| `--test` | Test | Write unit and property tests |
+| `--review` | Review | Code-review: correctness, style, effects |
+| `--multi` | Multi | Run Build + Test in parallel via `std.conc` |
 
 ## Tools
 
-### Standard
+### Standard tools (all modes)
 
 | Tool | Description |
-|---|---|
-| `read` | Read file contents |
-| `write` | Create or overwrite a file |
-| `edit` | Exact string replacement (unique match enforced) |
-| `grep` | `grep -rn` pattern search |
-| `glob` | `find` by filename pattern |
+|------|-------------|
+| `read_file` | Read file contents |
+| `write_file` | Write / create a file |
+| `edit_file` | Targeted string replacement |
+| `grep` | Search file contents by regex |
+| `glob` | List files matching a glob |
 | `bash` | Run a shell command |
-| `todowrite` | Track remaining steps in `.lex/todos.md` |
+| `todo_write` | Write structured TODO list |
 
-### Lex-specific
+### Lex tools
 
-| Tool | Wraps | Purpose |
-|---|---|---|
-| `lex_check` | `lex check` | Type-check files or whole project |
-| `lex_audit` | `lex audit` | Semantic queries (`--calls`, `--effects`, `--impure`, `--unattested`) |
-| `lex_run` | `lex run` | Execute a Lex function |
-| `lex_test` | `lex run tests/... run_all` | Run test suite |
-| `lex_spec_check` | `lex spec check` | Random property-test a Spec |
-| `lex_spec_smt` | `lex spec smt` | Export Spec to SMT-LIB for Z3 |
-| `sigid_lookup` | `lex store lookup` | Find a function by content hash |
-| `attestation_query` | `lex store attestations` | List attestation chain on a function |
-| `effects_of` | `lex check --json --effects` | Get the effect row of a function |
-| `lex_store_diff` | `lex store diff` | Content-addressed structural diff |
-| `lex_store_apply` | `lex store apply` | Apply an AST-level Operation |
-| `lex_store_merge` | `lex store merge` | 3-way structural merge |
+| Tool | Description |
+|------|-------------|
+| `lex_check` | Type-check a Lex file |
+| `lex_audit` | Effect audit |
+| `lex_run` | Run a Lex expression |
+| `lex_test` | Run tests |
+
+### Spec tools
+
+| Tool | Description |
+|------|-------------|
+| `lex_spec_check` | Evaluate a Spec against bindings |
+| `lex_spec_smt` | SMT-backed spec verification |
+
+### Store tools
+
+| Tool | Description |
+|------|-------------|
+| `sigid_lookup` | Resolve a SigId to a function |
+| `attestation_query` | List attestations for a function |
+| `effects_of` | Query effect row of a function |
+| `lex_store_diff` | Diff two store snapshots |
+| `lex_store_apply` | Apply a store patch |
+| `lex_store_merge` | Merge two store snapshots |
 
 ## Providers
 
-Set one environment variable; the matching provider is used automatically.
-
-| Env var | Provider | Recommended model |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | Anthropic | `claude-sonnet-4-6` (default) |
-| `MISTRAL_API_KEY` | Mistral AI | `codestral-latest` for code tasks |
-| `OPENAI_API_KEY` | OpenAI | `gpt-4o` |
-| `GOOGLE_API_KEY` | Google | `gemini-2.5-pro` |
-| _(none)_ | Ollama | any local model |
-
-Pass `--mistral`, `--openai`, `--google`, or `--ollama` to override the active provider.
+| Flag | Provider | Model |
+|------|----------|-------|
+| *(default)* | Anthropic | claude-3-7-sonnet |
+| `--openai` | OpenAI | gpt-4o |
+| `--google` | Google | gemini-2.0-flash |
+| `--mistral` | Mistral | mistral-large-latest |
+| `--ollama` | Ollama (local) | llama3 |
 
 ## Architecture
 
 ```
 lex-code
-├── src/tui/main.lex           # REPL entry point (all mode + provider flags)
-├── src/server/
-│   ├── session.lex            # Session state + run_turn_with_provider
-│   ├── multi_agent.lex        # impl + test sequential dispatch
-│   ├── persist.lex            # lex-trail event logging
-│   └── api.lex                # A2A server surface (lex-agent)
-├── src/agents/                # AgentDef values per mode
-├── src/tools/                 # Tool implementations
-├── src/prompts/               # System prompts per agent
-└── src/permissions/rules.lex  # lex-spec Spec predicates per agent
+├── src/
+│   ├── agents/          # AgentDef values (build, plan, explore, refactor, spec, test, review)
+│   ├── prompts/         # System prompts per mode
+│   ├── tools/           # Tool implementations
+│   │   ├── standard/    # read, write, edit, grep, glob, bash, todowrite
+│   │   ├── lex_*.lex    # check, audit, run, test, spec_check, spec_smt
+│   │   └── lex_store_*  # sigid, attestations, effects, diff, apply, merge
+│   ├── permissions/     # lex-spec Spec values per agent mode
+│   ├── server/
+│   │   ├── session.lex  # Session type, run_turn, AgentMode
+│   │   ├── multi_agent.lex  # std.conc parallel dispatch
+│   │   ├── persist.lex  # lex-trail log helpers
+│   │   └── api.lex      # A2A (JSON-RPC 2.0) server
+│   ├── tui/main.lex     # CLI REPL
+│   ├── vscode/          # VSCode extension (TypeScript)
+│   ├── web/             # Web frontend (vanilla JS)
+│   └── bootstrap/run.lex  # Demo 4-phase pipeline
+└── lex.toml
 ```
 
-## Dependencies
+## VSCode Extension
 
-- [`lex-llm`](https://github.com/alpibrusl/lex-llm) — provider abstraction + agent loop
-- [`lex-agent`](https://github.com/alpibrusl/lex-agent) — A2A protocol server/client
-- [`lex-trail`](https://github.com/alpibrusl/lex-trail) — content-addressed event log
-- [`lex-spec`](https://github.com/alpibrusl/lex-spec) — permission predicates
+```sh
+cd src/vscode
+npm install
+npm run build
+# then install .vsix or press F5 in VSCode to debug
+```
+
+Open the panel: **Cmd+Shift+L** (Mac) / **Ctrl+Shift+L** (Linux/Windows).
+
+Commands available via the Command Palette:
+- `Lex Code: Open Chat`
+- `Lex Code: Build mode`
+- `Lex Code: Plan mode`
+- `Lex Code: Refactor mode`
+- `Lex Code: Spec mode`
+- `Lex Code: Test mode`
+- `Lex Code: Review mode`
+
+Configure server URL, default mode, and provider via **Settings → Lex Code**.
+
+## Web Frontend
+
+```sh
+# start the A2A server
+lex run src/server/api.lex
+
+# open in browser
+open src/web/index.html
+# or serve with any static server:
+npx serve src/web
+```
+
+## Parallel Multi-Agent (`std.conc`)
+
+The `--multi` TUI flag (and `run_parallel` in `src/server/multi_agent.lex`) spawns two
+actors via `std.conc.spawn` and runs Build + Test concurrently:
+
+```lex
+let impl_actor := conc.spawn(worker_handler, impl_state)
+let test_actor := conc.spawn(worker_handler, test_state)
+let impl_steps := conc.ask(impl_actor, Execute(task))
+let test_steps := conc.ask(test_actor, Execute(test_task))
+```
+
+## Bootstrap Script
+
+`src/bootstrap/run.lex` demonstrates a full 4-phase pipeline:
+
+1. **impl** — Build agent writes the function
+2. **spec** — Spec agent generates a lex-spec `Spec`
+3. **test** — Test agent writes unit tests
+4. **review** — Review agent checks the whole thing
+
+## Permissions
+
+Each agent mode has a `lex-spec` `Spec` value (in `src/permissions/rules.lex`) that
+allowlists its tool set. At construction time, `with_permission_gate` (from `lex-llm`)
+filters the tool list using the spec, so agents can only call the tools they're
+authorised to use.
 
 ## Roadmap
 
-- **v0.1** ✅ — `build` / `plan` / `explore` agents, standard + Lex tools, TUI, lex-trail persistence
-- **v0.2** ✅ — `refactor` / `spec` / `test` / `review` agents; `lex_store_*` tools; `sigid_lookup` / `attestation_query` / `effects_of`; lex-spec permission rules; `--multi` sequential two-agent run
-- **v0.3** — parallel multi-agent via `std.conc`; `AgentDef.permission` runtime gating in `lex-llm`; VSCode extension; web frontend; bootstrap milestone (lex-code writes Lex stdlib end-to-end)
+- [x] v0.1 — agents, tools, TUI REPL, A2A server, lex-trail persistence
+- [x] v0.2 — refactor/spec/test/review agents, store tools, lex-spec permissions, Mistral provider
+- [x] v0.3 — parallel multi-agent (`std.conc`), VSCode extension, web frontend, bootstrap script
