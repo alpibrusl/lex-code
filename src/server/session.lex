@@ -52,7 +52,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> ag.AgentDef {
         Spec     => spec_a.mistral_agent(),
         Test     => test_a.mistral_agent(),
         Review   => review_a.mistral_agent(),
-      }
+      },
     "ollama" =>
       match mode {
         Build    => build_agent.ollama_agent(),
@@ -62,7 +62,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> ag.AgentDef {
         Spec     => spec_a.ollama_agent(),
         Test     => test_a.ollama_agent(),
         Review   => review_a.ollama_agent(),
-      }
+      },
     "vllm" =>
       match mode {
         Build    => build_agent.vllm_agent(),
@@ -72,7 +72,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> ag.AgentDef {
         Spec     => spec_a.vllm_agent(),
         Test     => test_a.vllm_agent(),
         Review   => review_a.vllm_agent(),
-      }
+      },
     _ =>
       match mode {
         Build    => build_agent.agent(),

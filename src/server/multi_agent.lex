@@ -9,8 +9,7 @@ import "src/server/session" as sess
 import "src/server/persist" as persist
 import "lex-llm/dialogue" as d
 
-type WorkerMsg =
-  | Execute(Str)
+type WorkerMsg = Execute(Str)
 
 type WorkerState = {
   mode        :: sess.AgentMode,
@@ -26,10 +25,11 @@ type MultiResult = {
 fn worker_handler(state :: WorkerState, msg :: WorkerMsg)
   -> [net, llm, io, proc, sql, time] (WorkerState, List[d.Step]) {
   match msg {
-    Execute(task) ->
+    Execute(task) => {
       let session := sess.new_session_with_provider(state.mode, state.provider_tag, state.log)
       let steps   := sess.run_turn(session, task)
       (state, steps)
+    }
   }
 }
 

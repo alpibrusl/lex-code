@@ -21,10 +21,10 @@ fn params() -> s.ModelSchema {
 fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "other_branch") {
     None => Err(e.single("missing_field", "other_branch is required")),
-    Some(other) =>
+    Some(other) => {
       let base := ["branch", "overlay", other, "--output", "json"]
       let on_args := match util.field_str(args, "on_branch") {
-        None    => []
+        None    => [],
         Some(b) => ["--on", b]
       }
       let cmd := list.concat(base, on_args)
@@ -32,6 +32,7 @@ fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
         Err(msg) => Err(e.single("proc_error", msg)),
         Ok(out)  => Ok(jv.JsonStr(str.concat(out.stdout, out.stderr))),
       }
+    }
   }
 }
 

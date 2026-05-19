@@ -21,11 +21,11 @@ fn params() -> s.ModelSchema {
 fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
   let base := ["op", "log", "--output", "json"]
   let branch_args := match util.field_str(args, "branch") {
-    None    => []
+    None    => [],
     Some(b) => ["--branch", b]
   }
   let limit_args := match util.field_str(args, "limit") {
-    None    => []
+    None    => [],
     Some(n) => ["--limit", n]
   }
   let cmd := list.concat(base, list.concat(branch_args, limit_args))

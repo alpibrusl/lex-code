@@ -23,18 +23,18 @@ fn params() -> s.ModelSchema {
 fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "remote_url") {
     None => Err(e.single("missing_field", "remote_url is required")),
-    Some(url) =>
+    Some(url) => {
       let base := ["op", "pull", url, "--output", "json"]
       let branch_args := match util.field_str(args, "branch") {
-        None    => []
+        None    => [],
         Some(b) => ["--branch", b]
       }
       let limit_args := match util.field_str(args, "limit") {
-        None    => []
+        None    => [],
         Some(n) => ["--limit", n]
       }
       let dry_args := match util.field_bool(args, "dry_run") {
-        Some(true) => ["--dry-run"]
+        Some(true) => ["--dry-run"],
         _          => []
       }
       let cmd := list.concat(base, list.concat(branch_args, list.concat(limit_args, dry_args)))
@@ -42,6 +42,7 @@ fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
         Err(msg) => Err(e.single("proc_error", msg)),
         Ok(out)  => Ok(jv.JsonStr(str.concat(out.stdout, out.stderr))),
       }
+    }
   }
 }
 
