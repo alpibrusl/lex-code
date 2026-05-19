@@ -20,13 +20,12 @@ fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
   let target := util.field_str_or(args, "path", "tests")
   match proc.spawn("lex", ["run", target, "run_all"]) {
     Err(msg) => Err(e.single("proc_error", msg)),
-    Ok(out)  =>
+    Ok(out)  => {
       let output :=
-        if out.ok then
-          str.concat("tests passed\n", out.stdout)
-        else
-          str.concat("tests failed\n", str.concat(out.stdout, out.stderr))
-      Ok(jv.JsonStr(output)),
+        if out.ok { str.concat("tests passed\n", out.stdout) }
+        else { str.concat("tests failed\n", str.concat(out.stdout, out.stderr)) }
+      Ok(jv.JsonStr(output))
+    },
   }
 }
 

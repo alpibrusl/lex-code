@@ -31,8 +31,8 @@ fn replace_once(content :: Str, old_str :: Str, new_str :: Str) -> Result[Str, S
           match list.head(list.tail(parts)) {
             None       => Err("internal error"),
             Some(tail) => Ok(str.concat(str.concat(head, new_str), tail)),
-          }
-      }
+          },
+      },
     _ => Err("old_str is not unique — found multiple occurrences"),
   }
 }

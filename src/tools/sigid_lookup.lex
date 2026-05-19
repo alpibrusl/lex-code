@@ -23,10 +23,11 @@ fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
       match proc.spawn("lex", ["store", "lookup", sigid]) {
         Err(msg) => Err(e.single("proc_error", msg)),
         Ok(out)  =>
-          if out.ok then
+          if out.ok {
             Ok(jv.JsonStr(out.stdout))
-          else
-            Err(e.single("not_found", str.concat("sigid not found: ", sigid))),
+          } else {
+            Err(e.single("not_found", str.concat("sigid not found: ", sigid)))
+          },
       }
   }
 }

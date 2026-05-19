@@ -20,14 +20,16 @@ fn params() -> s.ModelSchema {
 fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "pattern") {
     None => Err(e.single("missing_field", "pattern is required")),
-    Some(pattern) =>
+    Some(pattern) => {
       let dir := util.field_str_or(args, "directory", ".")
       match proc.spawn("find", [dir, "-name", pattern, "-type", "f"]) {
         Err(msg) => Err(e.single("proc_error", msg)),
-        Ok(out)  =>
-          let result := if str.is_empty(out.stdout) then "no files found" else out.stdout
-          Ok(jv.JsonStr(result)),
+        Ok(out)  => {
+          let result := if str.is_empty(out.stdout) { "no files found" } else { out.stdout }
+          Ok(jv.JsonStr(result))
+        },
       }
+    }
   }
 }
 

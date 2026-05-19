@@ -26,9 +26,10 @@ fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
         Some(path) =>
           match proc.spawn("grep", ["-r", "-n", pattern, path]) {
             Err(msg) => Err(e.single("proc_error", msg)),
-            Ok(out)  =>
-              let result := if str.is_empty(out.stdout) then "no matches found" else out.stdout
-              Ok(jv.JsonStr(result)),
+            Ok(out)  => {
+              let result := if str.is_empty(out.stdout) { "no matches found" } else { out.stdout }
+              Ok(jv.JsonStr(result))
+            },
           }
       }
   }

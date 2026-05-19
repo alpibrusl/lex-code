@@ -23,10 +23,11 @@ fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
       match proc.spawn("lex", ["store", "apply", op_json]) {
         Err(msg) => Err(e.single("proc_error", msg)),
         Ok(out)  =>
-          if out.ok then
+          if out.ok {
             Ok(jv.JsonStr(str.concat("applied\n", out.stdout)))
-          else
-            Err(e.single("apply_error", str.concat(out.stdout, out.stderr))),
+          } else {
+            Err(e.single("apply_error", str.concat(out.stdout, out.stderr)))
+          },
       }
   }
 }

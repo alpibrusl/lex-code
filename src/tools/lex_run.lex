@@ -24,16 +24,17 @@ fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
     Some(path) =>
       match util.field_str(args, "fn_name") {
         None => Err(e.single("missing_field", "fn_name is required")),
-        Some(fn_name) =>
+        Some(fn_name) => {
           let cmd_args :=
             match util.field_str(args, "fn_args") {
-              None         => ["run", path, fn_name],
+              None          => ["run", path, fn_name],
               Some(fn_args) => ["run", path, fn_name, fn_args],
             }
           match proc.spawn("lex", cmd_args) {
             Err(msg) => Err(e.single("proc_error", msg)),
             Ok(out)  => Ok(jv.JsonStr(str.concat(out.stdout, out.stderr))),
           }
+        }
       }
   }
 }

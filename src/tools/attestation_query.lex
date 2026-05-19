@@ -20,7 +20,7 @@ fn params() -> s.ModelSchema {
 fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "fn_name") {
     None => Err(e.single("missing_field", "fn_name is required")),
-    Some(fn_name) =>
+    Some(fn_name) => {
       let cmd_args :=
         match util.field_str(args, "path") {
           None       => ["store", "attestations", fn_name],
@@ -28,14 +28,14 @@ fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
         }
       match proc.spawn("lex", cmd_args) {
         Err(msg) => Err(e.single("proc_error", msg)),
-        Ok(out)  =>
+        Ok(out)  => {
           let result :=
-            if str.is_empty(out.stdout) then
-              str.concat(fn_name, " has no attestations")
-            else
-              out.stdout
-          Ok(jv.JsonStr(result)),
+            if str.is_empty(out.stdout) { str.concat(fn_name, " has no attestations") }
+            else { out.stdout }
+          Ok(jv.JsonStr(result))
+        },
       }
+    }
   }
 }
 

@@ -85,10 +85,11 @@ fn has_flag(argv :: List[Str], flag :: Str) -> Bool {
 # First non-flag argument is the task (one-shot CLI mode).
 fn find_task(argv :: List[Str]) -> Option[Str] {
   list.find(argv, fn (a :: Str) -> Bool {
-    match str.chars(a) {
-      []         => false,
-      [c, .._]   => str.neq(str.from_char(c), "-"),
-    }
+    if str.is_empty(a) { false }
+    else { match list.head(str.chars(a)) {
+      None    => false,
+      Some(c) => str.neq(str.from_char(c), "-"),
+    } }
   })
 }
 

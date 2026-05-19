@@ -26,13 +26,15 @@ fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
   }
   match proc.spawn("lex", ["spec", "check", "--count", int.to_str(count), target]) {
     Err(msg) => Err(e.single("proc_error", msg)),
-    Ok(out)  =>
+    Ok(out)  => {
       let output :=
-        if out.ok then
+        if out.ok {
           str.concat("spec passed (all ", str.concat(int.to_str(count), str.concat(" samples)\n", out.stdout)))
-        else
+        } else {
           str.concat("spec falsified\n", str.concat(out.stdout, out.stderr))
-      Ok(jv.JsonStr(output)),
+        }
+      Ok(jv.JsonStr(output))
+    },
   }
 }
 

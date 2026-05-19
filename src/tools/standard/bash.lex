@@ -22,9 +22,10 @@ fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
     Some(cmd) =>
       match proc.spawn("bash", ["-c", cmd]) {
         Err(msg) => Err(e.single("proc_error", msg)),
-        Ok(out)  =>
+        Ok(out)  => {
           let combined := str.concat(out.stdout, out.stderr)
-          Ok(jv.JsonStr(combined)),
+          Ok(jv.JsonStr(combined))
+        },
       }
   }
 }

@@ -20,16 +20,18 @@ fn params() -> s.ModelSchema {
 fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "fn_name") {
     None => Err(e.single("missing_field", "fn_name is required")),
-    Some(fn_name) =>
+    Some(fn_name) => {
       let target := util.field_str_or(args, "path", ".")
       match proc.spawn("lex", ["check", "--json", "--effects", fn_name, target]) {
         Err(msg) => Err(e.single("proc_error", msg)),
         Ok(out)  =>
-          if out.ok then
+          if out.ok {
             Ok(jv.JsonStr(out.stdout))
-          else
-            Err(e.single("check_error", str.concat(out.stdout, out.stderr))),
+          } else {
+            Err(e.single("check_error", str.concat(out.stdout, out.stderr)))
+          },
       }
+    }
   }
 }
 
