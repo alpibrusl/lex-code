@@ -13,18 +13,18 @@ fn params() -> s.ModelSchema {
     description: "Semantic audit queries on the codebase",
     fields: [
       s.required_str("query", []),
-      s.optional_str("path", []),
+      s.optional(s.required_str("path", [])),
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "query") {
-    None => Err(e.single("missing_field", "query is required")),
+    None => Err(e.single("", "missing_field", "query is required")),
     Some(query) => {
       let target := util.field_str_or(args, "path", ".")
       match proc.spawn("lex", ["audit", query, target]) {
-        Err(msg) => Err(e.single("proc_error", msg)),
-        Ok(out)  => Ok(jv.JsonStr(str.concat(out.stdout, out.stderr))),
+        Err(msg) => Err(e.single("", "proc_error", msg)),
+        Ok(out)  => Ok(jv.JStr(str.concat(out.stdout, out.stderr))),
       }
     }
   }

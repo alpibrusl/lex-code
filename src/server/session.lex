@@ -41,7 +41,7 @@ type TurnResult = {
   session :: Session,
 }
 
-fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> ag.AgentDef {
+fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentDef {
   match provider_tag {
     "mistral" =>
       match mode {
@@ -86,12 +86,12 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> ag.AgentDef {
   }
 }
 
-fn new_session(id :: Str, mode :: AgentMode) -> [sql] Result[Session, Str] {
+fn new_session(id :: Str, mode :: AgentMode) -> [sql, fs_write] Result[Session, Str] {
   new_session_with_provider(id, mode, "anthropic")
 }
 
 fn new_session_with_provider(id :: Str, mode :: AgentMode, provider_tag :: Str)
-  -> [sql] Result[Session, Str] {
+  -> [sql, fs_write] Result[Session, Str] {
   match persist.open_ephemeral() {
     Err(e) => Err(e),
     Ok(log) =>
@@ -100,7 +100,7 @@ fn new_session_with_provider(id :: Str, mode :: AgentMode, provider_tag :: Str)
 }
 
 fn run_turn(session :: Session, user_input :: Str)
-  -> [net, llm, io, proc, sql, time] TurnResult {
+  -> [env, net, llm, io, proc, sql, time] TurnResult {
   run_turn_with_provider(session, user_input, "anthropic")
 }
 
@@ -108,7 +108,7 @@ fn run_turn_with_provider(
   session      :: Session,
   user_input   :: Str,
   provider_tag :: Str
-) -> [net, llm, io, proc, sql, time] TurnResult {
+) -> [env, net, llm, io, proc, sql, time] TurnResult {
   let user_msg  := msg.user(user_input)
   let messages  := list.concat(session.messages, [user_msg])
   let agent     := pick_agent(session.mode, provider_tag)
@@ -126,7 +126,7 @@ fn run_turn_with_provider(
 }
 
 fn find_done_msg(steps :: List[d.Step]) -> Option[msg.Message] {
-  match list.find(steps, is_done) {
+  match list.head(list.filter(steps, is_done)) {
     None    => None,
     Some(s) =>
       match s {

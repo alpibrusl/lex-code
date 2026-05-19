@@ -14,14 +14,14 @@ fn params() -> s.ModelSchema {
     description: "Push local ops to a remote lex-vcs server.",
     fields: [
       s.required_str("remote_url", []),
-      s.optional_str("branch", []),
-      s.optional_str("dry_run", []),
+      s.optional(s.required_str("branch", [])),
+      s.optional(s.required_str("dry_run", [])),
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "remote_url") {
-    None => Err(e.single("missing_field", "remote_url is required")),
+    None => Err(e.single("", "missing_field", "remote_url is required")),
     Some(url) => {
       let base := ["op", "push", url, "--output", "json"]
       let branch_args := match util.field_str(args, "branch") {
@@ -34,8 +34,8 @@ fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
       }
       let cmd := list.concat(base, list.concat(branch_args, dry_args))
       match proc.spawn("lex", cmd) {
-        Err(msg) => Err(e.single("proc_error", msg)),
-        Ok(out)  => Ok(jv.JsonStr(str.concat(out.stdout, out.stderr))),
+        Err(msg) => Err(e.single("", "proc_error", msg)),
+        Ok(out)  => Ok(jv.JStr(str.concat(out.stdout, out.stderr))),
       }
     }
   }

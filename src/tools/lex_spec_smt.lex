@@ -13,13 +13,13 @@ fn params() -> s.ModelSchema {
     description: "Export a Spec to SMT-LIB for Z3 verification",
     fields: [
       s.required_str("path", []),
-      s.optional_str("out", []),
+      s.optional(s.required_str("out", [])),
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "path") {
-    None => Err(e.single("missing_field", "path is required")),
+    None => Err(e.single("", "missing_field", "path is required")),
     Some(path) => {
       let out_args :=
         match util.field_str(args, "out") {
@@ -27,8 +27,8 @@ fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
           Some(out_path) => ["spec", "smt", "--out", out_path, path],
         }
       match proc.spawn("lex", out_args) {
-        Err(msg) => Err(e.single("proc_error", msg)),
-        Ok(out)  => Ok(jv.JsonStr(str.concat(out.stdout, out.stderr))),
+        Err(msg) => Err(e.single("", "proc_error", msg)),
+        Ok(out)  => Ok(jv.JStr(str.concat(out.stdout, out.stderr))),
       }
     }
   }

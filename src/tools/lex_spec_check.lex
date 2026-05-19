@@ -13,27 +13,27 @@ fn params() -> s.ModelSchema {
   { title: "LexSpecCheckArgs",
     description: "Random property-check a lex-spec Spec",
     fields: [
-      s.optional_str("path", []),
-      s.optional_int("count", []),
+      s.optional(s.required_str("path", [])),
+      s.optional(s.required_int("count", [])),
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   let target := util.field_str_or(args, "path", ".")
   let count  := match util.field_int(args, "count") {
     None    => 100,
     Some(n) => n,
   }
   match proc.spawn("lex", ["spec", "check", "--count", int.to_str(count), target]) {
-    Err(msg) => Err(e.single("proc_error", msg)),
+    Err(msg) => Err(e.single("", "proc_error", msg)),
     Ok(out)  => {
       let output :=
-        if out.ok {
+        if out.exit_code == 0 {
           str.concat("spec passed (all ", str.concat(int.to_str(count), str.concat(" samples)\n", out.stdout)))
         } else {
           str.concat("spec falsified\n", str.concat(out.stdout, out.stderr))
         }
-      Ok(jv.JsonStr(output))
+      Ok(jv.JStr(output))
     },
   }
 }

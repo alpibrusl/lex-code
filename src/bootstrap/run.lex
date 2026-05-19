@@ -1,9 +1,9 @@
-import "src/server/session" as sess
-import "src/server/persist" as persist
-import "std/str" as str
-import "std/io" as io
-import "lex-llm/dialogue" as d
-import "std/list" as list
+import "../server/session" as sess
+import "../server/persist" as persist
+import "std.str"  as str
+import "std.io"   as io
+import "lex-llm/delta" as d
+import "std.list" as list
 
 type Phase = {
   name    :: Str,

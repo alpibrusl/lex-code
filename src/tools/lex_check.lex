@@ -12,21 +12,23 @@ fn params() -> s.ModelSchema {
   { title: "LexCheckArgs",
     description: "Arguments for lex type-check",
     fields: [
-      s.optional_str("path", []),
+      s.optional(s.required_str("path", [])),
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   let target := util.field_str_or(args, "path", ".")
   match proc.spawn("lex", ["check", target]) {
-    Err(msg) => Err(e.single("proc_error", msg)),
-    Ok(out)  =>
+    Err(msg) => Err(e.single("", "proc_error", msg)),
+    Ok(out)  => {
       let output :=
-        if out.ok then
-          if str.is_empty(out.stdout) then "type check passed" else out.stdout
-        else
+        if out.exit_code == 0 {
+          if str.is_empty(out.stdout) { "type check passed" } else { out.stdout }
+        } else {
           str.concat(out.stdout, out.stderr)
-      Ok(jv.JsonStr(output)),
+        }
+      Ok(jv.JStr(output))
+    },
   }
 }
 

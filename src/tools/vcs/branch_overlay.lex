@@ -14,13 +14,13 @@ fn params() -> s.ModelSchema {
     description: "Preview what a merge would produce without persisting anything.",
     fields: [
       s.required_str("other_branch", []),
-      s.optional_str("on_branch", []),
+      s.optional(s.required_str("on_branch", [])),
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "other_branch") {
-    None => Err(e.single("missing_field", "other_branch is required")),
+    None => Err(e.single("", "missing_field", "other_branch is required")),
     Some(other) => {
       let base := ["branch", "overlay", other, "--output", "json"]
       let on_args := match util.field_str(args, "on_branch") {
@@ -29,8 +29,8 @@ fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
       }
       let cmd := list.concat(base, on_args)
       match proc.spawn("lex", cmd) {
-        Err(msg) => Err(e.single("proc_error", msg)),
-        Ok(out)  => Ok(jv.JsonStr(str.concat(out.stdout, out.stderr))),
+        Err(msg) => Err(e.single("", "proc_error", msg)),
+        Ok(out)  => Ok(jv.JStr(str.concat(out.stdout, out.stderr))),
       }
     }
   }

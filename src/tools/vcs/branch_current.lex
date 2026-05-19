@@ -12,10 +12,10 @@ fn params() -> s.ModelSchema {
     fields: [] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match proc.spawn("lex", ["branch", "current", "--output", "json"]) {
-    Err(msg) => Err(e.single("proc_error", msg)),
-    Ok(out)  => Ok(jv.JsonStr(str.concat(out.stdout, out.stderr))),
+    Err(msg) => Err(e.single("", "proc_error", msg)),
+    Ok(out)  => Ok(jv.JStr(str.concat(out.stdout, out.stderr))),
   }
 }
 

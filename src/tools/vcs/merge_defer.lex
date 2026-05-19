@@ -17,16 +17,16 @@ fn params() -> s.ModelSchema {
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "merge_id") {
-    None => Err(e.single("missing_field", "merge_id is required")),
+    None => Err(e.single("", "missing_field", "merge_id is required")),
     Some(id) =>
       match util.field_str(args, "conflict_id") {
-        None => Err(e.single("missing_field", "conflict_id is required")),
+        None => Err(e.single("", "missing_field", "conflict_id is required")),
         Some(cid) =>
           match proc.spawn("lex", ["merge", "defer", id, cid, "--output", "json"]) {
-            Err(msg) => Err(e.single("proc_error", msg)),
-            Ok(out)  => Ok(jv.JsonStr(str.concat(out.stdout, out.stderr))),
+            Err(msg) => Err(e.single("", "proc_error", msg)),
+            Ok(out)  => Ok(jv.JStr(str.concat(out.stdout, out.stderr))),
           }
       }
   }

@@ -16,17 +16,17 @@ fn params() -> s.ModelSchema {
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "operation") {
-    None => Err(e.single("missing_field", "operation is required")),
+    None => Err(e.single("", "missing_field", "operation is required")),
     Some(op_json) =>
       match proc.spawn("lex", ["store", "apply", op_json]) {
-        Err(msg) => Err(e.single("proc_error", msg)),
+        Err(msg) => Err(e.single("", "proc_error", msg)),
         Ok(out)  =>
-          if out.ok {
-            Ok(jv.JsonStr(str.concat("applied\n", out.stdout)))
+          if out.exit_code == 0 {
+            Ok(jv.JStr(str.concat("applied\n", out.stdout)))
           } else {
-            Err(e.single("apply_error", str.concat(out.stdout, out.stderr)))
+            Err(e.single("", "apply_error", str.concat(out.stdout, out.stderr)))
           },
       }
   }

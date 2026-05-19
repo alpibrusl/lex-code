@@ -13,12 +13,12 @@ fn params() -> s.ModelSchema {
   { title: "VcsOpLogArgs",
     description: "Walk the operation log for a branch.",
     fields: [
-      s.optional_str("branch", []),
-      s.optional_str("limit", []),
+      s.optional(s.required_str("branch", [])),
+      s.optional(s.required_str("limit", [])),
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   let base := ["op", "log", "--output", "json"]
   let branch_args := match util.field_str(args, "branch") {
     None    => [],
@@ -30,8 +30,8 @@ fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
   }
   let cmd := list.concat(base, list.concat(branch_args, limit_args))
   match proc.spawn("lex", cmd) {
-    Err(msg) => Err(e.single("proc_error", msg)),
-    Ok(out)  => Ok(jv.JsonStr(str.concat(out.stdout, out.stderr))),
+    Err(msg) => Err(e.single("", "proc_error", msg)),
+    Ok(out)  => Ok(jv.JStr(str.concat(out.stdout, out.stderr))),
   }
 }
 

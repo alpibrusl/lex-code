@@ -13,22 +13,22 @@ fn params() -> s.ModelSchema {
     description: "Get the effect row of a Lex function",
     fields: [
       s.required_str("fn_name", []),
-      s.optional_str("path", []),
+      s.optional(s.required_str("path", [])),
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "fn_name") {
-    None => Err(e.single("missing_field", "fn_name is required")),
+    None => Err(e.single("", "missing_field", "fn_name is required")),
     Some(fn_name) => {
       let target := util.field_str_or(args, "path", ".")
       match proc.spawn("lex", ["check", "--json", "--effects", fn_name, target]) {
-        Err(msg) => Err(e.single("proc_error", msg)),
+        Err(msg) => Err(e.single("", "proc_error", msg)),
         Ok(out)  =>
-          if out.ok {
-            Ok(jv.JsonStr(out.stdout))
+          if out.exit_code == 0 {
+            Ok(jv.JStr(out.stdout))
           } else {
-            Err(e.single("check_error", str.concat(out.stdout, out.stderr)))
+            Err(e.single("", "check_error", str.concat(out.stdout, out.stderr)))
           },
       }
     }

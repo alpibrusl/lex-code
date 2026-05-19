@@ -3,21 +3,16 @@ import "lex-trail/kinds" as kinds
 import "lex-trail/event" as ev
 
 import "std.str" as str
-import "std.io"  as io
 
 fn session_db_path(session_id :: Str) -> Str {
   str.concat(".lex/sessions/", str.concat(session_id, ".db"))
 }
 
-fn open_persistent(session_id :: Str) -> [sql, io] Result[trail_log.Log, Str] {
-  match io.mkdir(".lex/sessions") {
-    Err(_) => Nil,
-    Ok(_)  => Nil,
-  }
+fn open_persistent(session_id :: Str) -> [sql, fs_write] Result[trail_log.Log, Str] {
   trail_log.open(session_db_path(session_id))
 }
 
-fn open_ephemeral() -> [sql] Result[trail_log.Log, Str] {
+fn open_ephemeral() -> [sql, fs_write] Result[trail_log.Log, Str] {
   trail_log.open_memory()
 }
 

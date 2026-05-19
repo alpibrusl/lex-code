@@ -17,16 +17,16 @@ fn params() -> s.ModelSchema {
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "file_a") {
-    None => Err(e.single("missing_field", "file_a is required")),
+    None => Err(e.single("", "missing_field", "file_a is required")),
     Some(a) =>
       match util.field_str(args, "file_b") {
-        None => Err(e.single("missing_field", "file_b is required")),
+        None => Err(e.single("", "missing_field", "file_b is required")),
         Some(b) =>
           match proc.spawn("lex", ["diff", a, b, "--json"]) {
-            Err(msg) => Err(e.single("proc_error", msg)),
-            Ok(out)  => Ok(jv.JsonStr(str.concat(out.stdout, out.stderr))),
+            Err(msg) => Err(e.single("", "proc_error", msg)),
+            Ok(out)  => Ok(jv.JStr(str.concat(out.stdout, out.stderr))),
           }
       }
   }

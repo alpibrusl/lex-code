@@ -17,18 +17,18 @@ fn params() -> s.ModelSchema {
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "pattern") {
-    None => Err(e.single("missing_field", "pattern is required")),
+    None => Err(e.single("", "missing_field", "pattern is required")),
     Some(pattern) =>
       match util.field_str(args, "path") {
-        None => Err(e.single("missing_field", "path is required")),
+        None => Err(e.single("", "missing_field", "path is required")),
         Some(path) =>
           match proc.spawn("grep", ["-r", "-n", pattern, path]) {
-            Err(msg) => Err(e.single("proc_error", msg)),
+            Err(msg) => Err(e.single("", "proc_error", msg)),
             Ok(out)  => {
               let result := if str.is_empty(out.stdout) { "no matches found" } else { out.stdout }
-              Ok(jv.JsonStr(result))
+              Ok(jv.JStr(result))
             },
           }
       }

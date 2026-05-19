@@ -34,6 +34,7 @@ import "./vcs/merge_status"   as vcs_merge_status_tool
 import "./vcs/merge_resolve"  as vcs_merge_resolve_tool
 import "./vcs/merge_defer"    as vcs_merge_defer_tool
 import "./vcs/merge_commit"   as vcs_merge_commit_tool
+import "./load_guidelines"    as guidelines_tool
 
 import "lex-llm/tool" as t
 
@@ -71,6 +72,7 @@ fn all_tools() -> List[t.Tool] {
       spec_check_tool.tool(), spec_smt_tool.tool(),
       sigid_tool.tool(), attest_tool.tool(), effects_tool.tool(),
       store_diff_tool.tool(), store_apply_tool.tool(), store_merge_tool.tool(),
+      guidelines_tool.tool(),
     ],
     vcs_tools())
 }
@@ -80,6 +82,7 @@ fn read_only_tools() -> List[t.Tool] {
     [ read_tool.tool(), grep_tool.tool(), glob_tool.tool(),
       check_tool.tool(), audit_tool.tool(),
       sigid_tool.tool(), effects_tool.tool(), attest_tool.tool(),
+      guidelines_tool.tool(),
     ],
     vcs_read_tools())
 }

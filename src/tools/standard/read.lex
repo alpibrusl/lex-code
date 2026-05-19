@@ -13,19 +13,19 @@ fn params() -> s.ModelSchema {
     description: "Arguments for reading a file",
     fields: [
       s.required_str("path", []),
-      s.optional_int("offset", []),
-      s.optional_int("limit", []),
+      s.optional(s.required_int("offset", [])),
+      s.optional(s.required_int("limit", [])),
     ] }
 }
 
-fn execute(args :: jv.Json) -> [io] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "path") {
     None =>
-      Err(e.single("missing_field", "path is required")),
+      Err(e.single("", "missing_field", "path is required")),
     Some(path) =>
       match io.read(path) {
-        Err(msg) => Err(e.single("io_error", msg)),
-        Ok(content) => Ok(jv.JsonStr(content)),
+        Err(msg) => Err(e.single("", "io_error", msg)),
+        Ok(content) => Ok(jv.JStr(content)),
       }
   }
 }

@@ -37,25 +37,25 @@ fn replace_once(content :: Str, old_str :: Str, new_str :: Str) -> Result[Str, S
   }
 }
 
-fn execute(args :: jv.Json) -> [io] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "path") {
-    None => Err(e.single("missing_field", "path is required")),
+    None => Err(e.single("", "missing_field", "path is required")),
     Some(path) =>
       match util.field_str(args, "old_str") {
-        None => Err(e.single("missing_field", "old_str is required")),
+        None => Err(e.single("", "missing_field", "old_str is required")),
         Some(old_str) =>
           match util.field_str(args, "new_str") {
-            None => Err(e.single("missing_field", "new_str is required")),
+            None => Err(e.single("", "missing_field", "new_str is required")),
             Some(new_str) =>
               match io.read(path) {
-                Err(msg) => Err(e.single("io_error", msg)),
+                Err(msg) => Err(e.single("", "io_error", msg)),
                 Ok(content) =>
                   match replace_once(content, old_str, new_str) {
-                    Err(reason) => Err(e.single("edit_error", reason)),
+                    Err(reason) => Err(e.single("", "edit_error", reason)),
                     Ok(updated) =>
                       match io.write(path, updated) {
-                        Ok(_)    => Ok(jv.JsonStr("edit applied")),
-                        Err(msg) => Err(e.single("io_error", msg)),
+                        Ok(_)    => Ok(jv.JStr("edit applied")),
+                        Err(msg) => Err(e.single("", "io_error", msg)),
                       }
                   }
               }

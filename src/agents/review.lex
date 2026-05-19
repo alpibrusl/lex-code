@@ -5,7 +5,7 @@ import "lex-llm/providers" as providers
 import "../tools/index"    as tools
 import "../prompts/review" as rvp
 
-fn agent() -> ag.AgentDef {
+fn agent() -> [env] ag.AgentDef {
   { name:     "review",
     goal:     rvp.system(),
     model:    prov.claude_sonnet(),
@@ -14,7 +14,7 @@ fn agent() -> ag.AgentDef {
     options:  { temperature: None, top_p: None, max_steps: Some(25), max_tokens: None } }
 }
 
-fn mistral_agent() -> ag.AgentDef {
+fn mistral_agent() -> [env] ag.AgentDef {
   { name:     "review",
     goal:     rvp.system(),
     model:    prov.mistral_large(),
@@ -23,16 +23,16 @@ fn mistral_agent() -> ag.AgentDef {
     options:  { temperature: None, top_p: None, max_steps: Some(25), max_tokens: None } }
 }
 
-fn ollama_agent() -> ag.AgentDef {
+fn ollama_agent() -> [env] ag.AgentDef {
   { name:     "review",
     goal:     rvp.system(),
-    model:    prov.ollama("codellama"),
+    model:    prov.ollama("gemma4:latest"),
     provider: providers.ollama_local(),
     tools:    tools.review_tools(),
     options:  { temperature: None, top_p: None, max_steps: Some(25), max_tokens: None } }
 }
 
-fn vllm_agent() -> ag.AgentDef {
+fn vllm_agent() -> [env] ag.AgentDef {
   { name:     "review",
     goal:     rvp.system(),
     model:    prov.vllm(providers.vllm_model()),

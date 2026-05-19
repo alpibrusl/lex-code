@@ -16,13 +16,13 @@ fn params() -> s.ModelSchema {
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "branch") {
-    None => Err(e.single("missing_field", "branch is required")),
+    None => Err(e.single("", "missing_field", "branch is required")),
     Some(name) =>
       match proc.spawn("lex", ["branch", "use", name, "--output", "json"]) {
-        Err(msg) => Err(e.single("proc_error", msg)),
-        Ok(out)  => Ok(jv.JsonStr(str.concat(out.stdout, out.stderr))),
+        Err(msg) => Err(e.single("", "proc_error", msg)),
+        Ok(out)  => Ok(jv.JStr(str.concat(out.stdout, out.stderr))),
       }
   }
 }

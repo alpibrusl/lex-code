@@ -18,23 +18,23 @@ fn params() -> s.ModelSchema {
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "base") {
-    None => Err(e.single("missing_field", "base is required")),
+    None => Err(e.single("", "missing_field", "base is required")),
     Some(base) =>
       match util.field_str(args, "left") {
-        None => Err(e.single("missing_field", "left is required")),
+        None => Err(e.single("", "missing_field", "left is required")),
         Some(left) =>
           match util.field_str(args, "right") {
-            None => Err(e.single("missing_field", "right is required")),
+            None => Err(e.single("", "missing_field", "right is required")),
             Some(right) =>
               match proc.spawn("lex", ["store", "merge", base, left, right]) {
-                Err(msg) => Err(e.single("proc_error", msg)),
+                Err(msg) => Err(e.single("", "proc_error", msg)),
                 Ok(out)  =>
-                  if out.ok {
-                    Ok(jv.JsonStr(str.concat("merged\n", out.stdout)))
+                  if out.exit_code == 0 {
+                    Ok(jv.JStr(str.concat("merged\n", out.stdout)))
                   } else {
-                    Err(e.single("merge_conflict", str.concat(out.stdout, out.stderr)))
+                    Err(e.single("", "merge_conflict", str.concat(out.stdout, out.stderr)))
                   },
               }
           }

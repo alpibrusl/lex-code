@@ -14,13 +14,13 @@ fn params() -> s.ModelSchema {
     description: "Create a new lex-vcs branch.",
     fields: [
       s.required_str("name", []),
-      s.optional_str("from_branch", []),
+      s.optional(s.required_str("from_branch", [])),
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "name") {
-    None => Err(e.single("missing_field", "name is required")),
+    None => Err(e.single("", "missing_field", "name is required")),
     Some(name) => {
       let base := ["branch", "create", name, "--output", "json"]
       let from_args := match util.field_str(args, "from_branch") {
@@ -29,8 +29,8 @@ fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
       }
       let cmd := list.concat(base, from_args)
       match proc.spawn("lex", cmd) {
-        Err(msg) => Err(e.single("proc_error", msg)),
-        Ok(out)  => Ok(jv.JsonStr(str.concat(out.stdout, out.stderr))),
+        Err(msg) => Err(e.single("", "proc_error", msg)),
+        Ok(out)  => Ok(jv.JStr(str.concat(out.stdout, out.stderr))),
       }
     }
   }

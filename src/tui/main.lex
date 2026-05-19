@@ -1,7 +1,6 @@
 import "std.io"   as io
 import "std.str"  as str
 import "std.list" as list
-import "std.env"  as env
 
 import "lex-llm/delta"   as d
 import "lex-llm/message" as msg
@@ -15,8 +14,8 @@ fn print_step(step :: d.Step) -> [io] Nil {
       match delta {
         d.TextChunk(text)         => io.print(text),
         d.ToolCallBegin(_, name)  => io.print(str.concat("\n[tool: ", str.concat(name, "]"))),
-        d.ToolArgChunk(_, _)      => Nil,
-        d.FinishDelta(_)          => Nil,
+        d.ToolArgChunk(_, _)      => (),
+        d.FinishDelta(_)          => (),
       },
     d.StepToolExec(name, _) =>
       io.print(str.concat("[running: ", str.concat(name, "]"))),
@@ -27,7 +26,7 @@ fn print_step(step :: d.Step) -> [io] Nil {
   }
 }
 
-fn repl(session :: sess.Session, provider_tag :: Str) -> [io, net, llm, proc, sql, time] Nil {
+fn repl(session :: sess.Session, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_write, time] Nil {
   io.print("\n> ")
   match io.readline() {
     None       => io.print("\nbye"),
@@ -44,18 +43,18 @@ fn repl(session :: sess.Session, provider_tag :: Str) -> [io, net, llm, proc, sq
 }
 
 fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str)
-  -> [io, net, llm, proc, sql, time] Nil {
+  -> [env, io, net, llm, proc, sql, fs_write, time] Nil {
   match sess.new_session_with_provider("cli", mode, provider_tag) {
-    Err(e)      => io.println(str.concat("error: ", e)),
+    Err(e)      => io.print(str.concat(str.concat("error: ", e), "\n")),
     Ok(session) => {
       let result := sess.run_turn_with_provider(session, task, provider_tag)
       let _ := list.map(result.steps, fn (s :: d.Step) -> [io] Nil { print_step(s) })
-      io.println("")
+      io.print(str.concat("", "\n"))
     },
   }
 }
 
-fn multi_repl(provider_tag :: Str) -> [io, net, llm, proc, sql, time] Nil {
+fn multi_repl(provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_write, time] Nil {
   io.print("\n[multi] task> ")
   match io.readline() {
     None       => io.print("\nbye"),
@@ -76,7 +75,7 @@ fn multi_repl(provider_tag :: Str) -> [io, net, llm, proc, sql, time] Nil {
 }
 
 fn has_flag(argv :: List[Str], flag :: Str) -> Bool {
-  match list.find(argv, fn (a :: Str) -> Bool { str.eq(a, flag) }) {
+  match list.head(list.filter(argv, fn (a :: Str) -> Bool { a == flag })) {
     Some(_) => true,
     None    => false,
   }
@@ -84,13 +83,13 @@ fn has_flag(argv :: List[Str], flag :: Str) -> Bool {
 
 # First non-flag argument is the task (one-shot CLI mode).
 fn find_task(argv :: List[Str]) -> Option[Str] {
-  list.find(argv, fn (a :: Str) -> Bool {
+  list.head(list.filter(argv, fn (a :: Str) -> Bool {
     if str.is_empty(a) { false }
-    else { match list.head(str.chars(a)) {
+    else { match list.head(str.split(a, "")) {
       None    => false,
-      Some(c) => str.neq(str.from_char(c), "-"),
+      Some(c) => c != "-",
     } }
-  })
+  }))
 }
 
 fn select_mode(argv :: List[Str]) -> sess.AgentMode {
@@ -112,7 +111,7 @@ fn select_provider_tag(argv :: List[Str]) -> Str {
   else { "anthropic" } } } } }
 }
 
-fn main() -> [io, net, llm, proc, sql, time] Nil {
+fn main() -> [env, io, net, llm, proc, sql, fs_write, time] Nil {
   let argv         := io.argv()
   let provider_tag := select_provider_tag(argv)
   let mode         := select_mode(argv)
@@ -120,15 +119,15 @@ fn main() -> [io, net, llm, proc, sql, time] Nil {
     Some(task) =>
       run_once(task, mode, provider_tag),
     None => {
-      io.println("lex-code — Lex-specialized coding assistant")
-      io.println("modes:     --plan | --explore | --refactor | --spec | --test | --review | --multi")
-      io.println("providers: --mistral | --openai | --google | --ollama | --vllm  (default: anthropic)")
-      io.println("one-shot:  lex run src/tui/main.lex -- [flags] \"your task\"")
-      io.println("Ctrl-D to exit")
+      io.print(str.concat("lex-code — Lex-specialized coding assistant", "\n"))
+      io.print(str.concat("modes:     --plan | --explore | --refactor | --spec | --test | --review | --multi", "\n"))
+      io.print(str.concat("providers: --mistral | --openai | --google | --ollama | --vllm  (default: anthropic)", "\n"))
+      io.print(str.concat("one-shot:  lex run src/tui/main.lex -- [flags] \"your task\"", "\n"))
+      io.print(str.concat("Ctrl-D to exit", "\n"))
       if has_flag(argv, "--multi") { multi_repl(provider_tag) }
       else {
         match sess.new_session_with_provider("tui", mode, provider_tag) {
-          Err(e)      => io.println(str.concat("startup error: ", e)),
+          Err(e)      => io.print(str.concat(str.concat("startup error: ", e), "\n")),
           Ok(session) => repl(session, provider_tag),
         }
       }

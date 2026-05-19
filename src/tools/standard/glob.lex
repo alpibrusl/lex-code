@@ -13,20 +13,20 @@ fn params() -> s.ModelSchema {
     description: "Find files matching a pattern",
     fields: [
       s.required_str("pattern", []),
-      s.optional_str("directory", []),
+      s.optional(s.required_str("directory", [])),
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "pattern") {
-    None => Err(e.single("missing_field", "pattern is required")),
+    None => Err(e.single("", "missing_field", "pattern is required")),
     Some(pattern) => {
       let dir := util.field_str_or(args, "directory", ".")
       match proc.spawn("find", [dir, "-name", pattern, "-type", "f"]) {
-        Err(msg) => Err(e.single("proc_error", msg)),
+        Err(msg) => Err(e.single("", "proc_error", msg)),
         Ok(out)  => {
           let result := if str.is_empty(out.stdout) { "no files found" } else { out.stdout }
-          Ok(jv.JsonStr(result))
+          Ok(jv.JStr(result))
         },
       }
     }

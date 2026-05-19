@@ -12,19 +12,19 @@ fn params() -> s.ModelSchema {
   { title: "LexTestArgs",
     description: "Run Lex tests",
     fields: [
-      s.optional_str("path", []),
+      s.optional(s.required_str("path", [])),
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   let target := util.field_str_or(args, "path", "tests")
   match proc.spawn("lex", ["run", target, "run_all"]) {
-    Err(msg) => Err(e.single("proc_error", msg)),
+    Err(msg) => Err(e.single("", "proc_error", msg)),
     Ok(out)  => {
       let output :=
-        if out.ok { str.concat("tests passed\n", out.stdout) }
+        if out.exit_code == 0 { str.concat("tests passed\n", out.stdout) }
         else { str.concat("tests failed\n", str.concat(out.stdout, out.stderr)) }
-      Ok(jv.JsonStr(output))
+      Ok(jv.JStr(output))
     },
   }
 }

@@ -16,17 +16,17 @@ fn params() -> s.ModelSchema {
     ] }
 }
 
-fn execute(args :: jv.Json) -> [proc] Result[jv.Json, e.Errors] {
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "sigid") {
-    None => Err(e.single("missing_field", "sigid is required")),
+    None => Err(e.single("", "missing_field", "sigid is required")),
     Some(sigid) =>
       match proc.spawn("lex", ["store", "lookup", sigid]) {
-        Err(msg) => Err(e.single("proc_error", msg)),
+        Err(msg) => Err(e.single("", "proc_error", msg)),
         Ok(out)  =>
-          if out.ok {
-            Ok(jv.JsonStr(out.stdout))
+          if out.exit_code == 0 {
+            Ok(jv.JStr(out.stdout))
           } else {
-            Err(e.single("not_found", str.concat("sigid not found: ", sigid)))
+            Err(e.single("", "not_found", str.concat("sigid not found: ", sigid)))
           },
       }
   }
