@@ -23,8 +23,11 @@ lex run src/tui/main.lex -- --mistral
 # bootstrap demo: impl → spec → test → review
 lex run src/bootstrap/run.lex
 
-# A2A server
+# A2A server (JSON-RPC 2.0)
 lex run src/server/api.lex
+
+# ACP server (BeeAI Agent Communication Protocol)
+lex run src/server/acp.lex
 ```
 
 ## Install as a binary
@@ -97,6 +100,51 @@ VLLM_MODEL=deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct \
 
 `VLLM_MODEL` defaults to `mistralai/Mistral-7B-Instruct-v0.3`.
 `VLLM_BASE_URL` defaults to `http://localhost:8000/v1/chat/completions`.
+
+## Server Protocols
+
+### A2A (Agent-to-Agent, JSON-RPC 2.0)
+
+```sh
+lex run src/server/api.lex
+```
+
+Exposes the standard Google A2A protocol: `tasks/send`, `tasks/get`, `tasks/cancel`,
+`tasks/sendSubscribe` (SSE). Agent card at `/.well-known/agent.json`.
+
+### ACP (Agent Communication Protocol, BeeAI)
+
+```sh
+lex run src/server/acp.lex
+```
+
+Exposes a REST API compatible with the BeeAI ACP standard:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Agent info JSON |
+| `POST` | `/runs` | Synchronous run — returns completed JSON |
+| `POST` | `/runs/stream` | Streaming run — SSE events |
+
+Example:
+```sh
+curl -X POST http://localhost:8080/runs \
+  -H 'Content-Type: application/json' \
+  -d '{"input":[{"role":"user","content":[{"type":"text","text":"write list.zip"}]}]}'
+```
+
+Streaming example:
+```sh
+curl -X POST http://localhost:8080/runs/stream \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: text/event-stream' \
+  -d '{"input":[{"role":"user","content":[{"type":"text","text":"write list.zip"}]}]}'
+# event: run.started
+# data: {"run_id":"...","status":"running"}
+#
+# event: run.completed
+# data: {"run_id":"...","agent_id":"lex-code","status":"completed","output":[...]}
+```
 
 ## Tools
 
@@ -180,7 +228,8 @@ lex-code
 │   │   ├── session.lex      # Session type, run_turn, AgentMode
 │   │   ├── multi_agent.lex  # std.conc parallel dispatch
 │   │   ├── persist.lex      # lex-trail log helpers
-│   │   └── api.lex          # A2A (JSON-RPC 2.0) server
+│   │   ├── api.lex          # A2A server (JSON-RPC 2.0)
+│   │   └── acp.lex          # ACP server (BeeAI REST protocol)
 │   ├── tui/main.lex     # CLI REPL + one-shot mode
 │   ├── vscode/          # VSCode extension (TypeScript)
 │   ├── web/             # Web frontend (vanilla JS)
@@ -258,3 +307,4 @@ authorised to use.
 - [x] v0.2 — refactor/spec/test/review agents, store tools, lex-spec permissions, Mistral provider
 - [x] v0.3 — parallel multi-agent (`std.conc`), VSCode extension, web frontend, bootstrap script
 - [x] v0.4 — lex-vcs tools (17), CLI one-shot mode, Ollama + vLLM providers, install target
+- [x] v0.5 — ACP server (`src/server/acp.lex`), ACP helpers in lex-agent
