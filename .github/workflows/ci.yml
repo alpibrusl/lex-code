@@ -10,6 +10,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: lex-code
+
+      - uses: actions/checkout@v4
+        with:
+          repository: alpibrusl/lex-llm
+          path: lex-llm
+
+      - uses: actions/checkout@v4
+        with:
+          repository: alpibrusl/lex-agent
+          path: lex-agent
+
+      - uses: actions/checkout@v4
+        with:
+          repository: alpibrusl/lex-trail
+          path: lex-trail
+
+      - uses: actions/checkout@v4
+        with:
+          repository: alpibrusl/lex-spec
+          path: lex-spec
+
+      - uses: actions/checkout@v4
+        with:
+          repository: alpibrusl/lex-schema
+          path: lex-schema
 
       - name: Install Lex toolchain
         run: |
@@ -23,6 +50,7 @@ jobs:
 
       - name: Install package dependencies
         run: lex pkg install
+        working-directory: lex-code
 
       - name: Type-check src/
         run: |
@@ -36,6 +64,8 @@ jobs:
             fi
           done
           exit $fail
+        working-directory: lex-code
 
       - name: Format check
         run: lex fmt --check src/
+        working-directory: lex-code
