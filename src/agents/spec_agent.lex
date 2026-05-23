@@ -1,42 +1,26 @@
-import "lex-llm/agent"     as ag
-import "lex-llm/provider"  as prov
+import "lex-llm/agent" as ag
+
+import "lex-llm/provider" as prov
+
 import "lex-llm/providers" as providers
 
-import "../tools/index"         as tools
-import "../prompts/spec_agent"  as sp
+import "../tools/index" as tools
+
+import "../prompts/spec_agent" as sp
 
 fn agent() -> [env] ag.AgentDef {
-  { name:     "spec",
-    goal:     sp.system(),
-    model:    prov.claude_sonnet(),
-    provider: providers.anthropic(),
-    tools:    tools.spec_tools(),
-    options:  { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None } }
+  { name: "spec", goal: sp.system(), model: prov.claude_sonnet(), provider: providers.anthropic(), tools: tools.spec_tools(), options: { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None } }
 }
 
 fn mistral_agent() -> [env] ag.AgentDef {
-  { name:     "spec",
-    goal:     sp.system(),
-    model:    prov.mistral_large(),
-    provider: providers.mistral(),
-    tools:    tools.spec_tools(),
-    options:  { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None } }
+  { name: "spec", goal: sp.system(), model: prov.mistral_large(), provider: providers.mistral(), tools: tools.spec_tools(), options: { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None } }
 }
 
 fn ollama_agent() -> [env] ag.AgentDef {
-  { name:     "spec",
-    goal:     sp.system(),
-    model:    prov.ollama("gemma4:latest"),
-    provider: providers.ollama_local(),
-    tools:    tools.spec_tools(),
-    options:  { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None } }
+  { name: "spec", goal: sp.system(), model: prov.ollama(providers.ollama_model()), provider: providers.ollama_local(), tools: tools.spec_tools(), options: { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None } }
 }
 
 fn vllm_agent() -> [env] ag.AgentDef {
-  { name:     "spec",
-    goal:     sp.system(),
-    model:    prov.vllm(providers.vllm_model()),
-    provider: providers.vllm_local(),
-    tools:    tools.spec_tools(),
-    options:  { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None } }
+  { name: "spec", goal: sp.system(), model: prov.vllm(providers.vllm_model()), provider: providers.vllm_local(), tools: tools.spec_tools(), options: { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None } }
 }
+
