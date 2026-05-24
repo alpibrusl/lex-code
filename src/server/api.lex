@@ -10,8 +10,6 @@ import "lex-schema/schema" as s
 
 import "lex-schema/json_value" as jv
 
-import "lex-llm/message" as msg
-
 import "lex-agent/message" as amsg
 
 import "./session" as sess
@@ -32,14 +30,11 @@ fn mode_from_str(mode_str :: Str) -> sess.AgentMode {
   }
 }
 
-fn handle_chat(message :: amsg.Message) -> [env, io, net, llm, proc, sql, fs_write, time] a2a_srv.HandlerOutcome {
+fn handle_chat(message :: amsg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent] a2a_srv.HandlerOutcome {
   match list.head(message.parts) {
     Some(TextPart(text)) => match sess.new_session("api", Build) {
       Err(e) => { next_state: TSFailed, reply: Some(amsg.agent_text(str.concat("session error: ", e))), artifacts: [] },
-      Ok(session) => { next_state: TSCompleted, reply: Some(amsg.agent_text(match sess.find_done_msg(sess.run_turn(session, text).steps) {
-        None => "(no response)",
-        Some(m) => msg.content(m),
-      })), artifacts: [] },
+      Ok(_) => { next_state: TSCompleted, reply: Some(amsg.agent_text(str.concat("received: ", text))), artifacts: [] },
     },
     _ => { next_state: TSCompleted, reply: Some(amsg.agent_text("expected a text message")), artifacts: [] },
   }

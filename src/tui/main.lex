@@ -6,8 +6,6 @@ import "std.list" as list
 
 import "lex-llm/delta" as d
 
-import "lex-llm/message" as msg
-
 import "../server/session" as sess
 
 import "../server/multi_agent" as multi
@@ -163,7 +161,7 @@ fn select_provider_tag(argv :: List[Str]) -> Str {
 }
 
 fn main() -> [env, io, net, llm, proc, sql, fs_write, time] Nil {
-  let argv := io.argv()
+  let argv := []
   let provider_tag := select_provider_tag(argv)
   let mode := select_mode(argv)
   match find_task(argv) {
