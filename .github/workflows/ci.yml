@@ -52,11 +52,19 @@ jobs:
         run: lex pkg install
         working-directory: lex-code
 
+      - name: Link sibling packages into global cache for transitive resolution
+        run: |
+          mkdir -p ~/.lex/packages
+          for pkg in lex-llm lex-agent lex-trail lex-spec lex-schema; do
+            test -e ~/.lex/packages/$pkg || ln -sfn "$(realpath ../$pkg)" ~/.lex/packages/$pkg
+          done
+        working-directory: lex-code
+
       - name: Type-check src/
         run: |
           set -e
           fail=0
-          for f in $(find src -name "*.lex"); do
+          for f in $(git ls-files src/ | grep '\.lex$'); do
             if ! lex check "$f" >/dev/null 2>&1; then
               echo "::error file=$f::lex check failed"
               lex check "$f" 2>&1 | head -3
