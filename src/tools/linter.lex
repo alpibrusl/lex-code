@@ -1,37 +1,17 @@
-import "std.io" as io
+import "std.proc" as proc
 
 import "std.str" as str
 
-import "std.proc" as proc
-
 import "std.list" as list
-
-import "std.int" as int
 
 import "lex-schema/json_value" as jv
 
-import "lex-schema/error" as e
+type LintOutcome = LintOk(Str) | LintChanged(Str) | LintWarn((Str, Str)) | LintFail((Str, Str))
 
-# Files at or below this many lines have their full on-disk content echoed
-# back to the agent even when `lex fmt` made no change. Larger files are only
-# echoed when formatting actually rewrote them, to avoid flooding context.
-fn readback_limit() -> Int {
-  200
-}
+type RunResult = { summary :: Str, failed :: Bool }
 
-fn count_lines(content :: Str) -> Int {
-  list.len(str.split(content, "\n"))
-}
-
-fn is_lex_file(path :: Str) -> Bool {
-  match str.strip_suffix(path, ".lex") {
-    Some(_) => true,
-    None => false,
-  }
-}
-
-# Translate a raw lex check output line into a human-readable fix hint.
-fn translate_error(raw :: Str) -> Str {
+# Translate raw lex check JSON output into a human-readable fix hint.
+fn translate_lex_error(raw :: Str) -> Str {
   match jv.parse_into_errors(str.trim(raw)) {
     Ok(j) => {
       let kind := match jv.get_field(j, "kind") {
@@ -55,7 +35,7 @@ fn translate_error(raw :: Str) -> Str {
           None => false,
         }
         if is_stdlib {
-          str.concat("fix: add `import \"std.", str.concat(name, str.concat("\" as ", str.concat(name, "` at the top of the file.\n"))))
+          str.concat("fix: add `import \"std.", str.concat(name, str.concat("\" as ", str.concat(name, "` at the top of the file."))))
         } else {
           str.concat("unknown identifier '", str.concat(name, "' — check for typos or missing import."))
         }
@@ -84,13 +64,6 @@ fn translate_error(raw :: Str) -> Str {
           }
         } else {
           if kind == "type_mismatch" {
-            let tm_context := match jv.get_field(j, "context") {
-              Some(JList(parts)) => match list.head(parts) {
-                Some(JStr(s)) => s,
-                _ => "",
-              },
-              _ => "",
-            }
             let tm_expected := match jv.get_field(j, "expected") {
               Some(JStr(s)) => s,
               _ => "",
@@ -100,7 +73,7 @@ fn translate_error(raw :: Str) -> Str {
               _ => "",
             }
             if str.contains(tm_expected, "Option[") {
-              "type_mismatch: `list.head(xs)` returns `Option[T]`, not `T`. Unwrap it first: `match list.head(xs) { Some(v) => ..., None => ... }`. Never compare `list.head(xs)` directly with `==`."
+              "type_mismatch: `list.head(xs)` returns `Option[T]`, not `T`. Unwrap it first: `match list.head(xs) { Some(v) => ..., None => ... }`. Never compare directly with `==`."
             } else {
               if str.contains(tm_got, "Option[") {
                 str.concat("type_mismatch: got `Option[T]` where `", str.concat(tm_expected, "` is expected — unwrap with `match ... { Some(v) => v, None => default }`."))
@@ -173,59 +146,79 @@ fn translate_error(raw :: Str) -> Str {
   }
 }
 
-# Build the success message for a write/edit, appending the canonical on-disk
-# content when `lex fmt` changed the file (so it differs from what the agent
-# generated) or when the file is small enough to echo wholesale. This grounds
-# the agent's next action in the real on-disk content rather than its
-# generation buffer.
-fn success_message(verb :: Str, path :: Str, written :: Str, on_disk :: Str) -> Str {
-  let changed := on_disk != written
-  let n := count_lines(on_disk)
-  let base := if changed {
-    str.concat(verb, str.concat(" ", str.concat(path, "\nlex fmt: auto-formatted — on-disk content differs from what you wrote\nlex check: ok")))
-  } else {
-    str.concat(verb, str.concat(" ", str.concat(path, "\nlex check: ok")))
-  }
-  let include := if changed {
-    true
-  } else {
-    if n <= readback_limit() {
-      true
+fn run_lex_fmt(path :: Str) -> [proc] LintOutcome {
+  match proc.spawn("bash", ["-c", str.concat("\"${LEX:-lex}\" fmt ", path)]) {
+    Err(msg) => LintWarn("lex fmt", str.concat("could not run: ", msg)),
+    Ok(out) => if out.exit_code == 0 {
+      if str.contains(str.trim(out.stdout), "reformatted") {
+        LintChanged("lex fmt")
+      } else {
+        LintOk("lex fmt")
+      }
     } else {
-      false
-    }
-  }
-  if include {
-    str.concat(base, str.concat("\n\nactual content (", str.concat(int.to_str(n), str.concat(" lines):\n\n", on_disk))))
-  } else {
-    base
+      LintWarn("lex fmt", str.trim(str.concat(out.stdout, out.stderr)))
+    },
   }
 }
 
-# Run `lex fmt` + `lex check` on a just-written file and produce the tool
-# result. For `.lex` files this auto-formats, type-checks, and reads the
-# canonical content back; non-lex files are echoed back when small. `written`
-# is the content the caller wrote, used to detect whether `lex fmt` rewrote it.
-fn finalize(path :: Str, written :: Str, verb :: Str) -> [net, io, proc] Result[jv.Json, e.Errors] {
-  if is_lex_file(path) {
-    let __lex_discard_1 := proc.spawn("bash", ["-c", str.concat("\"${LEX:-lex}\" fmt ", path)])
-    match proc.spawn("bash", ["-c", str.concat("\"${LEX:-lex}\" check ", path)]) {
-      Err(msg) => Ok(JStr(str.concat(verb, str.concat(" ", str.concat(path, str.concat("\nlex check error: ", msg)))))),
-      Ok(out) => {
-        let check_raw := str.trim(str.concat(out.stdout, out.stderr))
-        if out.exit_code == 0 {
-          match io.read(path) {
-            Err(_) => Ok(JStr(str.concat(verb, str.concat(" ", str.concat(path, "\nlex check: ok"))))),
-            Ok(on_disk) => Ok(JStr(success_message(verb, path, written, on_disk))),
-          }
-        } else {
-          let hint := translate_error(check_raw)
-          Err(e.single("", "lex_check_failed", str.concat(verb, str.concat(" ", str.concat(path, str.concat(" but lex check failed — fix and rewrite:\n", hint))))))
-        }
-      },
+fn run_lex_check(path :: Str) -> [proc] LintOutcome {
+  match proc.spawn("bash", ["-c", str.concat("\"${LEX:-lex}\" check ", path)]) {
+    Err(msg) => LintFail("lex check", str.concat("could not run: ", msg)),
+    Ok(out) => if out.exit_code == 0 {
+      LintOk("lex check")
+    } else {
+      let raw := str.trim(str.concat(out.stdout, out.stderr))
+      LintFail("lex check", translate_lex_error(raw))
+    },
+  }
+}
+
+fn format_outcome(outcome :: LintOutcome) -> Str {
+  match outcome {
+    LintOk(name) => str.concat("lint[", str.concat(name, "]: ok")),
+    LintChanged(name) => str.concat("lint[", str.concat(name, "]: auto-formatted — file on disk differs from what you wrote")),
+    LintWarn(name, msg) => str.concat("lint[", str.concat(name, str.concat("]: warning — ", msg))),
+    LintFail(name, msg) => str.concat("lint[", str.concat(name, str.concat("]: FAILED — ", msg))),
+  }
+}
+
+fn has_failure(outcomes :: List[LintOutcome]) -> Bool {
+  match list.head(list.filter(outcomes, fn (o :: LintOutcome) -> Bool {
+    match o {
+      LintFail(_, _) => true,
+      _ => false,
     }
-  } else {
-    Ok(JStr(str.concat(verb, str.concat(" ", path))))
+  })) {
+    Some(_) => true,
+    None => false,
+  }
+}
+
+fn join_lines(lines :: List[Str]) -> Str {
+  list.fold(lines, "", fn (acc :: Str, line :: Str) -> Str {
+    if str.is_empty(acc) {
+      line
+    } else {
+      str.concat(acc, str.concat("\n", line))
+    }
+  })
+}
+
+fn run_for_lex(path :: Str) -> [proc] RunResult {
+  let fmt := run_lex_fmt(path)
+  let check := run_lex_check(path)
+  let outcomes := [fmt, check]
+  let lines := list.map(outcomes, format_outcome)
+  { summary: join_lines(lines), failed: has_failure(outcomes) }
+}
+
+# Run all linters appropriate for the given file path, keyed by extension.
+# Returns a summary string and whether any blocking failure occurred.
+# Add new extension branches here to extend coverage.
+fn run(path :: Str) -> [proc] RunResult {
+  match str.strip_suffix(path, ".lex") {
+    Some(_) => run_for_lex(path),
+    None => { summary: "", failed: false },
   }
 }
 
