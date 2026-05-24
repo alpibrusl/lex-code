@@ -4,11 +4,26 @@ import "std.str" as str
 
 import "std.list" as list
 
+import "std.io" as io
+
+import "std.int" as int
+
 import "lex-schema/json_value" as jv
 
 type LintOutcome = LintOk(Str) | LintChanged(Str) | LintWarn((Str, Str)) | LintFail((Str, Str))
 
 type RunResult = { summary :: Str, failed :: Bool }
+
+# Files at or below this many lines have their full on-disk content echoed back
+# even when `lex fmt` made no change. Larger files are only echoed when
+# formatting actually rewrote them, to avoid flooding the agent's context.
+fn readback_limit() -> Int {
+  200
+}
+
+fn count_lines(content :: Str) -> Int {
+  list.len(str.split(content, "\n"))
+}
 
 # Translate raw lex check JSON output into a human-readable fix hint.
 fn translate_lex_error(raw :: Str) -> Str {
@@ -194,6 +209,45 @@ fn has_failure(outcomes :: List[LintOutcome]) -> Bool {
   }
 }
 
+fn has_change(outcomes :: List[LintOutcome]) -> Bool {
+  match list.head(list.filter(outcomes, fn (o :: LintOutcome) -> Bool {
+    match o {
+      LintChanged(_) => true,
+      _ => false,
+    }
+  })) {
+    Some(_) => true,
+    None => false,
+  }
+}
+
+# Echo the canonical on-disk content so the agent's next edit is grounded in
+# what's actually on disk rather than its generation buffer. Included when
+# `lex fmt` rewrote the file (`changed`) or the file is small enough to echo
+# wholesale; returns the empty string otherwise.
+fn readback_block(path :: Str, changed :: Bool) -> [io] Str {
+  match io.read(path) {
+    Err(_) => "",
+    Ok(content) => {
+      let n := count_lines(content)
+      let include := if changed {
+        true
+      } else {
+        if n <= readback_limit() {
+          true
+        } else {
+          false
+        }
+      }
+      if include {
+        str.concat("\n\nactual content (", str.concat(int.to_str(n), str.concat(" lines):\n\n", content)))
+      } else {
+        ""
+      }
+    },
+  }
+}
+
 fn join_lines(lines :: List[Str]) -> Str {
   list.fold(lines, "", fn (acc :: Str, line :: Str) -> Str {
     if str.is_empty(acc) {
@@ -204,18 +258,24 @@ fn join_lines(lines :: List[Str]) -> Str {
   })
 }
 
-fn run_for_lex(path :: Str) -> [proc] RunResult {
+fn run_for_lex(path :: Str) -> [io, proc] RunResult {
   let fmt := run_lex_fmt(path)
   let check := run_lex_check(path)
   let outcomes := [fmt, check]
-  let lines := list.map(outcomes, format_outcome)
-  { summary: join_lines(lines), failed: has_failure(outcomes) }
+  let failed := has_failure(outcomes)
+  let base := join_lines(list.map(outcomes, format_outcome))
+  let summary := if failed {
+    base
+  } else {
+    str.concat(base, readback_block(path, has_change(outcomes)))
+  }
+  { summary: summary, failed: failed }
 }
 
 # Run all linters appropriate for the given file path, keyed by extension.
 # Returns a summary string and whether any blocking failure occurred.
 # Add new extension branches here to extend coverage.
-fn run(path :: Str) -> [proc] RunResult {
+fn run(path :: Str) -> [io, proc] RunResult {
   match str.strip_suffix(path, ".lex") {
     Some(_) => run_for_lex(path),
     None => { summary: "", failed: false },
