@@ -16,7 +16,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match proc.spawn("lex", ["agent-guidelines"]) {
     Err(msg) => Err(e.single("", "proc_error", msg)),
     Ok(out) => if out.exit_code == 0 {
-      Ok(jv.JStr(out.stdout))
+      Ok(JStr(out.stdout))
     } else {
       Err(e.single("", "proc_error", out.stderr))
     },

@@ -32,7 +32,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
           } else {
             out.stdout
           }
-          Ok(jv.JStr(result))
+          Ok(JStr(result))
         },
       }
     },

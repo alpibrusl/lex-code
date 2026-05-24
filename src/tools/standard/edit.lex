@@ -46,7 +46,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
           Ok(content) => match replace_once(content, old_str, new_str) {
             Err(reason) => Err(e.single("", "edit_error", reason)),
             Ok(updated) => match io.write(path, updated) {
-              Ok(_) => Ok(jv.JStr("edit applied")),
+              Ok(_) => Ok(JStr("edit applied")),
               Err(msg) => Err(e.single("", "io_error", msg)),
             },
           },

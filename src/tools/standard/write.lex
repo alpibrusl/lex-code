@@ -178,11 +178,11 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
           if is_lex {
             let __lex_discard_1 := proc.spawn("bash", ["-c", str.concat("\"${LEX:-lex}\" fmt ", path)])
             match proc.spawn("bash", ["-c", str.concat("\"${LEX:-lex}\" check ", path)]) {
-              Err(msg) => Ok(jv.JStr(str.concat("wrote ", str.concat(path, str.concat("\nlex check error: ", msg))))),
+              Err(msg) => Ok(JStr(str.concat("wrote ", str.concat(path, str.concat("\nlex check error: ", msg))))),
               Ok(out) => {
                 let check_raw := str.trim(str.concat(out.stdout, out.stderr))
                 if out.exit_code == 0 {
-                  Ok(jv.JStr(str.concat("wrote ", str.concat(path, "\nlex check: ok"))))
+                  Ok(JStr(str.concat("wrote ", str.concat(path, "\nlex check: ok"))))
                 } else {
                   let hint := translate_error(check_raw)
                   Err(e.single("", "lex_check_failed", str.concat("wrote ", str.concat(path, str.concat(" but lex check failed — fix and rewrite:\n", hint)))))
@@ -190,7 +190,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
               },
             }
           } else {
-            Ok(jv.JStr(str.concat("wrote ", path)))
+            Ok(JStr(str.concat("wrote ", path)))
           }
         },
       },

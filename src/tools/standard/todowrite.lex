@@ -20,7 +20,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "todos") {
     None => Err(e.single("", "missing_field", "todos is required")),
     Some(todos) => match io.write(".lex/todos.md", todos) {
-      Ok(_) => Ok(jv.JStr("todos updated")),
+      Ok(_) => Ok(JStr("todos updated")),
       Err(msg) => Err(e.single("", "io_error", msg)),
     },
   }

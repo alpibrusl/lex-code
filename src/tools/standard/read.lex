@@ -21,7 +21,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
     None => Err(e.single("", "missing_field", "path is required")),
     Some(path) => match io.read(path) {
       Err(msg) => Err(e.single("", "io_error", msg)),
-      Ok(content) => Ok(jv.JStr(content)),
+      Ok(content) => Ok(JStr(content)),
     },
   }
 }

@@ -26,7 +26,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
         Some(right) => match proc.spawn("lex", ["store", "merge", base, left, right]) {
           Err(msg) => Err(e.single("", "proc_error", msg)),
           Ok(out) => if out.exit_code == 0 {
-            Ok(jv.JStr(str.concat("merged\n", out.stdout)))
+            Ok(JStr(str.concat("merged\n", out.stdout)))
           } else {
             Err(e.single("", "merge_conflict", str.concat(out.stdout, out.stderr)))
           },

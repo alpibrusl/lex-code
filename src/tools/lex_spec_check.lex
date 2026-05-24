@@ -32,7 +32,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
       } else {
         str.concat("spec falsified\n", str.concat(out.stdout, out.stderr))
       }
-      Ok(jv.JStr(output))
+      Ok(JStr(output))
     },
   }
 }

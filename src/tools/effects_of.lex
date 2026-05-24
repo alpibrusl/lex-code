@@ -24,7 +24,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
       match proc.spawn("lex", ["check", "--json", "--effects", fn_name, target]) {
         Err(msg) => Err(e.single("", "proc_error", msg)),
         Ok(out) => if out.exit_code == 0 {
-          Ok(jv.JStr(out.stdout))
+          Ok(JStr(out.stdout))
         } else {
           Err(e.single("", "check_error", str.concat(out.stdout, out.stderr)))
         },

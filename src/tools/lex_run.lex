@@ -28,7 +28,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
         }
         match proc.spawn("lex", cmd_args) {
           Err(msg) => Err(e.single("", "proc_error", msg)),
-          Ok(out) => Ok(jv.JStr(str.concat(out.stdout, out.stderr))),
+          Ok(out) => Ok(JStr(str.concat(out.stdout, out.stderr))),
         }
       },
     },

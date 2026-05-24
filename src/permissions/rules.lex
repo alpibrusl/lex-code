@@ -10,20 +10,20 @@ import "std.list" as list
 
 # ---- Helpers -------------------------------------------------------
 fn tool_eq(name :: Str) -> sp.SpecExpr {
-  sp.EBinop({ op: sp.op_eq(), lhs: sp.EVar("tool"), rhs: sp.EConst(sp.VStr(name)) })
+  EBinop({ op: sp.op_eq(), lhs: EVar("tool"), rhs: EConst(VStr(name)) })
 }
 
 fn any_of(exprs :: List[sp.SpecExpr]) -> sp.SpecExpr {
   match list.head(exprs) {
-    None => sp.EConst(sp.VBool(false)),
+    None => EConst(VBool(false)),
     Some(e) => list.fold(list.tail(exprs), e, fn (acc :: sp.SpecExpr, x :: sp.SpecExpr) -> sp.SpecExpr {
-      sp.EOr(acc, x)
+      EOr(acc, x)
     }),
   }
 }
 
 fn allow_tools(rule_name :: Str, allowed :: List[Str]) -> sp.Spec {
-  { name: rule_name, quantifiers: [sp.QStr("tool")], predicate: any_of(list.map(allowed, tool_eq)) }
+  { name: rule_name, quantifiers: [QStr("tool")], predicate: any_of(list.map(allowed, tool_eq)) }
 }
 
 # ---- Per-agent rules -----------------------------------------------
@@ -52,6 +52,6 @@ fn test_permission() -> sp.Spec {
 }
 
 fn build_permission() -> sp.Spec {
-  { name: "build_all", quantifiers: [sp.QStr("tool")], predicate: sp.EConst(sp.VBool(true)) }
+  { name: "build_all", quantifiers: [QStr("tool")], predicate: EConst(VBool(true)) }
 }
 

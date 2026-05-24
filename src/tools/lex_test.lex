@@ -26,7 +26,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
       } else {
         str.concat("tests failed\n", str.concat(out.stdout, out.stderr))
       }
-      Ok(jv.JStr(output))
+      Ok(JStr(output))
     },
   }
 }

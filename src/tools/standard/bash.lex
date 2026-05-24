@@ -23,7 +23,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
       Err(msg) => Err(e.single("", "proc_error", msg)),
       Ok(out) => {
         let combined := str.concat(out.stdout, out.stderr)
-        Ok(jv.JStr(combined))
+        Ok(JStr(combined))
       },
     },
   }

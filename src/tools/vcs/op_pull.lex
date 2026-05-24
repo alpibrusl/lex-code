@@ -38,7 +38,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
       let cmd := list.concat(base, list.concat(branch_args, list.concat(limit_args, dry_args)))
       match proc.spawn("lex", cmd) {
         Err(msg) => Err(e.single("", "proc_error", msg)),
-        Ok(out) => Ok(jv.JStr(str.concat(out.stdout, out.stderr))),
+        Ok(out) => Ok(JStr(str.concat(out.stdout, out.stderr))),
       }
     },
   }

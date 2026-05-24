@@ -23,7 +23,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
       None => Err(e.single("", "missing_field", "resolutions_file is required")),
       Some(file) => match proc.spawn("lex", ["merge", "resolve", id, "--file", file, "--output", "json"]) {
         Err(msg) => Err(e.single("", "proc_error", msg)),
-        Ok(out) => Ok(jv.JStr(str.concat(out.stdout, out.stderr))),
+        Ok(out) => Ok(JStr(str.concat(out.stdout, out.stderr))),
       },
     },
   }
