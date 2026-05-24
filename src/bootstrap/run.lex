@@ -26,7 +26,9 @@ fn main() -> [env, io, net, llm, proc, sql, fs_write, time] Nil {
   let provider_tag := "anthropic"
   let task := "Add fn zip[A, B](xs :: List[A], ys :: List[B]) -> List[(A, B)] to src/list.lex"
   let phases := [{ name: "impl", task: task, mode: Build }, { name: "spec", task: str.concat("Write lex-spec Spec for list.zip: ", task), mode: Spec }, { name: "test", task: str.concat("Write unit tests for list.zip: ", task), mode: Test }, { name: "review", task: str.concat("Review the list.zip implementation and tests: ", task), mode: Review }]
-  let _ := list.map(phases, fn (phase :: Phase) -> [env, io, net, llm, proc, sql, fs_write, time] Nil {
+  let __lex_discard_1 := list.map(phases, fn (phase :: Phase) -> [env, io, net, llm, proc, sql, fs_write, time] Nil {
     run_phase(phase, provider_tag)
   })
+  ()
 }
+

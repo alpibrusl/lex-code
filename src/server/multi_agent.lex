@@ -25,8 +25,14 @@ fn run_parallel(task :: Str, provider_tag :: Str) -> [env, concurrent, net, llm,
       (t, mode) => run_task(t, mode, provider_tag),
     }
   })
-  let impl_steps := match list.head(results) { Some(s) => s, None => [] }
-  let test_steps := match list.head(list.tail(results)) { Some(s) => s, None => [] }
+  let impl_steps := match list.head(results) {
+    Some(s) => s,
+    None => [],
+  }
+  let test_steps := match list.head(list.tail(results)) {
+    Some(s) => s,
+    None => [],
+  }
   { impl_steps: impl_steps, test_steps: test_steps }
 }
 
@@ -45,7 +51,14 @@ fn run_impl_then_spec_then_test(task :: Str, provider_tag :: Str) -> [env, concu
       (t, mode) => run_task(t, mode, provider_tag),
     }
   })
-  let test_steps := match list.head(parallel_results) { Some(s) => s, None => [] }
-  let rev_steps := match list.head(list.tail(parallel_results)) { Some(s) => s, None => [] }
+  let test_steps := match list.head(parallel_results) {
+    Some(s) => s,
+    None => [],
+  }
+  let rev_steps := match list.head(list.tail(parallel_results)) {
+    Some(s) => s,
+    None => [],
+  }
   list.concat(impl_steps, list.concat(spec_steps, list.concat(test_steps, rev_steps)))
 }
+

@@ -43,3 +43,4 @@ fn handle_chat(message :: amsg.Message) -> [io, time, crypto, random, sql, fs_re
 fn agent_def(base_url :: Str) -> a2a_srv.AgentDef {
   a2a_srv.make_agent_def(card.make("lex-code", "Lex-specialized coding assistant", "0.1.0", base_url, [chat_capability()]), [{ capability: chat_capability(), handle: handle_chat }])
 }
+
