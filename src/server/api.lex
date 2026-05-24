@@ -2,7 +2,7 @@ import "lex-agent/server" as a2a_srv
 
 import "lex-agent/agent_card" as card
 
-import "lex-agent/capability" as cap
+import "lex-spec/capability" as cap
 
 import "lex-schema/schema" as s
 
