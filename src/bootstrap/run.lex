@@ -4,6 +4,8 @@ import "std.str" as str
 
 import "std.io" as io
 
+import "std.int" as int
+
 import "std.list" as list
 
 type Phase = { name :: Str, task :: Str, mode :: sess.AgentMode }
@@ -15,7 +17,7 @@ fn run_phase(phase :: Phase, provider_tag :: Str) -> [env, io, net, llm, proc, s
     Ok(session) => {
       let result := sess.run_turn_with_provider(session, phase.task, provider_tag)
       let n := list.len(result.steps)
-      io.print(str.concat("[bootstrap] phase ", str.concat(phase.name, str.concat(" done — ", str.concat(str.from_int(n), " steps")))))
+      io.print(str.concat("[bootstrap] phase ", str.concat(phase.name, str.concat(" done — ", str.concat(int.to_str(n), " steps")))))
     },
   }
 }
