@@ -1,4 +1,4 @@
-.PHONY: install uninstall
+.PHONY: install uninstall hooks
 
 PREFIX ?= /usr/local
 BINDIR  := $(PREFIX)/bin
@@ -16,3 +16,9 @@ install:
 uninstall:
 	rm -f $(BINDIR)/lex-code
 	rm -rf $(SRCDIR)
+
+hooks:
+	mkdir -p .git/hooks
+	cp .githooks/pre-commit .git/hooks/pre-commit
+	chmod +x .git/hooks/pre-commit
+	@echo "pre-commit hook installed — run 'make hooks' in each clone"

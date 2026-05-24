@@ -14,6 +14,8 @@ import "lex-schema/schema" as s
 
 import "../util" as util
 
+import "../linter" as linter
+
 fn params() -> s.ModelSchema {
   { title: "EditArgs", description: "Edit a file by exact string replacement. old_str must appear exactly once.", fields: [s.required_str("path", []), s.required_str("old_str", []), s.required_str("new_str", [])] }
 }
@@ -46,8 +48,20 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
           Ok(content) => match replace_once(content, old_str, new_str) {
             Err(reason) => Err(e.single("", "edit_error", reason)),
             Ok(updated) => match io.write(path, updated) {
-              Ok(_) => Ok(JStr("edit applied")),
               Err(msg) => Err(e.single("", "io_error", msg)),
+              Ok(_) => {
+                let lint := linter.run(path)
+                let header := str.concat("edited ", path)
+                if lint.failed {
+                  Err(e.single("", "lint_failed", str.concat(header, str.concat("\n", str.concat(lint.summary, "\nFix the errors above.")))))
+                } else {
+                  if str.is_empty(lint.summary) {
+                    Ok(JStr(header))
+                  } else {
+                    Ok(JStr(str.concat(header, str.concat("\n", lint.summary))))
+                  }
+                }
+              },
             },
           },
         },
@@ -57,6 +71,6 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
 }
 
 fn tool() -> t.Tool {
-  t.define("edit", "Edit a file by replacing old_str with new_str. old_str must be unique in the file.", params(), execute)
+  t.define("edit", "Edit a file by replacing old_str with new_str. old_str must be unique in the file. For .lex files, auto-formats and runs lex check after the edit.", params(), execute)
 }
 
