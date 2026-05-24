@@ -12,6 +12,8 @@ import "lex-schema/json_value" as jv
 
 import "lex-llm/message" as msg
 
+import "lex-agent/message" as amsg
+
 import "./session" as sess
 
 import "std.str" as str
@@ -30,16 +32,16 @@ fn mode_from_str(mode_str :: Str) -> sess.AgentMode {
   }
 }
 
-fn handle_chat(message :: msg.Message) -> [env, io, net, llm, proc, sql, fs_write, time] a2a_srv.HandlerOutcome {
-  match message {
-    UserMsg(text) => match sess.new_session("api", Build) {
-      Err(e) => { next_state: TSFailed, reply: Some(msg.user(str.concat("session error: ", e))), artifacts: [] },
-      Ok(session) => { next_state: TSCompleted, reply: Some(msg.user(match sess.find_done_msg(sess.run_turn(session, text).steps) {
+fn handle_chat(message :: amsg.Message) -> [env, io, net, llm, proc, sql, fs_write, time] a2a_srv.HandlerOutcome {
+  match list.head(message.parts) {
+    Some(TextPart(text)) => match sess.new_session("api", Build) {
+      Err(e) => { next_state: TSFailed, reply: Some(amsg.agent_text(str.concat("session error: ", e))), artifacts: [] },
+      Ok(session) => { next_state: TSCompleted, reply: Some(amsg.agent_text(match sess.find_done_msg(sess.run_turn(session, text).steps) {
         None => "(no response)",
         Some(m) => msg.content(m),
       })), artifacts: [] },
     },
-    _ => { next_state: TSCompleted, reply: Some(msg.user("expected a user message")), artifacts: [] },
+    _ => { next_state: TSCompleted, reply: Some(amsg.agent_text("expected a text message")), artifacts: [] },
   }
 }
 

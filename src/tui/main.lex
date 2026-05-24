@@ -32,9 +32,9 @@ fn print_step(step :: d.Step) -> [io] Nil {
 
 fn repl(session :: sess.Session, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_write, time] Nil {
   io.print("\n> ")
-  match io.readline() {
-    None => io.print("\nbye"),
-    Some(line) => {
+  match io.read("-") {
+    Err(_) => io.print("\nbye"),
+    Ok(line) => {
       let input := str.trim(line)
       if str.is_empty(input) {
         repl(session, provider_tag)
@@ -64,9 +64,9 @@ fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str) -> [env, i
 
 fn multi_repl(provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_write, time] Nil {
   io.print("\n[multi] task> ")
-  match io.readline() {
-    None => io.print("\nbye"),
-    Some(line) => {
+  match io.read("-") {
+    Err(_) => io.print("\nbye"),
+    Ok(line) => {
       let task := str.trim(line)
       if str.is_empty(task) {
         multi_repl(provider_tag)
@@ -112,24 +112,24 @@ fn find_task(argv :: List[Str]) -> Option[Str] {
 
 fn select_mode(argv :: List[Str]) -> sess.AgentMode {
   if has_flag(argv, "--plan") {
-    sess.Plan
+    Plan
   } else {
     if has_flag(argv, "--explore") {
-      sess.Explore
+      Explore
     } else {
       if has_flag(argv, "--refactor") {
-        sess.Refactor
+        Refactor
       } else {
         if has_flag(argv, "--spec") {
-          sess.Spec
+          Spec
         } else {
           if has_flag(argv, "--test") {
-            sess.Test
+            Test
           } else {
             if has_flag(argv, "--review") {
-              sess.Review
+              Review
             } else {
-              sess.Build
+              Build
             }
           }
         }
