@@ -39,3 +39,8 @@ fn vllm_agent() -> [env] ag.AgentDef {
   ag.with_permission_gate(base, rules.build_permission())
 }
 
+fn google_agent() -> [env] ag.AgentDef {
+  let base := { name: "build", goal: bpo.system(), model: prov.gemini_pro(), provider: providers.google(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None } }
+  ag.with_permission_gate(base, rules.build_permission())
+}
+

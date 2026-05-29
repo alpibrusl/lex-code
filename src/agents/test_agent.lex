@@ -30,3 +30,13 @@ fn vllm_agent() -> [env] ag.AgentDef {
   ag.with_permission_gate(base, rules.test_permission())
 }
 
+fn openai_agent() -> [env] ag.AgentDef {
+  let base := { name: "test", goal: tp.system(), model: prov.gpt4o_mini(), provider: providers.openai(), tools: tools.tools_for_spec(rules.test_permission()), options: { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None } }
+  ag.with_permission_gate(base, rules.test_permission())
+}
+
+fn google_agent() -> [env] ag.AgentDef {
+  let base := { name: "test", goal: tp.system(), model: prov.gemini_flash(), provider: providers.google(), tools: tools.tools_for_spec(rules.test_permission()), options: { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None } }
+  ag.with_permission_gate(base, rules.test_permission())
+}
+
