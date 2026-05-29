@@ -25,7 +25,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
         if str.is_empty(out.stdout) {
           "type check passed"
         } else {
-          out.stdout
+          str.concat("type check passed\n", out.stdout)
         }
       } else {
         str.concat(out.stdout, out.stderr)
