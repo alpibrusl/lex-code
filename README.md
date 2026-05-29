@@ -308,3 +308,7 @@ authorised to use.
 - [x] v0.3 — parallel multi-agent (`std.conc`), VSCode extension, web frontend, bootstrap script
 - [x] v0.4 — lex-vcs tools (17), CLI one-shot mode, Ollama + vLLM providers, install target
 - [x] v0.5 — ACP server (`src/server/acp.lex`), ACP helpers in lex-agent
+
+---
+
+Built under the principles of [Trust Without Comprehension](https://alpibru.com/manifesto).
