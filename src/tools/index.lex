@@ -76,6 +76,12 @@ import "./load_guidelines" as guidelines_tool
 
 import "lex-llm/tool" as t
 
+import "lex-spec/spec" as sp
+
+import "lex-spec/eval" as ev
+
+import "../permissions/rules" as rules
+
 fn vcs_read_tools() -> List[t.Tool] {
   [vcs_ast_diff_tool.tool(), vcs_op_show_tool.tool(), vcs_op_log_tool.tool(), vcs_branch_list_tool.tool(), vcs_branch_current_tool.tool(), vcs_branch_show_tool.tool(), vcs_branch_peek_tool.tool(), vcs_branch_overlay_tool.tool(), vcs_merge_status_tool.tool()]
 }
@@ -96,8 +102,15 @@ fn all_tools() -> List[t.Tool] {
   list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), check_tool.tool(), audit_tool.tool(), run_tool.tool(), test_tool.tool(), spec_check_tool.tool(), spec_smt_tool.tool(), sigid_tool.tool(), attest_tool.tool(), effects_tool.tool(), store_diff_tool.tool(), store_apply_tool.tool(), store_merge_tool.tool(), guidelines_tool.tool()], vcs_tools())
 }
 
+fn tools_for_spec(spec :: sp.Spec) -> List[t.Tool] {
+  list.filter(all_tools(), fn (tool :: t.Tool) -> Bool {
+    let bindings := [("tool", VStr(tool.name))]
+    sp.verdict_is_allow(ev.eval(spec, bindings))
+  })
+}
+
 fn read_only_tools() -> List[t.Tool] {
-  list.concat([read_tool.tool(), grep_tool.tool(), glob_tool.tool(), check_tool.tool(), audit_tool.tool(), sigid_tool.tool(), effects_tool.tool(), attest_tool.tool(), guidelines_tool.tool()], vcs_read_tools())
+  tools_for_spec(rules.explore_permission())
 }
 
 fn standard_tools() -> List[t.Tool] {
@@ -113,18 +126,18 @@ fn lex_cli_tools() -> List[t.Tool] {
 }
 
 fn refactor_tools() -> List[t.Tool] {
-  list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), check_tool.tool(), audit_tool.tool(), sigid_tool.tool(), effects_tool.tool(), store_diff_tool.tool(), store_apply_tool.tool(), store_merge_tool.tool()], vcs_tools())
+  tools_for_spec(rules.refactor_permission())
 }
 
 fn spec_tools() -> List[t.Tool] {
-  [read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), check_tool.tool(), spec_check_tool.tool(), spec_smt_tool.tool()]
+  tools_for_spec(rules.spec_permission())
 }
 
 fn test_tools() -> List[t.Tool] {
-  [read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), check_tool.tool(), run_tool.tool(), test_tool.tool()]
+  tools_for_spec(rules.test_permission())
 }
 
 fn review_tools() -> List[t.Tool] {
-  list.concat([read_tool.tool(), grep_tool.tool(), glob_tool.tool(), check_tool.tool(), audit_tool.tool(), sigid_tool.tool(), effects_tool.tool(), attest_tool.tool()], vcs_read_tools())
+  tools_for_spec(rules.review_permission())
 }
 

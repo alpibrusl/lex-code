@@ -26,17 +26,26 @@ fn allow_tools(rule_name :: Str, allowed :: List[Str]) -> sp.Spec {
   { name: rule_name, quantifiers: [QStr("tool")], predicate: any_of(list.map(allowed, tool_eq)) }
 }
 
+# ---- VCS name lists (canonical, reused below) ----------------------
+fn vcs_read_names() -> List[Str] {
+  ["vcs_ast_diff", "vcs_op_show", "vcs_op_log", "vcs_branch_list", "vcs_branch_current", "vcs_branch_show", "vcs_branch_peek", "vcs_branch_overlay", "vcs_merge_status"]
+}
+
+fn vcs_write_names() -> List[Str] {
+  ["vcs_branch_create", "vcs_branch_use", "vcs_merge_start", "vcs_merge_resolve", "vcs_merge_defer", "vcs_merge_commit"]
+}
+
 # ---- Per-agent rules -----------------------------------------------
 fn explore_permission() -> sp.Spec {
-  allow_tools("explore_tools", ["read", "grep", "glob", "lex_check", "lex_audit", "sigid_lookup", "effects_of", "attestation_query"])
+  allow_tools("explore_tools", list.concat(["read", "grep", "glob", "lex_check", "lex_audit", "sigid_lookup", "effects_of", "attestation_query", "load_guidelines"], vcs_read_names()))
 }
 
 fn plan_permission() -> sp.Spec {
-  allow_tools("plan_tools", ["read", "grep", "glob", "lex_check", "lex_audit", "todowrite"])
+  allow_tools("plan_tools", list.concat(["read", "grep", "glob", "lex_check", "lex_audit", "todowrite", "load_guidelines"], vcs_read_names()))
 }
 
 fn review_permission() -> sp.Spec {
-  allow_tools("review_tools", ["read", "grep", "glob", "lex_check", "lex_audit", "sigid_lookup", "effects_of", "attestation_query"])
+  allow_tools("review_tools", list.concat(["read", "grep", "glob", "lex_check", "lex_audit", "sigid_lookup", "effects_of", "attestation_query", "load_guidelines"], vcs_read_names()))
 }
 
 fn spec_permission() -> sp.Spec {
@@ -44,7 +53,7 @@ fn spec_permission() -> sp.Spec {
 }
 
 fn refactor_permission() -> sp.Spec {
-  allow_tools("refactor_tools", ["read", "write", "edit", "grep", "glob", "bash", "lex_check", "lex_audit", "sigid_lookup", "effects_of", "lex_store_diff", "lex_store_apply", "lex_store_merge"])
+  allow_tools("refactor_tools", list.concat(["read", "write", "edit", "grep", "glob", "bash", "lex_check", "lex_audit", "sigid_lookup", "effects_of", "lex_store_diff", "lex_store_apply", "lex_store_merge"], list.concat(vcs_read_names(), vcs_write_names())))
 }
 
 fn test_permission() -> sp.Spec {
