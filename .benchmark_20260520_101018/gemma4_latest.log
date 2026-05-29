@@ -1,0 +1,8 @@
+*   Write the pure Lex function `fib(n)` for the nth Fibonacci number, including the mandatory `examples {}` block.
+*   Run `lex_check` to ensure the syntax and type system are satisfied.
+
+I will write the code to `fib.lex`.
+
+
+[tool: write][running: write][ok]
+null

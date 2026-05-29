@@ -1,0 +1,7 @@
+I will write the requested function to a temporary file, check its purity and syntax, and then present the final code.
+
+First, I will write the pure Lex function `fib` to a file called `fib_fib.lex`.
+
+
+[tool: write][running: write][ok]
+null

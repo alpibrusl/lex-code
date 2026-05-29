@@ -1,0 +1,6 @@
+I'll write a pure Lex function to compute the nth Fibonacci number recursively with examples.
+
+First, let me create the function with proper type annotations and examples:
+[tool: write]
+[tool: lex][running: write][ok][running: lex][ok]
+null

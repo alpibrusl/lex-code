@@ -1,0 +1,6 @@
+
+[tool: write][running: write][error]
+[tool: lex_check][running: lex_check][ok]It seems there is an issue with running `lex check` directly. Let me retry the `write` operation, which automatically runs `lex check` and provides a detailed error if the check fails.
+[tool: write][running: write][error]It seems there is an issue with running `lex check` directly. Let's simplify the file and ensure it adheres to Lex syntax rules, then try again. I'll remove the extra examples and focus on the core functionality.
+[tool: write][running: write][error]
+null

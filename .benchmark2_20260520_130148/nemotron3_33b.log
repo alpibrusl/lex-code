@@ -1,0 +1,52 @@
+```lex
+import "std.list" as list
+
+type Tree = Leaf | Node(Int, Tree, Tree)
+
+fn insert(t :: Tree, n :: Int) -> Tree
+  examples {
+    insert(Leaf, 5) => Node(5, Leaf, Leaf),
+    insert(Node(5, Leaf, Leaf), 3) => Node(5, Node(3, Leaf, Leaf), Leaf),
+  }
+{ 
+  match t {
+    Leaf => Node(n, Leaf, Leaf),
+    Node(val, left, right) => if n < val {
+      Node(val, insert(left, n), right)
+    } else {
+      Node(val, left, insert(right, n))
+    }
+  }
+}
+
+fn contains(t :: Tree, n :: Int) -> Bool
+  examples {
+    contains(Node(5, Leaf, Leaf), 5) => True,
+    contains(Node(5, Leaf, Leaf), 3) => False,
+  }
+{ 
+  match t {
+    Leaf => False,
+    Node(val, left, right) => if n == val {
+      True
+    } else if n < val {
+      contains(left, n)
+    } else {
+      contains(right, n)
+    }
+  }
+}
+
+fn to_sorted_list(t :: Tree) -> List[Int]
+  examples {
+    to_sorted_list(Leaf) => [],
+    to_sorted_list(Node(5, Node(3, Leaf, Leaf), Node(7, Leaf, Leaf))) => [3,5,7],
+  }
+{ 
+  match t {
+    Leaf => [],
+    Node(val, left, right) => list.concat(list.concat(left, [val]), right)
+  }
+}
+```
+null

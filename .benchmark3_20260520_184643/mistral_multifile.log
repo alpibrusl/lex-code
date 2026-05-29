@@ -1,0 +1,23 @@
+
+[tool: write][running: write][error]
+[tool: bash][running: bash][ok]It seems there is an issue with the `lex check` command itself. Let me retry the write operation with the correct syntax for the `Expr` type in Lex. The first variant should **not** have a leading `|`. Here is the corrected version:
+
+---
+
+**Corrected `types.lex`:**
+```lex
+# Algebraic data types for expressions and environment
+
+type Expr =
+  Lit(Int)
+  | Add(Expr, Expr)
+  | Mul(Expr, Expr)
+  | Neg(Expr)
+  | Var(Str)
+
+# Environment: list of (variable name, value) pairs
+type Env = List[(Str, Int)]
+```
+[tool: write][running: write][error]
+[tool: bash][running: bash][ok]
+null

@@ -1,0 +1,1 @@
+error: runtime: effect handler error: write to `fib.lex` outside --allow-fs-write

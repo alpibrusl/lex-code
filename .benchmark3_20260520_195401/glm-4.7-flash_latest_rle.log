@@ -1,0 +1,1 @@
+benchmark3.sh: line 139: 68875 Alarm clock: 14         OLLAMA_MODEL="$model" perl -e 'alarm 180; exec @ARGV' -- "$LEX" run --allow-effects net,llm,io,proc,sql,time,env,fs_write,fs_read,concurrent --allow-fs-read / --allow-fs-write "$taskdir" --allow-net-host localhost --max-steps 100000000 "$CODEDIR/src/tui/main.lex" main -- --ollama "$task_prompt"

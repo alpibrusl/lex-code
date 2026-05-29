@@ -1,0 +1,10 @@
+I will write the pure Lex function `fib` and add examples for testing.
+
+### Plan
+1. Write the pure Lex function `fib(n :: Int) -> Int` implementing the standard recursive Fibonacci logic.
+2. Include an `examples {}` block for common test cases.
+3. Run `lex_check` to ensure type safety and correctness.
+
+
+[tool: write][running: write][ok]
+null

@@ -1,0 +1,7 @@
+I will write the pure function `fibonacci(n)` which calculates the nth Fibonacci number recursively, and include the required `examples {}` block.
+
+First, I will write the code.
+
+
+[tool: write][running: write][ok]
+null

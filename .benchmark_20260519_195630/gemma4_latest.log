@@ -1,0 +1,7 @@
+I will write the requested pure function, `fib`, using a recursive definition, and include necessary examples.
+
+A note on performance: While this solution meets the recursive requirement, remember that standard recursive Fibonacci implementations are highly inefficient (O($2^n$)). For production use with large $n$, consider using an iterative or memoized approach.
+
+
+[tool: write][running: write][ok]
+null

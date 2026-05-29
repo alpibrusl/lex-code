@@ -1,0 +1,1 @@
+benchmark3.sh: line 161: 74122 Alarm clock: 14         perl -e 'alarm 180; exec @ARGV' -- "$LEX" run --allow-effects net,llm,io,proc,sql,time,env,fs_write,fs_read,concurrent --allow-fs-read / --allow-fs-write "$taskdir" --allow-net-host api.mistral.ai --max-steps 100000000 "$CODEDIR/src/tui/main.lex" main -- --mistral "$task_prompt"

@@ -1,0 +1,7 @@
+I will write the pure function `fib` in a file called `fibonacci.lex`.
+
+The function will implement the recursive definition of the Fibonacci sequence and include several examples for testing.
+
+
+[tool: write][running: write][ok]
+null

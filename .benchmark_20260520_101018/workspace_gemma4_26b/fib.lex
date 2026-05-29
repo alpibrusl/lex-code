@@ -1,0 +1,21 @@
+fn fib(n :: Int) -> Int
+  examples {
+    fib(0) => 0,
+    fib(1) => 1,
+    fib(2) => 1,
+    fib(3) => 2,
+    fib(4) => 3,
+    fib(5) => 5,
+    fib(6) => 8,
+  }
+{
+  if n <= 0 {
+    0
+  } else {
+    if n == 1 {
+      1
+    } else {
+      fib(n - 1) + fib(n - 2)
+    }
+  }
+}

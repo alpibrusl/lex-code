@@ -1,0 +1,3 @@
+I'll create the two files for the expression evaluator. Let me start with `types.lex`:
+[tool: write][running: write][error]
+null

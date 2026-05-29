@@ -1,0 +1,5 @@
+I'll implement the expression evaluator split across two files as requested.
+
+First, let me create the types.lex file with the required type definitions:
+[tool: write][running: write][ok]
+null

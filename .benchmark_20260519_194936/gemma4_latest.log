@@ -1,0 +1,7 @@
+I will write a pure Lex function `fibonacci` that recursively calculates the nth Fibonacci number, ensuring it includes an `examples {}` block for testing.
+
+I will start by writing the content to a new file named `math.lex`.
+
+
+[tool: write][running: write][ok]
+null

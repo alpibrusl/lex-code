@@ -1,0 +1,7 @@
+The best way to write this is to define the function, include the necessary base cases for the recursion, and provide the `examples {}` block.
+
+I will write the function `fibonacci(n :: Int) -> Int` and then check it.
+
+
+[tool: write][running: write][ok]
+null

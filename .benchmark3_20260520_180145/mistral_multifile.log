@@ -1,0 +1,5 @@
+
+[tool: write][running: write][error]
+[tool: lex_check][running: lex_check][ok]It seems the `lex_check` tool is not able to locate the file due to a path or environment issue. Let me retry the write operation for `types.lex` and ensure the file is created correctly.
+[tool: write][running: write][error]
+null

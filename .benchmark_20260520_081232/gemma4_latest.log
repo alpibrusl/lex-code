@@ -1,0 +1,5 @@
+I will write the `fib` function which recursively calculates the nth Fibonacci number. Since it is a pure computation, it will have no effect annotation.
+
+
+[tool: write][running: write][ok]
+null

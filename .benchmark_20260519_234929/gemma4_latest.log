@@ -1,0 +1,5 @@
+I will write the pure Lex function `fib` which calculates the $n$-th Fibonacci number using recursion and include the required `examples` block.
+
+
+[tool: write][running: write][ok]
+null

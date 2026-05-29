@@ -1,0 +1,7 @@
+I can certainly write that for you. Since the computation is purely mathematical, the function will be pure (no effect annotation).
+
+I will create a file named `math.lex` containing the function and its examples, then run a type check.
+
+
+[tool: write][running: write][ok]
+null
