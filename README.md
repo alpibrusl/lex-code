@@ -79,8 +79,8 @@ lex-code --plan --ollama "how should we structure the session module?"
 | Flag | Provider | Model | Key required |
 |------|----------|-------|--------------|
 | *(default)* | Anthropic | claude-sonnet-4-6 | `ANTHROPIC_API_KEY` |
-| `--openai` | OpenAI | gpt-4o | `OPENAI_API_KEY` |
-| `--google` | Google | gemini-2.0-flash | `GOOGLE_API_KEY` |
+| `--openai` | OpenAI | gpt-5.5 | `OPENAI_API_KEY` |
+| `--google` | Google | gemini-3.5-flash | `GOOGLE_API_KEY` |
 | `--mistral` | Mistral | mistral-large-latest | `MISTRAL_API_KEY` |
 | `--ollama` | Ollama (local) | codellama | none |
 | `--vllm` | vLLM (local/remote) | `$VLLM_MODEL` | none |

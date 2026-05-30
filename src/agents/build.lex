@@ -20,7 +20,7 @@ fn agent() -> [env] ag.AgentDef {
 }
 
 fn openai_agent() -> [env] ag.AgentDef {
-  let base := { name: "build", goal: bpo.system(), model: prov.gpt4o(), provider: providers.openai(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
+  let base := { name: "build", goal: bpo.system(), model: prov.gpt55(), provider: providers.openai(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
