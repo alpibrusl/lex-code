@@ -1,7 +1,7 @@
 [package]
 name    = "lex-code"
 version = "0.1.0"
-lex     = "0.9.5"
+lex     = "0.9.7"
 
 [dependencies]
 "lex-llm"    = { path = "../lex-llm" }
