@@ -77,3 +77,17 @@ jobs:
       - name: Format check
         run: lex fmt --check src/
         working-directory: lex-code
+
+      - name: Manifesto demos
+        run: |
+          set -e
+          echo "== effect-typed parallel orchestration must type-check =="
+          lex check examples/manifesto_parallel.lex
+          echo "== negative twin (missing [concurrent]) must be REJECTED =="
+          if lex check examples/manifesto_parallel_bad.lex >/dev/null 2>&1; then
+            echo "::error::manifesto_parallel_bad.lex type-checked but must be rejected"
+            exit 1
+          fi
+          echo "== semantic diff must surface the effect-row change =="
+          bash examples/manifesto_semantic_diff/run.sh
+        working-directory: lex-code
