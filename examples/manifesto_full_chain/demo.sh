@@ -57,7 +57,7 @@ pause 2.0
 
 # ── Negative twin ─────────────────────────────────────────────────────
 hdr "orchestrator_bad.lex  →  must be REJECTED"
-slow "  Same body. Wrong declared row: missing llm, proc, sql, fs_write."
+slow "  Same body. Wrong declared row — only 5 effects declared, body uses 9."
 echo
 pause 1.0
 
@@ -95,7 +95,21 @@ cmd "lex run examples/manifesto_full_chain/chain_verify.lex main \\"
 echo "        --allow-effects sql,fs_write,time,io"
 pause 0.5
 "$LEX" run examples/manifesto_full_chain/chain_verify.lex main \
-  --allow-effects sql,fs_write,time,io
+  --allow-effects sql,fs_write,time,io 2>&1 \
+  | python3 -c "
+import sys, re
+raw = sys.stdin.read()
+# io.print in lex 0.9.7 omits newlines — inject them before each logical line
+raw = re.sub(r'(==>)', r'\n\1', raw)
+raw = re.sub(r'(    (?:Ok|Err|VALIDATED|FAIL|UNEXPECTED))', r'\n\1', raw)
+for line in raw.splitlines():
+    line = line.rstrip()
+    if line.endswith('null'):
+        line = line[:-4].rstrip()
+    s = line.strip()
+    if s:
+        print(line)
+"
 echo
 pause 1.5
 

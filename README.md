@@ -6,7 +6,7 @@ A Lex-native coding assistant — think Claude Code or Cursor, built entirely in
 
 Effect-typed parallel orchestration (§VI) + tamper-evident audit (§VIII) — verified live by the type checker:
 
-[![Demo — effect-typed orchestration + hash chain](https://asciinema.org/a/yFiI8KVZf9HLTWie.svg)](https://asciinema.org/a/yFiI8KVZf9HLTWie)
+[![Demo — effect-typed orchestration + hash chain](https://asciinema.org/a/pdL5GnjFtakQi6bC.svg)](https://asciinema.org/a/pdL5GnjFtakQi6bC)
 
 ```sh
 # run it yourself
