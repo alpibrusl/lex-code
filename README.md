@@ -2,6 +2,17 @@
 
 A Lex-native coding assistant — think Claude Code or Cursor, built entirely in the Lex ecosystem.
 
+## Manifesto demo
+
+Effect-typed parallel orchestration (§VI) + tamper-evident audit (§VIII) — verified live by the type checker:
+
+[![Demo — effect-typed orchestration + hash chain](https://asciinema.org/a/yFiI8KVZf9HLTWie.svg)](https://asciinema.org/a/yFiI8KVZf9HLTWie)
+
+```sh
+# run it yourself
+bash examples/manifesto_full_chain/demo.sh
+```
+
 ## Quickstart
 
 ```sh
