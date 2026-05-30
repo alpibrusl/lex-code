@@ -4,7 +4,7 @@
 # Validates two manifesto claims:
 #
 #   §VI  — Effect-typed orchestration: the type checker verifies the composed
-#           row [env,concurrent,net,io,proc,sql,fs_write,time] for run_parallel,
+#           row [env,concurrent,net,llm,io,proc,sql,fs_write,time] for run_parallel,
 #           and REJECTS orchestrator_bad.lex which under-declares it.
 #
 #   §VIII — Hash chain tamper-evidence: verify_chain surfaces a deletion as a
@@ -18,9 +18,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LEX="${LEX:-lex}"
 fail=0
 
-echo "==> §VI  lex check orchestrator.lex (8-effect composition — must pass)"
+echo "==> §VI  lex check orchestrator.lex (9-effect composition — must pass)"
 if "$LEX" check "$HERE/orchestrator.lex"; then
-  echo "    OK: effect row [env,concurrent,net,io,proc,sql,fs_write,time] verified"
+  echo "    OK: effect row [env,concurrent,net,llm,io,proc,sql,fs_write,time] verified"
 else
   echo "    FAIL: orchestrator.lex should type-check cleanly"
   fail=1
@@ -29,7 +29,7 @@ fi
 echo
 echo "==> §VI  lex check orchestrator_bad.lex (under-declared row — must be rejected)"
 if ! "$LEX" check "$HERE/orchestrator_bad.lex" 2>/dev/null; then
-  echo "    OK: lex check rejected the under-declared row (missing proc,sql,fs_write)"
+  echo "    OK: lex check rejected the under-declared row (missing llm,proc,sql,fs_write)"
 else
   echo "    FAIL: orchestrator_bad.lex should have been rejected"
   fail=1
