@@ -51,17 +51,18 @@ fn violations(required :: List[Str], forbidden :: List[Str]) -> List[Str] {
   })
 }
 
-fn extract_effects(check_json :: jv.Json) -> List[Str] {
+fn extract_effects(check_json :: jv.Json) -> Result[List[Str], e.Errors] {
   match jv.get_field(check_json, "data") {
-    None => [],
+    None => Err(e.single("", "missing_field", "lex check JSON missing data.required_effects")),
     Some(data) => match jv.get_field(data, "required_effects") {
-      Some(JList(items)) => list.fold(items, [], fn (acc :: List[Str], j :: jv.Json) -> List[Str] {
+      Some(JList(items)) => Ok(list.fold(items, [], fn (acc :: List[Str], j :: jv.Json) -> List[Str] {
         match j {
           JStr(s) => list.concat(acc, [s]),
           _ => acc,
         }
-      }),
-      _ => [],
+      })),
+      Some(_) => Err(e.single("", "invalid_field", "lex check JSON data.required_effects must be a list")),
+      None => Err(e.single("", "missing_field", "lex check JSON missing data.required_effects")),
     },
   }
 }
@@ -77,18 +78,22 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
       match jv.parse(out.stdout) {
         Err(_) => Err(e.single("", "parse_error", "could not parse lex check output")),
         Ok(parsed) => {
-          let required := extract_effects(parsed)
-          let forbidden := forbidden_for_mode(mode)
-          let violated := violations(required, forbidden)
-          if list.len(violated) == 0 {
-            Ok(JStr(str.concat("grant check passed [mode=", str.concat(mode, str.concat("] effects=", str.join(required, ","))))))
-          } else {
-            Ok(JStr(str.join([
-              "GRANT VIOLATION [mode=", mode, "]\n",
-              "  forbidden effects used: ", str.join(violated, ", "), "\n",
-              "  all required effects:   ", str.join(required, ", "), "\n",
-              "  grant allows:           ", grant_summary_for_mode(mode)
-            ], "")))
+          match extract_effects(parsed) {
+            Err(errs) => Err(errs),
+            Ok(required) => {
+              let forbidden := forbidden_for_mode(mode)
+              let violated := violations(required, forbidden)
+              if list.len(violated) == 0 {
+                Ok(JStr(str.concat("grant check passed [mode=", str.concat(mode, str.concat("] effects=", str.join(required, ","))))))
+              } else {
+                Err(e.single("", "grant_violation", str.join([
+                  "GRANT VIOLATION [mode=", mode, "]\n",
+                  "  forbidden effects used: ", str.join(violated, ", "), "\n",
+                  "  all required effects:   ", str.join(required, ", "), "\n",
+                  "  grant allows:           ", grant_summary_for_mode(mode)
+                ], "")))
+              }
+            },
           }
         },
       }
