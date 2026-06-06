@@ -15,7 +15,7 @@ import "lex-schema/schema" as s
 import "./util" as util
 
 fn params() -> s.ModelSchema {
-  { title: "OsCheckArgs", description: "Check a Lex file's declared effects against the mode's trust grant", fields: [s.required_str("path", []), s.optional(s.required_str("mode", []))] }
+  { title: "OsCheckArgs", description: "Check a Lex file's declared effects against the refactor-mode trust grant", fields: [s.required_str("path", [])] }
 }
 
 # Effects the mode forbids, derived from the lex-os grant for that mode.
@@ -68,7 +68,7 @@ fn extract_effects(check_json :: jv.Json) -> List[Str] {
 
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   let path := util.field_str_or(args, "path", ".")
-  let mode := util.field_str_or(args, "mode", "build")
+  let mode := "refactor"
   match proc.spawn("lex", ["--output", "json", "check", path]) {
     Err(msg) => Err(e.single("", "proc_error", msg)),
     Ok(out) => if out.exit_code != 0 {
@@ -113,5 +113,5 @@ fn grant_summary_for_mode(mode :: Str) -> Str {
 }
 
 fn tool() -> t.Tool {
-  t.define("os_check", "Check a Lex file's declared effects against the mode's trust grant (lex-os integration). Run after lex_check to catch grant violations — e.g. a refactor agent must not use net effects. Returns GRANT VIOLATION with details if the file exceeds the mode's grant.", params(), execute)
+  t.define("os_check", "Check a Lex file's declared effects against the refactor-mode trust grant (lex-os integration). Run after lex_check to catch grant violations — e.g. a refactor agent must not use net effects. The grant mode is fixed by the tool and cannot be overridden by model input. Returns GRANT VIOLATION with details if the file exceeds the refactor grant.", params(), execute)
 }
