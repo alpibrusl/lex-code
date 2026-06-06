@@ -18,6 +18,10 @@ fn params() -> s.ModelSchema {
   { title: "OsCheckArgs", description: "Check a Lex file's declared effects against the refactor-mode trust grant", fields: [s.required_str("path", [])] }
 }
 
+fn network_effects() -> List[Str] {
+  ["net", "http", "mcp", "llm_cloud"]
+}
+
 # Effects the mode forbids, derived from the lex-os grant for that mode.
 #   explore / plan / review — ReadOnly FS, No Net, No Exec
 #   spec                    — ReadWrite FS, No Net, No Exec
@@ -25,13 +29,13 @@ fn params() -> s.ModelSchema {
 #   build                   — Full FS, Allowlist Net, Full Exec (nothing forbidden)
 fn forbidden_for_mode(mode :: Str) -> List[Str] {
   if mode == "explore" or mode == "plan" or mode == "review" {
-    ["net", "proc", "fs_write"]
+    list.concat(network_effects(), ["proc", "fs_write"])
   } else {
     if mode == "spec" {
-      ["net", "proc"]
+      list.concat(network_effects(), ["proc"])
     } else {
       if mode == "test" or mode == "refactor" {
-        ["net"]
+        network_effects()
       } else {
         []
       }
