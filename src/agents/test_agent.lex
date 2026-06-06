@@ -21,7 +21,7 @@ fn mistral_agent() -> [env] ag.AgentDef {
 }
 
 fn ollama_agent() -> [env] ag.AgentDef {
-  let base := { name: "test", goal: tp.system(), model: prov.ollama(providers.ollama_model()), provider: providers.ollama_local(), tools: tools.tools_for_spec(rules.test_permission()), options: { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None }, permission_spec: None }
+  let base := { name: "test", goal: tp.system(), model: prov.ollama(providers.ollama_model()), provider: providers.ollama_local(), tools: [], options: { temperature: None, top_p: None, max_steps: Some(3), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.test_permission())
 }
 

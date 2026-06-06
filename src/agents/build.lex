@@ -20,7 +20,7 @@ fn agent() -> [env] ag.AgentDef {
 }
 
 fn openai_agent() -> [env] ag.AgentDef {
-  let base := { name: "build", goal: bpo.system(), model: prov.gpt55(), provider: providers.openai(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
+  let base := { name: "build", goal: bpo.system(), model: prov.gpt4o(), provider: providers.openai(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
@@ -30,7 +30,7 @@ fn mistral_agent() -> [env] ag.AgentDef {
 }
 
 fn ollama_agent() -> [env] ag.AgentDef {
-  let base := { name: "build", goal: bpo.system(), model: prov.ollama(providers.ollama_model()), provider: providers.ollama_local(), tools: list.concat(tools.standard_tools(), tools.lex_cli_tools()), options: { temperature: None, top_p: None, max_steps: Some(10), max_tokens: None }, permission_spec: None }
+  let base := { name: "build", goal: bpo.system(), model: prov.ollama(providers.ollama_model()), provider: providers.ollama_local(), tools: [], options: { temperature: None, top_p: None, max_steps: Some(3), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 

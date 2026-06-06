@@ -4,11 +4,13 @@ version = "0.1.0"
 lex     = "0.9.7"
 
 [dependencies]
-"lex-llm"    = { path = "../lex-llm" }
-"lex-agent"  = { path = "../lex-agent" }
-"lex-trail"  = { path = "../lex-trail" }
-"lex-spec"   = { path = "../lex-spec" }
-"lex-schema" = { path = "../lex-schema" }
+lex-llm         = { git = "https://github.com/alpibrusl/lex-llm" }
+lex-agent       = { git = "https://github.com/alpibrusl/lex-agent" }
+lex-trail       = { git = "https://github.com/alpibrusl/lex-trail" }
+lex-spec        = { git = "https://github.com/alpibrusl/lex-spec" }
+lex-schema      = { git = "https://github.com/alpibrusl/lex-schema" }
+lex-os-manifest = { git = "https://github.com/alpibrusl/lex-os-manifest" }
+lex-web         = { git = "https://github.com/alpibrusl/lex-web" }
 
 [bin]
 name = "lex-code"
