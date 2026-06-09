@@ -85,6 +85,15 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentDef {
       Test => test_a.vllm_agent(),
       Review => review_a.vllm_agent(),
     },
+    "vertex" => match mode {
+      Build => build_agent.vertex_agent(),
+      Plan => plan_agent.google_agent(),
+      Explore => explore_agent.google_agent(),
+      Refactor => refactor_agent.google_agent(),
+      Spec => spec_a.google_agent(),
+      Test => test_a.google_agent(),
+      Review => review_a.google_agent(),
+    },
     _ => match mode {
       Build => build_agent.agent(),
       Plan => plan_agent.agent(),
