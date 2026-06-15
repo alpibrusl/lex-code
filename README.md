@@ -1,5 +1,9 @@
 # lex-code
 
+[![CI](https://github.com/alpibrusl/lex-code/actions/workflows/ci.yml/badge.svg)](https://github.com/alpibrusl/lex-code/actions/workflows/ci.yml)
+
+**Part of the [Lex](https://lexlang.org) project** — Agents · [Manifesto](https://lexlang.org/manifesto) · [All packages](https://lexlang.org)
+
 A Lex-native coding assistant — think Claude Code or Cursor, built entirely in the Lex ecosystem.
 
 ## [Trust Without Comprehension](https://alpibru.com/manifesto) — live demo
