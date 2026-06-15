@@ -83,12 +83,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
           if list.len(violated) == 0 {
             Ok(JStr(str.concat("grant check passed [mode=", str.concat(mode, str.concat("] effects=", str.join(required, ","))))))
           } else {
-            Ok(JStr(str.join([
-              "GRANT VIOLATION [mode=", mode, "]\n",
-              "  forbidden effects used: ", str.join(violated, ", "), "\n",
-              "  all required effects:   ", str.join(required, ", "), "\n",
-              "  grant allows:           ", grant_summary_for_mode(mode)
-            ], "")))
+            Ok(JStr(str.join(["GRANT VIOLATION [mode=", mode, "]\n", "  forbidden effects used: ", str.join(violated, ", "), "\n", "  all required effects:   ", str.join(required, ", "), "\n", "  grant allows:           ", grant_summary_for_mode(mode)], "")))
           }
         },
       }
@@ -115,3 +110,4 @@ fn grant_summary_for_mode(mode :: Str) -> Str {
 fn tool() -> t.Tool {
   t.define("os_check", "Check a Lex file's declared effects against the mode's trust grant (lex-os integration). Run after lex_check to catch grant violations — e.g. a refactor agent must not use net effects. Returns GRANT VIOLATION with details if the file exceeds the mode's grant.", params(), execute)
 }
+

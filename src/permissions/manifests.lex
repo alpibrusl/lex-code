@@ -17,15 +17,7 @@ import "std.int" as int
 import "std.io" as io
 
 fn manifest_json(goal :: Str, filesystem :: Str, network :: Str, exec_level :: Str, floor :: Str, wall :: Int, cmds :: Int, money :: Int, api_calls :: Int) -> Str {
-  str.join([
-    "{\"goal\":{\"description\":\"", goal, "\"},",
-    "\"grant\":{\"filesystem\":\"", filesystem, "\",\"network\":\"", network, "\",\"exec\":\"", exec_level, "\"},",
-    "\"budget\":{\"wall_clock_secs\":", int.to_str(wall), ",",
-    "\"max_commands\":", int.to_str(cmds), ",",
-    "\"max_money_cents\":", int.to_str(money), ",",
-    "\"max_api_calls\":", int.to_str(api_calls), "},",
-    "\"isolation_floor\":\"", floor, "\",\"egress\":[]}"
-  ], "")
+  str.join(["{\"goal\":{\"description\":\"", goal, "\"},", "\"grant\":{\"filesystem\":\"", filesystem, "\",\"network\":\"", network, "\",\"exec\":\"", exec_level, "\"},", "\"budget\":{\"wall_clock_secs\":", int.to_str(wall), ",", "\"max_commands\":", int.to_str(cmds), ",", "\"max_money_cents\":", int.to_str(money), ",", "\"max_api_calls\":", int.to_str(api_calls), "},", "\"isolation_floor\":\"", floor, "\",\"egress\":[]}"], "")
 }
 
 fn explore_manifest_json() -> Str {
@@ -95,3 +87,4 @@ fn write_manifest_for_mode(mode :: Str) -> [io] Result[Str, Str] {
     Err(e) => Err(e),
   }
 }
+

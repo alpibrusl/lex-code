@@ -35,13 +35,12 @@ fn main() -> [sql, fs_write, time, io] Unit {
       ()
     },
     Ok(trail) => {
-      let __a1 := log.append(trail, "llm.step",   None, "{\"step\":1,\"tokens_in\":10,\"tokens_out\":8}")
+      let __a1 := log.append(trail, "llm.step", None, "{\"step\":1,\"tokens_in\":10,\"tokens_out\":8}")
       let __a2 := log.append(trail, "cap.invoked", None, "{\"step\":2,\"capability\":\"search\"}")
-      let __a3 := log.append(trail, "llm.step",   None, "{\"step\":3,\"tokens_in\":8,\"tokens_out\":15}")
-
+      let __a3 := log.append(trail, "llm.step", None, "{\"step\":3,\"tokens_in\":8,\"tokens_out\":15}")
       let __h1 := io.print("==> verify_chain on honest 3-event log:")
       match log.verify_chain(trail) {
-        Ok(n)  => {
+        Ok(n) => {
           let __p := io.print(str.concat("    Ok(", str.concat(int.to_str(n), ") — chain intact, all 3 events verified")))
           ()
         },
@@ -50,12 +49,9 @@ fn main() -> [sql, fs_write, time, io] Unit {
           ()
         },
       }
-
-      # Surgically delete the middle event. Content hashes of the
-      # remaining events are still valid — only the chain catches this.
       let __del := sql.exec(trail.db, "DELETE FROM events WHERE seq = 1", [])
-      let __h2  := io.print("")
-      let __h3  := io.print("==> deleted seq=1 (middle event) — verify_chain after deletion:")
+      let __h2 := io.print("")
+      let __h3 := io.print("==> deleted seq=1 (middle event) — verify_chain after deletion:")
       match log.verify_chain(trail) {
         Ok(n) => {
           let __p := io.print(str.concat("    FAIL: verify_chain returned Ok(", str.concat(int.to_str(n), ") — deletion not detected")))
@@ -71,3 +67,4 @@ fn main() -> [sql, fs_write, time, io] Unit {
     },
   }
 }
+

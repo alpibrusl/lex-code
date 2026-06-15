@@ -185,9 +185,9 @@ fn run_headless(task :: Str, provider_tag :: Str) -> [env, io, net, llm, proc, s
     Ok(session) => {
       let result := sess.run_turn_with_provider(session, task, provider_tag)
       let nsteps := list.len(result.steps)
-      let _ := io.print(str.join(["[dbg:steps=", int.to_str(nsteps), "]\n"], ""))
-      let _ := list.map(result.steps, fn (s :: d.Step) -> [io] Nil {
-        let _ := io.print(match s {
+      let __lex_discard_1 := io.print(str.join(["[dbg:steps=", int.to_str(nsteps), "]\n"], ""))
+      let __lex_discard_2 := list.map(result.steps, fn (s :: d.Step) -> [io] Nil {
+        let __lex_discard_3 := io.print(match s {
           StepDelta(delta) => match delta {
             TextChunk(t) => str.join(["[dbg:text:", t, "]\n"], ""),
             ToolCallBegin(_, n) => str.join(["[dbg:toolbegin:", n, "]\n"], ""),
@@ -195,7 +195,11 @@ fn run_headless(task :: Str, provider_tag :: Str) -> [env, io, net, llm, proc, s
             FinishDelta(r) => str.join(["[dbg:finish:", r, "]\n"], ""),
           },
           StepToolExec(n, _) => str.join(["[dbg:exec:", n, "]\n"], ""),
-          StepToolResult(_, ok) => if ok { "[dbg:result:ok]\n" } else { "[dbg:result:err]\n" },
+          StepToolResult(_, ok) => if ok {
+            "[dbg:result:ok]\n"
+          } else {
+            "[dbg:result:err]\n"
+          },
           StepDone(_) => "[dbg:done]\n",
         })
         print_step(s)
