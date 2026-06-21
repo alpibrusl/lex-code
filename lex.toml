@@ -12,6 +12,8 @@ lex-schema      = { git = "https://github.com/alpibrusl/lex-schema" }
 lex-os-manifest = { git = "https://github.com/alpibrusl/lex-os-manifest" }
 lex-web         = { git = "https://github.com/alpibrusl/lex-web" }
 lex-orm         = { git = "https://github.com/alpibrusl/lex-orm" }
+lex-mcp         = { git = "https://github.com/alpibrusl/lex-mcp" }
+lex-agent-llm   = { git = "https://github.com/alpibrusl/lex-agent-llm" }
 
 [bin]
 name = "lex-code"
