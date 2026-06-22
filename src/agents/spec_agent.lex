@@ -25,6 +25,11 @@ fn ollama_agent() -> [env] ag.AgentDef {
   ag.with_permission_gate(base, rules.spec_permission())
 }
 
+fn litellm_agent() -> [env] ag.AgentDef {
+  let base := { name: "spec", goal: sp.system(), model: prov.make_model_ref("litellm", tools.litellm_model()), provider: providers.litellm(), tools: [], options: { temperature: None, top_p: None, max_steps: Some(3), max_tokens: None }, permission_spec: None }
+  ag.with_permission_gate(base, rules.spec_permission())
+}
+
 fn vllm_agent() -> [env] ag.AgentDef {
   let base := { name: "spec", goal: sp.system(), model: prov.vllm(providers.vllm_model()), provider: providers.vllm_local(), tools: tools.tools_for_spec(rules.spec_permission()), options: { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.spec_permission())

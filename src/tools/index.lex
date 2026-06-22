@@ -76,6 +76,8 @@ import "./vcs/merge_commit" as vcs_merge_commit_tool
 
 import "./load_guidelines" as guidelines_tool
 
+import "./load_toolset" as load_toolset_tool
+
 import "lex-llm/tool" as t
 
 import "lex-spec/spec" as sp
@@ -83,6 +85,8 @@ import "lex-spec/spec" as sp
 import "lex-spec/eval" as ev
 
 import "../permissions/rules" as rules
+
+import "std.env" as env
 
 fn vcs_read_tools() -> List[t.Tool] {
   [vcs_ast_diff_tool.tool(), vcs_op_show_tool.tool(), vcs_op_log_tool.tool(), vcs_branch_list_tool.tool(), vcs_branch_current_tool.tool(), vcs_branch_show_tool.tool(), vcs_branch_peek_tool.tool(), vcs_branch_overlay_tool.tool(), vcs_merge_status_tool.tool()]
@@ -102,6 +106,60 @@ fn vcs_tools() -> List[t.Tool] {
 
 fn all_tools() -> List[t.Tool] {
   list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), check_tool.tool(), os_check_tool.tool(), audit_tool.tool(), run_tool.tool(), test_tool.tool(), spec_check_tool.tool(), spec_smt_tool.tool(), sigid_tool.tool(), attest_tool.tool(), effects_tool.tool(), store_diff_tool.tool(), store_apply_tool.tool(), store_merge_tool.tool(), guidelines_tool.tool()], vcs_tools())
+}
+
+# Curated minimal toolset for local models (LiteLLM/Ollama). Full all_tools()
+# ships 38 tool schemas, which overwhelms small local models. This is the
+# read/write/inspect core needed for most build tasks.
+fn minimal_tools() -> List[t.Tool] {
+  [read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), check_tool.tool(), run_tool.tool()]
+}
+
+# Model name advertised to the LiteLLM proxy (must match a model_name in
+# litellm_config.yaml). Override with LITELLM_MODEL.
+fn litellm_model() -> [env] Str {
+  match env.get("LITELLM_MODEL") {
+    None => "qwen3-coder:30b",
+    Some(m) => m,
+  }
+}
+
+# ── Dynamic toolset loading ─────────────────────────────────────────────────
+# Each gate is a lex-spec predicate that is `Allow` only when the matching
+# `loaded_*` binding is true. lex-llm sets those bindings by scanning the
+# conversation for the LOADED_TOOLSET marker emitted by the load_toolset tool,
+# so a gated tool stays hidden until the model explicitly loads its group.
+fn gate_vcs() -> sp.Spec {
+  { name: "gate_vcs", quantifiers: [QBool("loaded_vcs")], predicate: EVar("loaded_vcs") }
+}
+
+fn gate_spec() -> sp.Spec {
+  { name: "gate_spec", quantifiers: [QBool("loaded_spec")], predicate: EVar("loaded_spec") }
+}
+
+fn gate_store() -> sp.Spec {
+  { name: "gate_store", quantifiers: [QBool("loaded_store")], predicate: EVar("loaded_store") }
+}
+
+fn spec_group_tools() -> List[t.Tool] {
+  [spec_check_tool.tool(), spec_smt_tool.tool()]
+}
+
+fn store_group_tools() -> List[t.Tool] {
+  [store_diff_tool.tool(), store_apply_tool.tool(), store_merge_tool.tool()]
+}
+
+fn gate_all(group :: List[t.Tool], spec :: sp.Spec) -> List[t.Tool] {
+  list.map(group, fn (tool :: t.Tool) -> t.Tool {
+    t.with_precondition(tool, spec)
+  })
+}
+
+# Curated minimal core + the load_toolset meta-tool + gated extra groups that
+# only become callable once the model loads them. This is the toolset for
+# local/LiteLLM build agents: small visible surface, full capability on demand.
+fn dynamic_tools() -> List[t.Tool] {
+  list.concat(minimal_tools(), list.concat([load_toolset_tool.tool()], list.concat(gate_all(vcs_tools(), gate_vcs()), list.concat(gate_all(spec_group_tools(), gate_spec()), gate_all(store_group_tools(), gate_store())))))
 }
 
 fn tools_for_spec(spec :: sp.Spec) -> List[t.Tool] {
