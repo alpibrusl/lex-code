@@ -38,7 +38,7 @@ type Session = { id :: Str, mode :: AgentMode, messages :: List[msg.Message], lo
 
 type TurnResult = { steps :: List[d.Step], session :: Session }
 
-fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentDef {
+fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
   match provider_tag {
     "mistral" => match mode {
       Build => build_agent.mistral_agent(),
@@ -75,6 +75,15 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentDef {
       Spec => spec_a.ollama_agent(),
       Test => test_a.ollama_agent(),
       Review => review_a.ollama_agent(),
+    },
+    "litellm" => match mode {
+      Build => build_agent.litellm_agent(),
+      Plan => plan_agent.litellm_agent(),
+      Explore => explore_agent.litellm_agent(),
+      Refactor => refactor_agent.litellm_agent(),
+      Spec => spec_a.litellm_agent(),
+      Test => test_a.litellm_agent(),
+      Review => review_a.litellm_agent(),
     },
     "vllm" => match mode {
       Build => build_agent.vllm_agent(),

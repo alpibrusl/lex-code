@@ -62,13 +62,13 @@ fn code_capability() -> cap.Capability {
 }
 
 # ---- the 7 brains, built once under env ----------------------------
-type Brains = { build :: ag.AgentDef, plan :: ag.AgentDef, explore :: ag.AgentDef, refactor :: ag.AgentDef, spec :: ag.AgentDef, test :: ag.AgentDef, review :: ag.AgentDef }
+type Brains = { build :: ag.AgentLoop, plan :: ag.AgentLoop, explore :: ag.AgentLoop, refactor :: ag.AgentLoop, spec :: ag.AgentLoop, test :: ag.AgentLoop, review :: ag.AgentLoop }
 
 fn build_brains(tag :: Str) -> [env] Brains {
   { build: sess.pick_agent(Build, tag), plan: sess.pick_agent(Plan, tag), explore: sess.pick_agent(Explore, tag), refactor: sess.pick_agent(Refactor, tag), spec: sess.pick_agent(Spec, tag), test: sess.pick_agent(Test, tag), review: sess.pick_agent(Review, tag) }
 }
 
-fn brain_for(b :: Brains, mode :: Str) -> ag.AgentDef {
+fn brain_for(b :: Brains, mode :: Str) -> ag.AgentLoop {
   if mode == "plan" {
     b.plan
   } else {
