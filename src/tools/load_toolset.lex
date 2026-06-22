@@ -41,3 +41,4 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
 fn tool() -> t.Tool {
   t.define("load_toolset", "Load an extra group of tools on demand when the curated default set is not enough. group = \"vcs\" (version-control: branches, diffs, merges), \"spec\" (lex-spec checking + SMT), or \"store\" (code-store diff/apply/merge). The requested tools appear on your NEXT step. Only load what you actually need.", params(), execute)
 }
+

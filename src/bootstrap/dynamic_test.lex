@@ -13,7 +13,9 @@ import "std.int" as int
 import "std.str" as str
 
 fn names(ts :: List[t.Tool]) -> Str {
-  str.join(list.map(ts, fn (x :: t.Tool) -> Str { x.name }), ", ")
+  str.join(list.map(ts, fn (x :: t.Tool) -> Str {
+    x.name
+  }), ", ")
 }
 
 fn main() -> [io] Nil {
@@ -30,3 +32,4 @@ fn main() -> [io] Nil {
   let vis2 := t.filter_available(all, all_loaded)
   io.print(str.concat("visible (all loaded): ", int.to_str(list.len(vis2))))
 }
+
