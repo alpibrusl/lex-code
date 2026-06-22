@@ -38,7 +38,7 @@ type Session = { id :: Str, mode :: AgentMode, messages :: List[msg.Message], lo
 
 type TurnResult = { steps :: List[d.Step], session :: Session }
 
-fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentDef {
+fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
   match provider_tag {
     "mistral" => match mode {
       Build => build_agent.mistral_agent(),

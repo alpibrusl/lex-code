@@ -16,42 +16,42 @@ import "../prompts/build_ollama" as bpo
 
 import "std.list" as list
 
-fn agent() -> [env] ag.AgentDef {
+fn agent() -> [env] ag.AgentLoop {
   let base := { name: "build", goal: bpo.system(), model: prov.claude_sonnet(), provider: providers.anthropic(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
-fn openai_agent() -> [env] ag.AgentDef {
+fn openai_agent() -> [env] ag.AgentLoop {
   let base := { name: "build", goal: bpo.system(), model: prov.gpt4o(), provider: providers.openai(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
-fn mistral_agent() -> [env] ag.AgentDef {
+fn mistral_agent() -> [env] ag.AgentLoop {
   let base := { name: "build", goal: bpo.system(), model: prov.mistral_large(), provider: providers.mistral(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
-fn ollama_agent() -> [env] ag.AgentDef {
+fn ollama_agent() -> [env] ag.AgentLoop {
   let base := { name: "build", goal: bpo.system(), model: prov.ollama(providers.ollama_model()), provider: providers.ollama_local(), tools: tools.minimal_tools(), options: { temperature: None, top_p: None, max_steps: Some(20), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
-fn litellm_agent() -> [env] ag.AgentDef {
+fn litellm_agent() -> [env] ag.AgentLoop {
   let base := { name: "build", goal: bpo.system(), model: prov.make_model_ref("litellm", tools.litellm_model()), provider: providers.litellm(), tools: tools.dynamic_tools(), options: { temperature: None, top_p: None, max_steps: Some(20), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
-fn vllm_agent() -> [env] ag.AgentDef {
+fn vllm_agent() -> [env] ag.AgentLoop {
   let base := { name: "build", goal: bp.system(), model: prov.vllm(providers.vllm_model()), provider: providers.vllm_local(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
-fn google_agent() -> [env] ag.AgentDef {
+fn google_agent() -> [env] ag.AgentLoop {
   let base := { name: "build", goal: bpo.system(), model: prov.gemini_pro(), provider: providers.google(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
-fn vertex_agent() -> [env] ag.AgentDef {
+fn vertex_agent() -> [env] ag.AgentLoop {
   let base := { name: "build", goal: bpo.system(), model: vtx.gemini_35_flash(), provider: providers.vertex(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
