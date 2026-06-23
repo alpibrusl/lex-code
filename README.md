@@ -6,7 +6,7 @@
 
 A Lex-native coding assistant — think Claude Code or Cursor, built entirely in the Lex ecosystem.
 
-## [Trust Without Comprehension](https://alpibru.com/manifesto) — live demo
+## [Trust Without Comprehension](https://lexlang.org/manifesto) — live demo
 
 Effect-typed parallel orchestration (§VI) + tamper-evident audit (§VIII) — verified live by the type checker:
 
@@ -326,4 +326,4 @@ authorised to use.
 
 ---
 
-Built under the principles of [Trust Without Comprehension](https://alpibru.com/manifesto).
+Built under the principles of [Trust Without Comprehension](https://lexlang.org/manifesto).
