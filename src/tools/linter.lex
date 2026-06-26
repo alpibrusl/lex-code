@@ -1,4 +1,4 @@
-import "std.proc" as proc
+import "std.process" as proc
 
 import "std.str" as str
 
@@ -162,7 +162,7 @@ fn translate_lex_error(raw :: Str) -> Str {
 }
 
 fn run_lex_fmt(path :: Str) -> [proc] LintOutcome {
-  match proc.spawn("bash", ["-c", str.concat("\"${LEX:-lex}\" fmt ", path)]) {
+  match proc.run("bash", ["-c", str.concat("\"${LEX:-lex}\" fmt ", path)]) {
     Err(msg) => LintWarn("lex fmt", str.concat("could not run: ", msg)),
     Ok(out) => if out.exit_code == 0 {
       if str.contains(str.trim(out.stdout), "reformatted") {
@@ -177,7 +177,7 @@ fn run_lex_fmt(path :: Str) -> [proc] LintOutcome {
 }
 
 fn run_lex_check(path :: Str) -> [proc] LintOutcome {
-  match proc.spawn("bash", ["-c", str.concat("\"${LEX:-lex}\" check ", path)]) {
+  match proc.run("bash", ["-c", str.concat("\"${LEX:-lex}\" check ", path)]) {
     Err(msg) => LintFail("lex check", str.concat("could not run: ", msg)),
     Ok(out) => if out.exit_code == 0 {
       LintOk("lex check")

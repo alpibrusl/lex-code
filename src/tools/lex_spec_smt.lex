@@ -1,4 +1,4 @@
-import "std.proc" as proc
+import "std.process" as proc
 
 import "std.str" as str
 
@@ -24,7 +24,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
         None => ["spec", "smt", path],
         Some(out_path) => ["spec", "smt", "--out", out_path, path],
       }
-      match proc.spawn("lex", out_args) {
+      match proc.run("lex", out_args) {
         Err(msg) => Err(e.single("", "proc_error", msg)),
         Ok(out) => Ok(JStr(str.concat(out.stdout, out.stderr))),
       }

@@ -1,4 +1,4 @@
-import "std.proc" as proc
+import "std.process" as proc
 
 import "std.str" as str
 
@@ -21,7 +21,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
     None => Err(e.single("", "missing_field", "pattern is required")),
     Some(pattern) => match util.field_str(args, "path") {
       None => Err(e.single("", "missing_field", "path is required")),
-      Some(path) => match proc.spawn("grep", ["-r", "-n", pattern, path]) {
+      Some(path) => match proc.run("grep", ["-r", "-n", pattern, path]) {
         Err(msg) => Err(e.single("", "proc_error", msg)),
         Ok(out) => {
           let result := if str.is_empty(out.stdout) {

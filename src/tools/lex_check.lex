@@ -1,4 +1,4 @@
-import "std.proc" as proc
+import "std.process" as proc
 
 import "std.str" as str
 
@@ -18,7 +18,7 @@ fn params() -> s.ModelSchema {
 
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   let target := util.field_str_or(args, "path", ".")
-  match proc.spawn("lex", ["check", target]) {
+  match proc.run("lex", ["check", target]) {
     Err(msg) => Err(e.single("", "proc_error", msg)),
     Ok(out) => {
       let output := if out.exit_code == 0 {

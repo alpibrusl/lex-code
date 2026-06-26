@@ -1,4 +1,4 @@
-import "std.proc" as proc
+import "std.process" as proc
 
 import "std.str" as str
 
@@ -69,7 +69,7 @@ fn extract_effects(check_json :: jv.Json) -> List[Str] {
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   let path := util.field_str_or(args, "path", ".")
   let mode := util.field_str_or(args, "mode", "build")
-  match proc.spawn("lex", ["--output", "json", "check", path]) {
+  match proc.run("lex", ["--output", "json", "check", path]) {
     Err(msg) => Err(e.single("", "proc_error", msg)),
     Ok(out) => if out.exit_code != 0 {
       Err(e.single("", "lex_check_failed", str.concat(out.stdout, out.stderr)))

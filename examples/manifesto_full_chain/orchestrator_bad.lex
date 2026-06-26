@@ -19,7 +19,7 @@ import "std.http" as http
 
 import "std.bytes" as bytes
 
-import "std.proc" as proc
+import "std.process" as proc
 
 import "std.sql" as sql
 
@@ -91,7 +91,7 @@ fn validate_snippet(code :: Str) -> [proc, io, fs_write] Bool {
   let __mkdir := fs.mkdir_p("/tmp/lex_validate")
   match io.write("/tmp/lex_validate/snippet.lex", code) {
     Err(_) => false,
-    Ok(_) => match proc.spawn("lex", ["check", "/tmp/lex_validate/snippet.lex"]) {
+    Ok(_) => match proc.run("lex", ["check", "/tmp/lex_validate/snippet.lex"]) {
       Ok(r) => r.exit_code == 0,
       Err(_) => false,
     },

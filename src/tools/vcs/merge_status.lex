@@ -1,4 +1,4 @@
-import "std.proc" as proc
+import "std.process" as proc
 
 import "std.str" as str
 
@@ -19,7 +19,7 @@ fn params() -> s.ModelSchema {
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "merge_id") {
     None => Err(e.single("", "missing_field", "merge_id is required")),
-    Some(id) => match proc.spawn("lex", ["merge", "status", id, "--output", "json"]) {
+    Some(id) => match proc.run("lex", ["merge", "status", id, "--output", "json"]) {
       Err(msg) => Err(e.single("", "proc_error", msg)),
       Ok(out) => Ok(JStr(str.concat(out.stdout, out.stderr))),
     },

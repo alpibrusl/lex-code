@@ -1,4 +1,4 @@
-import "std.proc" as proc
+import "std.process" as proc
 
 import "std.str" as str
 
@@ -19,7 +19,7 @@ fn params() -> s.ModelSchema {
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "branch") {
     None => Err(e.single("", "missing_field", "branch is required")),
-    Some(name) => match proc.spawn("lex", ["branch", "use", name, "--output", "json"]) {
+    Some(name) => match proc.run("lex", ["branch", "use", name, "--output", "json"]) {
       Err(msg) => Err(e.single("", "proc_error", msg)),
       Ok(out) => Ok(JStr(str.concat(out.stdout, out.stderr))),
     },

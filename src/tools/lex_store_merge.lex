@@ -1,4 +1,4 @@
-import "std.proc" as proc
+import "std.process" as proc
 
 import "std.str" as str
 
@@ -23,7 +23,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
       None => Err(e.single("", "missing_field", "left is required")),
       Some(left) => match util.field_str(args, "right") {
         None => Err(e.single("", "missing_field", "right is required")),
-        Some(right) => match proc.spawn("lex", ["store", "merge", base, left, right]) {
+        Some(right) => match proc.run("lex", ["store", "merge", base, left, right]) {
           Err(msg) => Err(e.single("", "proc_error", msg)),
           Ok(out) => if out.exit_code == 0 {
             Ok(JStr(str.concat("merged\n", out.stdout)))
