@@ -1,4 +1,4 @@
-import "std.proc" as proc
+import "std.process" as proc
 
 import "std.str" as str
 
@@ -19,7 +19,7 @@ fn params() -> s.ModelSchema {
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "command") {
     None => Err(e.single("", "missing_field", "command is required")),
-    Some(cmd) => match proc.spawn("bash", ["-c", cmd]) {
+    Some(cmd) => match proc.run("bash", ["-c", cmd]) {
       Err(msg) => Err(e.single("", "proc_error", msg)),
       Ok(out) => {
         let combined := str.concat(out.stdout, out.stderr)

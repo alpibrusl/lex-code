@@ -1,4 +1,4 @@
-import "std.proc" as proc
+import "std.process" as proc
 
 import "std.str" as str
 
@@ -36,7 +36,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
         _ => [],
       }
       let cmd := list.concat(base, list.concat(branch_args, list.concat(limit_args, dry_args)))
-      match proc.spawn("lex", cmd) {
+      match proc.run("lex", cmd) {
         Err(msg) => Err(e.single("", "proc_error", msg)),
         Ok(out) => Ok(JStr(str.concat(out.stdout, out.stderr))),
       }

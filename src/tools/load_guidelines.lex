@@ -1,4 +1,4 @@
-import "std.proc" as proc
+import "std.process" as proc
 
 import "lex-llm/tool" as t
 
@@ -13,7 +13,7 @@ fn params() -> s.ModelSchema {
 }
 
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
-  match proc.spawn("lex", ["agent-guidelines"]) {
+  match proc.run("lex", ["agent-guidelines"]) {
     Err(msg) => Err(e.single("", "proc_error", msg)),
     Ok(out) => if out.exit_code == 0 {
       Ok(JStr(out.stdout))

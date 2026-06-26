@@ -1,4 +1,4 @@
-import "std.proc" as proc
+import "std.process" as proc
 
 import "std.str" as str
 
@@ -21,7 +21,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
     None => Err(e.single("", "missing_field", "file_a is required")),
     Some(a) => match util.field_str(args, "file_b") {
       None => Err(e.single("", "missing_field", "file_b is required")),
-      Some(b) => match proc.spawn("lex", ["diff", a, b, "--json"]) {
+      Some(b) => match proc.run("lex", ["diff", a, b, "--json"]) {
         Err(msg) => Err(e.single("", "proc_error", msg)),
         Ok(out) => Ok(JStr(str.concat(out.stdout, out.stderr))),
       },
