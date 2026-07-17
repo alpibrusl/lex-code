@@ -153,13 +153,17 @@ fn select_provider_tag(argv :: List[Str]) -> Str {
         if has_flag(argv, "--vertex") {
           "vertex"
         } else {
-          if has_flag(argv, "--ollama") {
-            "ollama"
+          if has_flag(argv, "--litellm") {
+            "litellm"
           } else {
-            if has_flag(argv, "--vllm") {
-              "vllm"
+            if has_flag(argv, "--ollama") {
+              "ollama"
             } else {
-              "anthropic"
+              if has_flag(argv, "--vllm") {
+                "vllm"
+              } else {
+                "anthropic"
+              }
             }
           }
         }

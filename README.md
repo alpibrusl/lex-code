@@ -86,7 +86,8 @@ lex-code --plan --ollama "how should we structure the session module?"
 | `--openai` | OpenAI | gpt-5.5 | `OPENAI_API_KEY` |
 | `--google` | Google | gemini-3.5-flash | `GOOGLE_API_KEY` |
 | `--mistral` | Mistral | mistral-large-latest | `MISTRAL_API_KEY` |
-| `--ollama` | Ollama (local) | codellama | none |
+| `--litellm` | LiteLLM proxy | `$LITELLM_MODEL` | none (proxy handles keys) |
+| `--ollama` | Ollama (local, native API) | `$OLLAMA_MODEL` | none |
 | `--vllm` | vLLM (local/remote) | `$VLLM_MODEL` | none |
 
 ### Ollama
@@ -115,6 +116,88 @@ VLLM_MODEL=deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct \
 
 `VLLM_MODEL` defaults to `mistralai/Mistral-7B-Instruct-v0.3`.
 `VLLM_BASE_URL` defaults to `http://localhost:8000/v1/chat/completions`.
+
+### LiteLLM (local models via proxy)
+
+[LiteLLM](https://github.com/BerriAI/litellm) is the recommended path for running local models. It provides an OpenAI-compatible endpoint over any backend (Ollama, vLLM, MLX, …), which gives cleaner tool calling than the native Ollama wire format.
+
+```sh
+# start the LiteLLM proxy (config at project root)
+litellm --config litellm_config.yaml --port 4000
+
+# run lex-code against qwen3-coder:30b (recommended local model)
+LITELLM_MODEL=qwen3-coder:30b \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time \
+  src/tui/main.lex main
+
+# one-shot via the --litellm flag
+LITELLM_MODEL=qwen3-coder:30b \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time \
+  src/tui/main.lex main -- --litellm "implement list.zip"
+
+# override the proxy URL (default: http://localhost:4000)
+LITELLM_BASE_URL=http://gpu-box:4000 \
+LITELLM_MODEL=qwen3-coder:30b \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time \
+  src/tui/main.lex main -- --litellm
+```
+
+`LITELLM_MODEL` is the model name as it appears in your `litellm_config.yaml` `model_name` field.
+`LITELLM_BASE_URL` defaults to `http://localhost:4000`.
+
+#### Local model compatibility
+
+Tested on [lex-code fizzbuzz bootstrap](src/bootstrap/fizzbuzz_lex.lex) — task: write `fizzbuzz.lex` with `fn fizzbuzz(n :: Int) -> List[Str]` + 4 unit tests, `lex check` clean, `run_all` returns 0.
+
+| Model | VRAM | Steps | Result | Notes |
+|-------|------|-------|--------|-------|
+| `qwen3-coder:30b` (Q4_K_M) | 45 GB | ~14 LLM rounds | ✅ passes | Best local choice. Correct tool use, proper Lex idioms after linter feedback. |
+| `gemma4:26b` (Q4) | 19 GB | — | ❌ fails | Thinking model: consumes 500–700 tokens on chain-of-thought before any output. Tool calls appear as embedded JSON in `content` instead of `tool_calls`. Generates Python instead of Lex under large context. |
+| `gemma4:latest` (9 B) | 10 GB | — | not tested | Lighter variant; same thinking-model caveats apply. |
+
+**Reliable patterns with `qwen3-coder:30b`:**
+
+```sh
+# Warm the model before a run (first call loads weights, subsequent calls are faster)
+curl -s http://localhost:4000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen3-coder:30b","messages":[{"role":"user","content":"hi"}],"max_tokens":10,"stream":false}' \
+  > /dev/null
+
+LITELLM_MODEL=qwen3-coder:30b \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time \
+  src/bootstrap/fizzbuzz_lex.lex main
+# [fizzbuzz_lex] starting build via litellm
+# [fizzbuzz_lex] done — steps: 71
+```
+
+```sh
+$ lex check fizzbuzz.lex && lex run fizzbuzz.lex run_all
+ok
+0
+```
+
+**Step count explained:** `steps` counts all `d.Step` records emitted by the agent loop — `StepDelta` (per LLM token event), `StepToolExec`, `StepToolResult`, and `StepDone`. One LLM round + one tool call ≈ 5 step records. 71 steps ≈ 14 LLM rounds (`max_steps: 20` counts rounds, not records).
+
+**Avoiding the 0-delta stall:** If Ollama receives many large-context requests in rapid succession it can enter a state where it returns `{"done": false, "response": ""}`. The agent loop sees 0 deltas, emits a silent empty `StepDone`, and the run appears to complete in 1 step with no output. Fix: restart Ollama (`pkill -f "ollama serve" && open -a Ollama`) and avoid batching many large-context calls without pauses.
+
+#### Thinking models (gemma4, deepseek-r1)
+
+Models with a chain-of-thought "thinking" phase need two things to work through LiteLLM:
+
+1. **`max_tokens ≥ 2000`** — thinking tokens count against the budget before any visible output is produced. With `max_tokens: 256` the model exhausts its budget mid-thought and returns empty content.
+2. **`merge_reasoning_content_in_choices: true`** in `litellm_config.yaml` — without this, LiteLLM drops the `content` field when `thinking` is present in the Ollama response.
+
+```yaml
+# litellm_config.yaml
+- model_name: gemma4:26b
+  litellm_params:
+    model: ollama/gemma4:26b
+    api_base: http://localhost:11434
+    merge_reasoning_content_in_choices: true
+```
+
+Even with these fixes, thinking models tend to emit tool calls as embedded JSON in `content` (rather than in the `tool_calls` field) when given 10+ function schemas. The `openai.lex` adapter has a `content_tool_call` fallback parser, but the generated code quality degrades significantly under large context. Use `qwen3-coder:30b` for coding tasks.
 
 ## Server Protocols
 
