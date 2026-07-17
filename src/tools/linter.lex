@@ -72,7 +72,15 @@ fn translate_lex_error(raw :: Str) -> Str {
                 if field == "all" {
                   "fix: `list.all` does not exist. Use `list.fold(xs, true, fn (acc :: Bool, x :: T) -> Bool { if acc { pred(x) } else { false } })`."
                 } else {
-                  str.concat("unknown field '", str.concat(field, "' — check the type definition or stdlib docs."))
+                  if field == "zip" {
+                    "fix: `list.zip` does not exist. Use `list.enumerate(a)` to get `List[(Int, T)]` and index into `b` manually, or build tuples with fold. To compare two equal-length lists as strings: `str.join(a, \",\") == str.join(b, \",\")`."
+                  } else {
+                    if field == "to_str" {
+                      "fix: `str.to_str` does not exist. Use `int.to_str(n)` from `std.int` to convert an Int to Str."
+                    } else {
+                      str.concat("unknown field '", str.concat(field, "' — check the type definition or stdlib docs."))
+                    }
+                  }
                 }
               }
             }
@@ -125,10 +133,10 @@ fn translate_lex_error(raw :: Str) -> Str {
     Err(_) => {
       let s := str.trim(raw)
       if str.contains(s, "unrecognized token `&`") {
-        "parse error: `&&` is not a Lex operator. Use nested `if`: `if a { b } else { false }` for AND, `if a { true } else { b }` for OR."
+        "parse error: `&&` is not valid Lex. Use `a and b` (Lex keyword). Example: `acc and (x == y)`."
       } else {
         if str.contains(s, "unrecognized token `|`") {
-          "parse error: `||` is not a Lex operator. Use nested `if`: `if a { true } else { b }` for OR."
+          "parse error: `||` is not valid Lex. Use `a or b` (Lex keyword). Example: `a or b`."
         } else {
           if str.contains(s, "expected LBrace before block, got If") {
             "parse error: `else if` is not valid in Lex. Write `else { if cond { ... } else { ... } }` instead."
