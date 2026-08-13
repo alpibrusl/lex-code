@@ -46,7 +46,7 @@
 #
 # Run (an editor would spawn this same command as a subprocess):
 #   LEX_CODE_PROVIDER=anthropic ANTHROPIC_API_KEY=… \
-#     lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,crypto,random \
+#     lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,crypto,random,approval \
 #     src/server/client_protocol.lex main
 
 import "std.io" as io
@@ -188,7 +188,7 @@ fn handle_session_new(id :: jv.Json, params :: jv.Json, registry :: Registry, pr
   }
 }
 
-fn handle_session_prompt(id :: jv.Json, params :: jv.Json, registry :: Registry, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time] Registry {
+fn handle_session_prompt(id :: jv.Json, params :: jv.Json, registry :: Registry, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time, approval] Registry {
   let sid := str_field(params, "sessionId")
   let prompt := extract_prompt_text(params)
   match map.get(registry, sid) {
@@ -230,7 +230,7 @@ fn handle_session_close(id :: jv.Json, params :: jv.Json, registry :: Registry) 
 }
 
 # ---- Dispatch + main loop ------------------------------------------------
-fn dispatch(line :: Str, registry :: Registry, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time, crypto, random, fs_write] Registry {
+fn dispatch(line :: Str, registry :: Registry, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time, crypto, random, fs_write, approval] Registry {
   match jv.parse_into_errors(line) {
     Err(_) => {
       let __sent := send(jrpc_error(JNull, -32700, "parse error"))
@@ -256,7 +256,7 @@ fn dispatch(line :: Str, registry :: Registry, provider_tag :: Str) -> [env, net
   }
 }
 
-fn serve(registry :: Registry, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time, crypto, random, fs_write] Nil {
+fn serve(registry :: Registry, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time, crypto, random, fs_write, approval] Nil {
   match io.readline() {
     None => (),
     Some(line) => if str.is_empty(str.trim(line)) {
@@ -267,7 +267,7 @@ fn serve(registry :: Registry, provider_tag :: Str) -> [env, net, llm, io, proc,
   }
 }
 
-fn main() -> [env, net, llm, io, proc, sql, time, crypto, random, fs_write] Nil {
+fn main() -> [env, net, llm, io, proc, sql, time, crypto, random, fs_write, approval] Nil {
   serve(map.new(), provider_tag_from_env())
 }
 

@@ -125,17 +125,17 @@ VLLM_MODEL=deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct \
 ```sh
 # native (direct to the Go endpoint, no proxy)
 export OPENCODE_API_KEY=$(cat ~/.credentials/opencode/key | tr -d '\n')
-lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time \
+lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
   src/tui/main.lex main -- --opencode "implement list.zip"
 
 # override the default model (kimi-k2.7-code)
 OPENCODE_MODEL=qwen3.7-max \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
   src/tui/main.lex main -- --opencode "implement list.zip"
 
 # via the LiteLLM proxy instead (shares one proxy + model list with lex-loom — see below)
 LITELLM_MODEL=deepseek-v4-flash \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
   src/tui/main.lex main -- --litellm "implement list.zip"
 ```
 
@@ -155,23 +155,23 @@ cd ..
 
 # run lex-code against qwen3-coder:30b (recommended local model)
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
   src/tui/main.lex main
 
 # one-shot via the --litellm flag
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
   src/tui/main.lex main -- --litellm "implement list.zip"
 
 # OpenCode Go through the proxy instead of native --opencode
 LITELLM_MODEL=kimi-k2.7-code \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
   src/tui/main.lex main -- --litellm "implement list.zip"
 
 # override the proxy URL (default: http://localhost:4000)
 LITELLM_BASE_URL=http://gpu-box:4000 \
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
   src/tui/main.lex main -- --litellm
 ```
 
@@ -200,7 +200,7 @@ curl -s http://localhost:4000/v1/chat/completions \
   > /dev/null
 
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
   src/bootstrap/fizzbuzz_lex.lex main
 # [fizzbuzz_lex] starting build via litellm
 # [fizzbuzz_lex] done — steps: 71
@@ -287,7 +287,7 @@ Emacs all speak it; opencode is one of the other agents already on the [ACP Regi
 
 ```sh
 LEX_CODE_PROVIDER=anthropic ANTHROPIC_API_KEY=… \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,crypto,random \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,crypto,random,approval \
   src/server/client_protocol.lex main
 ```
 

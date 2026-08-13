@@ -135,11 +135,11 @@ fn new_session_with_provider(id :: Str, mode :: AgentMode, provider_tag :: Str) 
   }
 }
 
-fn run_turn(session :: Session, user_input :: Str) -> [env, net, llm, io, proc, sql, time] TurnResult {
+fn run_turn(session :: Session, user_input :: Str) -> [env, net, llm, io, proc, sql, time, approval] TurnResult {
   run_turn_with_provider(session, user_input, "anthropic")
 }
 
-fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time] TurnResult {
+fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time, approval] TurnResult {
   let user_msg := msg.user(user_input)
   let messages := list.concat(session.messages, [user_msg])
   let agent := pick_agent(session.mode, provider_tag)
@@ -164,7 +164,7 @@ fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag ::
 # tight burst right after the blocking call returns, in step order, not
 # interleaved with live token generation. True interleaved streaming would
 # need a callback threaded into lex-llm's own loop, a larger change.
-fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provider_tag :: Str, on_step :: (d.Step) -> [io] Unit) -> [env, net, llm, io, proc, sql, time] TurnResult {
+fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provider_tag :: Str, on_step :: (d.Step) -> [io] Unit) -> [env, net, llm, io, proc, sql, time, approval] TurnResult {
   let user_msg := msg.user(user_input)
   let messages := list.concat(session.messages, [user_msg])
   let agent := pick_agent(session.mode, provider_tag)
