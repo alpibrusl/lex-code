@@ -124,6 +124,18 @@ fn litellm_model() -> [env] Str {
   }
 }
 
+# Model name for the native OpenCode Go provider (providers.opencode_go(),
+# hits https://opencode.ai/zen/go/v1 directly — no local proxy needed).
+# Default is a coding-oriented model on the Go plan; override with
+# OPENCODE_MODEL. See litellm/config.yaml for the full Go-plan model list
+# (also reachable via --litellm once the proxy is running).
+fn opencode_model() -> [env] Str {
+  match env.get("OPENCODE_MODEL") {
+    None => "kimi-k2.7-code",
+    Some(m) => m,
+  }
+}
+
 # ── Dynamic toolset loading ─────────────────────────────────────────────────
 # Each gate is a lex-spec predicate that is `Allow` only when the matching
 # `loaded_*` binding is true. lex-llm sets those bindings by scanning the

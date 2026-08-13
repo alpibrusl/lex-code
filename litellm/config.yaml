@@ -1,0 +1,302 @@
+# LiteLLM proxy config for lex-code — kept in sync with lex-loom's own
+# litellm/config.yaml (same model list, including the OpenCode Go plan)
+# since both repos are meant to work against the same proxy instance.
+#
+# Two auth modes:
+#
+# 1. API keys (Anthropic / OpenAI):
+#    Set ANTHROPIC_API_KEY and/or OPENAI_API_KEY in your environment before
+#    running docker compose, then use model names like claude-sonnet-4-6.
+#
+# 2. ChatGPT subscription (no API key needed):
+#    LiteLLM uses an OAuth device flow on first request — it prints a URL,
+#    you open it in a browser, and the token is cached in auth.json.
+#    Use model names prefixed with chatgpt/: chatgpt/gpt-5.3-chat-latest
+#
+# 3. Claude Code Max subscription:
+#    forward_client_headers_to_llm_api forwards the OAuth token that Claude
+#    Code places in the Authorization header. Set ANTHROPIC_BASE_URL=http://localhost:4000
+#    in Claude Code's env to route it through this proxy for cost tracking.
+#    Note: lex-code itself still needs ANTHROPIC_API_KEY to talk to Claude.
+#
+# 4. OpenCode Go plan (see the "OpenCode Go plan" section below):
+#    Set OPENCODE_API_KEY before docker compose up, then point LITELLM_MODEL
+#    at any entry in that section (deepseek-v4-flash, qwen3.7-max, kimi-k3, ...).
+#    Prefer this over lex-code's native --opencode flag when you want a single
+#    proxy shared with lex-loom, request-timeout/retry policy, or cost tracking.
+#
+# Usage:
+#   cd litellm
+#   ANTHROPIC_API_KEY=... OPENAI_API_KEY=... OPENCODE_API_KEY=... docker compose up -d
+#
+#   # lex-code via API key:
+#   LITELLM_BASE_URL=http://localhost:4000 LITELLM_MODEL=claude-sonnet-4-6 \
+#     lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time src/tui/main.lex main -- --litellm "implement list.zip"
+#
+#   # lex-code via OpenCode Go through the proxy:
+#   LITELLM_BASE_URL=http://localhost:4000 LITELLM_MODEL=kimi-k2.7-code \
+#     lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time src/tui/main.lex main -- --litellm "implement list.zip"
+#
+#   # lex-code via ChatGPT subscription:
+#   LITELLM_BASE_URL=http://localhost:4000 LITELLM_MODEL=chatgpt/gpt-5.3-chat-latest \
+#     lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time src/tui/main.lex main -- --litellm "implement list.zip"
+
+model_list:
+
+  # ── Ollama local models (host machine) ────────────────────────────────────
+  # Requires Ollama running on the host at port 11434.
+  # From Docker: api_base uses host.docker.internal (add extra_hosts in compose).
+  # From host: set OLLAMA_HOST=http://localhost:11434 or leave default.
+  #
+  # Recommended for code tasks: qwen3-coder:30b
+  #   ollama pull qwen3-coder:30b
+  #   LITELLM_BASE_URL=http://localhost:4000 MODEL=qwen3-coder:30b lex run src/main.lex
+  #
+  # NOTE on thinking models (gemma4:26b, deepseek-r1):
+  #   These models spend 500-700 tokens on chain-of-thought BEFORE producing output.
+  #   max_tokens must be >= 2000 or they return empty content. merge_reasoning_content_in_choices
+  #   is required so the visible text is not silently dropped by LiteLLM.
+  #   Tool calling with these models is unreliable under large context (10+ tools).
+  #   Prefer qwen3-coder:30b or devstral-small-2 for code agent tasks.
+
+  - model_name: qwen3-coder:30b
+    litellm_params:
+      model: ollama/qwen3-coder:30b
+      api_base: http://host.docker.internal:11434
+
+  - model_name: devstral-small-2:latest
+    litellm_params:
+      model: ollama/devstral-small-2:latest
+      api_base: http://host.docker.internal:11434
+
+  - model_name: gemma4:26b
+    litellm_params:
+      model: ollama/gemma4:26b
+      api_base: http://host.docker.internal:11434
+      merge_reasoning_content_in_choices: true
+
+  - model_name: gemma4:latest
+    litellm_params:
+      model: ollama/gemma4:latest
+      api_base: http://host.docker.internal:11434
+      merge_reasoning_content_in_choices: true
+
+  # ── Anthropic API key ──────────────────────────────────────────────────────
+  - model_name: claude-opus-4-7
+    litellm_params:
+      model: anthropic/claude-opus-4-7
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: claude-haiku-4-5
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # ── OpenAI API key ─────────────────────────────────────────────────────────
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: o3-mini
+    litellm_params:
+      model: openai/o3-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+  # ── ChatGPT subscription (device flow OAuth, no API key needed) ────────────
+  # First request prints a browser URL to authenticate. Token is cached.
+  - model_name: chatgpt/gpt-5.3-chat-latest
+    litellm_params:
+      model: chatgpt/gpt-5.3-chat-latest
+
+  - model_name: chatgpt/gpt-5.4
+    litellm_params:
+      model: chatgpt/gpt-5.4
+
+  - model_name: chatgpt/gpt-5.3-codex
+    litellm_params:
+      model: chatgpt/gpt-5.3-codex
+
+  # ── OpenCode Go plan ───────────────────────────────────────────────────────
+  # Set OPENCODE_API_KEY=$(cat ~/.credentials/opencode/key) before compose up.
+  # All Go plan models run in thinking mode — merge_reasoning_content_in_choices
+  # is required on every entry so reasoning traces don't silently replace content.
+  #
+  # Note: tool_choice=required is rejected by all thinking-mode models.
+  # lex-code uses tool_choice=auto (via lex-llm, shared with lex-loom) so
+  # this works correctly.
+
+  # DeepSeek
+  - model_name: deepseek-v4-flash
+    litellm_params:
+      model: openai/deepseek-v4-flash
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: deepseek-v4-pro
+    litellm_params:
+      model: openai/deepseek-v4-pro
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  # Qwen3 (Alibaba)
+  - model_name: qwen3.7-max
+    litellm_params:
+      model: openai/qwen3.7-max
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: qwen3.7-plus
+    litellm_params:
+      model: openai/qwen3.7-plus
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: qwen3.6-plus
+    litellm_params:
+      model: openai/qwen3.6-plus
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: qwen3.5-plus
+    litellm_params:
+      model: openai/qwen3.5-plus
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  # Kimi (Moonshot AI)
+  - model_name: kimi-k3
+    litellm_params:
+      model: openai/kimi-k3
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: kimi-k2.7-code
+    litellm_params:
+      model: openai/kimi-k2.7-code
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: kimi-k2.6
+    litellm_params:
+      model: openai/kimi-k2.6
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: kimi-k2.5
+    litellm_params:
+      model: openai/kimi-k2.5
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  # MiniMax
+  - model_name: minimax-m3
+    litellm_params:
+      model: openai/minimax-m3
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: minimax-m2.7
+    litellm_params:
+      model: openai/minimax-m2.7
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: minimax-m2.5
+    litellm_params:
+      model: openai/minimax-m2.5
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  # GLM (Z.ai / Zhipu)
+  # glm-5.2 confirmed available on Go plan API (local models.json cache was stale)
+  - model_name: glm-5.2
+    litellm_params:
+      model: openai/glm-5.2
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: glm-5.1
+    litellm_params:
+      model: openai/glm-5.1
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: glm-5
+    litellm_params:
+      model: openai/glm-5
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  # MiMo (Xiaomi)
+  - model_name: mimo-v2.5-pro
+    litellm_params:
+      model: openai/mimo-v2.5-pro
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: mimo-v2.5
+    litellm_params:
+      model: openai/mimo-v2.5
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: mimo-v2-pro
+    litellm_params:
+      model: openai/mimo-v2-pro
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: mimo-v2-omni
+    litellm_params:
+      model: openai/mimo-v2-omni
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  # ── Google Gemini API key (optional) ──────────────────────────────────────
+  # - model_name: gemini-2.5-flash
+  #   litellm_params:
+  #     model: gemini/gemini-2.5-flash
+  #     api_key: os.environ/GOOGLE_API_KEY
+
+litellm_settings:
+  drop_params: true
+  request_timeout: 120
+  num_retries: 2
+
+general_settings:
+  # Enables Claude Code Max subscription forwarding.
+  # Claude Code must be configured with ANTHROPIC_BASE_URL=http://localhost:4000
+  forward_client_headers_to_llm_api: true
+  # Uncomment to require a key on all requests:
+  # master_key: os.environ/LITELLM_API_KEY

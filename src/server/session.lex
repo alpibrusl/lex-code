@@ -103,6 +103,15 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Test => test_a.google_agent(),
       Review => review_a.google_agent(),
     },
+    "opencode" => match mode {
+      Build => build_agent.opencode_agent(),
+      Plan => plan_agent.opencode_agent(),
+      Explore => explore_agent.opencode_agent(),
+      Refactor => refactor_agent.opencode_agent(),
+      Spec => spec_a.opencode_agent(),
+      Test => test_a.opencode_agent(),
+      Review => review_a.opencode_agent(),
+    },
     _ => match mode {
       Build => build_agent.agent(),
       Plan => plan_agent.agent(),
