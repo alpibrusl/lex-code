@@ -279,6 +279,26 @@ curl -X POST http://localhost:8080/runs/stream \
 # data: {"run_id":"...","agent_id":"lex-code","status":"completed","output":[...]}
 ```
 
+### Agent Client Protocol (ACP, Zed) — Phase 1
+
+Not the same "ACP" as above — this is [Zed's Agent Client Protocol](https://zed.dev/acp), an unrelated
+JSON-RPC-over-stdio standard for launching a coding agent as a subprocess (Zed, JetBrains, Neovim, and
+Emacs all speak it; opencode is one of the other agents already on the [ACP Registry](https://zed.dev/blog/acp-registry)).
+
+```sh
+LEX_CODE_PROVIDER=anthropic ANTHROPIC_API_KEY=… \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,crypto,random \
+  src/server/client_protocol.lex main
+```
+
+Phase 1 covers `initialize`, `session/new`, `session/prompt` (streaming `session/update`
+notifications per step), and `session/close` — enough to work from an ACP-aware editor. Not yet
+implemented: `session/request_permission`, `$/cancel_request`, client-mediated `fs/*`/`terminal/*`,
+and `auth/login` — see the header comment in `src/server/client_protocol.lex` for why each is
+deferred rather than silently missing. The exact `session/update` field shapes are a best-effort
+reconstruction of the protocol's v2 schema; validate against a real client before relying on this
+for production interop.
+
 ## Tools
 
 ### Standard tools (all modes)
@@ -442,6 +462,7 @@ authorised to use.
 - [x] v0.4 — lex-vcs tools (17), CLI one-shot mode, Ollama + vLLM providers, install target
 - [x] v0.5 — ACP server (`src/server/acp.lex`), ACP helpers in lex-agent
 - [x] v0.6 — OpenCode Go provider (native + via the bundled LiteLLM proxy, shared config with lex-loom)
+- [x] v0.7 — Agent Client Protocol (Zed) server, Phase 1: `initialize`/`session/new`/`session/prompt`/`session/close`
 
 ---
 

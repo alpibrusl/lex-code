@@ -62,10 +62,19 @@ directory exists.
   the *same* permission spec — don't special-case one provider's tool
   list without updating its spec.
 - **`src/server/session.lex` is the single turn-handling path.** The
-  TUI, the A2A server (`src/server/api.lex`), and the ACP server
-  (`src/server/acp.lex`) are three transports over the same
-  `Session`/`run_turn_with_provider`. Extend `session.lex`, don't
-  duplicate turn logic into a transport file.
+  TUI, the A2A server (`src/server/api.lex`), the BeeAI ACP server
+  (`src/server/acp.lex`), and the Zed Agent Client Protocol server
+  (`src/server/client_protocol.lex`) are four transports over the same
+  `Session`/`run_turn_with_provider` (`run_turn_streaming_with_provider`
+  for the one transport — ACP — that needs a per-step callback). Extend
+  `session.lex`, don't duplicate turn logic into a transport file.
+- **Two different protocols are both called "ACP" in this repo.**
+  `src/server/acp.lex` is BeeAI's REST-based Agent Communication
+  Protocol. `src/server/client_protocol.lex` is Zed's JSON-RPC-over-
+  stdio Agent Client Protocol — an unrelated standard that happens to
+  share the acronym. Don't rename either file to disambiguate further;
+  the doc comments at the top of each already do, and the README's
+  "Server Protocols" section labels them accordingly.
 - **LiteLLM config lives in `litellm/`.** `config.yaml` +
   `docker-compose.yml` are the reference proxy setup (Ollama local
   models, vLLM, ChatGPT/Claude subscription passthrough, OpenCode Go)

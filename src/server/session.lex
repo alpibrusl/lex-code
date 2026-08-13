@@ -154,6 +154,43 @@ fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag ::
   { steps: steps, session: updated }
 }
 
+# Same turn-handling as run_turn_with_provider, but invokes on_step for each
+# Step as it's pulled off the loop's Iter instead of collecting the whole
+# thing first — so a caller (the ACP server) can emit a protocol notification
+# per step. Note this is NOT token-level real-time streaming: run_loop_traced
+# already runs the full LLM/tool loop to completion internally before
+# returning its Iter (see lex-llm/src/agent.lex's run_loop_traced, which
+# wraps an already-materialized list via iter.from_list) — on_step fires in a
+# tight burst right after the blocking call returns, in step order, not
+# interleaved with live token generation. True interleaved streaming would
+# need a callback threaded into lex-llm's own loop, a larger change.
+fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provider_tag :: Str, on_step :: (d.Step) -> [io] Unit) -> [env, net, llm, io, proc, sql, time] TurnResult {
+  let user_msg := msg.user(user_input)
+  let messages := list.concat(session.messages, [user_msg])
+  let agent := pick_agent(session.mode, provider_tag)
+  let step_iter := ag.run_loop_traced(agent, messages, session.log, session.parent)
+  let steps := drain_with_callback(step_iter, on_step)
+  let final_msg := find_done_msg(steps)
+  let new_msgs := match final_msg {
+    None => messages,
+    Some(m) => list.concat(messages, [m]),
+  }
+  let updated := { id: session.id, mode: session.mode, messages: new_msgs, log: session.log, parent: None }
+  { steps: steps, session: updated }
+}
+
+fn drain_with_callback(it :: Iter[d.Step], on_step :: (d.Step) -> [io] Unit) -> [io] List[d.Step] {
+  match iter.next(it) {
+    None => [],
+    Some(p) => match p {
+      (step, rest) => {
+        let __emitted := on_step(step)
+        list.concat([step], drain_with_callback(rest, on_step))
+      },
+    },
+  }
+}
+
 fn find_done_msg(steps :: List[d.Step]) -> Option[msg.Message] {
   match list.head(list.filter(steps, is_done)) {
     None => None,
