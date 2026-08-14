@@ -127,8 +127,8 @@ fn extract(parts :: List[amsg.Part]) -> Args {
 }
 
 # ---- handler: select a brain by mode, run the loop, map via bridge --
-fn make_handler(brains :: Brains) -> (amsg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] srv.HandlerOutcome {
-  fn (m :: amsg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] srv.HandlerOutcome {
+fn make_handler(brains :: Brains) -> (amsg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] srv.HandlerOutcome {
+  fn (m :: amsg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] srv.HandlerOutcome {
     let a := extract(m.parts)
     let brain := brain_for(brains, a.mode)
     bridge.outcome_of_steps(iter.to_list(ag.run_loop(brain, [lmsg.user(a.task)])))
@@ -147,7 +147,7 @@ fn make_agent(brains :: Brains) -> srv.AgentDef {
   srv.make_agent_def(card.make("lex-code", "Lex-specialized coding agent — A2A + MCP. One `code` tool; `mode` selects the strategy.", "0.1.0", "http://localhost:7778", [code_capability()]), [{ capability: code_capability(), handle: make_handler(brains) }])
 }
 
-fn main() -> [env, io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] Nil {
+fn main() -> [env, io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] Nil {
   let tag := provider_tag_from_env()
   let brains := build_brains(tag)
   let __msg1 := print_line(str.concat("lex-code listening on :7778 (A2A + MCP), provider=", tag))

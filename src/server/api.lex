@@ -30,7 +30,7 @@ fn mode_from_str(mode_str :: Str) -> sess.AgentMode {
   }
 }
 
-fn handle_chat(message :: amsg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] a2a_srv.HandlerOutcome {
+fn handle_chat(message :: amsg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] a2a_srv.HandlerOutcome {
   match list.head(message.parts) {
     Some(TextPart(text)) => match sess.new_session("api", Build) {
       Err(e) => { next_state: TSFailed, reply: Some(amsg.agent_text(str.concat("session error: ", e))), artifacts: [] },

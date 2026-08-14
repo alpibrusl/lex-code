@@ -194,7 +194,7 @@ fn handle_a2a_body(body :: Str) -> [env, io, time, crypto, random, sql, fs_read,
 # ── Static-only router (no [env] routes) ─────────────────────────────────────
 fn build_static_router(web_dir :: Str) -> router.Router {
   let r0 := router.new()
-  let r1 := router.route_effectful(r0, "GET", "/", fn (c :: ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] resp.Response {
+  let r1 := router.route_effectful(r0, "GET", "/", fn (c :: ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] resp.Response {
     match io.read(str.concat(web_dir, "/index.html")) {
       Ok(html) => resp.html(html),
       Err(_) => resp.not_found(),
