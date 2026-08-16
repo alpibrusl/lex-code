@@ -4,7 +4,8 @@
 # separate from session logs so memory outlives individual sessions and
 # accumulates across every mode (Build, Explore, Refactor, Review, etc.).
 #
-# Wraps lex-agent/src/memory with project-specific entry points:
+# Wraps lex-memory/src/memory (extracted from lex-agent/src/memory, see
+# alpibrusl/lex-memory#1) with project-specific entry points:
 #
 #   convention    — coding/style conventions, upserted by name
 #   tech_stack    — technology/framework facts, upserted by name
@@ -22,7 +23,7 @@
 #     }
 #   }
 
-import "lex-agent/src/memory" as mem
+import "lex-memory/src/memory" as mem
 
 import "lex-orm/src/connection" as conn
 

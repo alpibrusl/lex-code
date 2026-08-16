@@ -160,7 +160,7 @@ fn steps_to_json(steps :: List[d.Step]) -> Str {
 }
 
 # ── A2A handler (carries [env] — bypasses router) ─────────────────────────────
-fn handle_a2a_body(body :: Str) -> [env, io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] resp.Response {
+fn handle_a2a_body(body :: Str) -> [env, io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] resp.Response {
   match jv.parse(body) {
     Err(_) => resp.bad_request("invalid JSON"),
     Ok(j) => {
@@ -194,7 +194,7 @@ fn handle_a2a_body(body :: Str) -> [env, io, time, crypto, random, sql, fs_read,
 # ── Static-only router (no [env] routes) ─────────────────────────────────────
 fn build_static_router(web_dir :: Str) -> router.Router {
   let r0 := router.new()
-  let r1 := router.route_effectful(r0, "GET", "/", fn (c :: ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] resp.Response {
+  let r1 := router.route_effectful(r0, "GET", "/", fn (c :: ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] resp.Response {
     match io.read(str.concat(web_dir, "/index.html")) {
       Ok(html) => resp.html(html),
       Err(_) => resp.not_found(),
@@ -204,12 +204,12 @@ fn build_static_router(web_dir :: Str) -> router.Router {
 }
 
 # ── Entry point ───────────────────────────────────────────────────────────────
-fn serve_web() -> [env, net, io, llm, proc, sql, fs_read, fs_write, time, crypto, random, concurrent] Unit {
+fn serve_web() -> [env, net, io, llm, proc, sql, fs_read, fs_write, time, crypto, random, concurrent, approval] Unit {
   let port := parse_int_or_w(get_env_w("PORT", "7700"), 7700)
   let web_dir := get_env_w("WEB_DIR", "src/web")
   let r := build_static_router(web_dir)
   let __p := io.print(str.join(["[lex-code] web on :", int.to_str(port), "  static=", web_dir], ""))
-  net.serve_fn(port, fn (req :: Request) -> [env, io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc] Response {
+  net.serve_fn(port, fn (req :: Request) -> [env, io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] Response {
     if req.method == "OPTIONS" {
       let rsp := with_cors(resp.no_content())
       { status: rsp.status, body: BodyStr(rsp.body), headers: rsp.headers }

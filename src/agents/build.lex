@@ -51,6 +51,16 @@ fn google_agent() -> [env] ag.AgentLoop {
   ag.with_permission_gate(base, rules.build_permission())
 }
 
+# OpenCode Go plan (https://opencode.ai/docs/zen) — an OpenAI-compatible
+# endpoint over full-scale cloud models (DeepSeek, Qwen3, Kimi, GLM, MiniMax,
+# MiMo), not a small local model, so it gets the same full tool budget as the
+# other cloud providers above rather than litellm/ollama's stripped-down
+# treatment. OPENCODE_API_KEY required; OPENCODE_MODEL overrides the default.
+fn opencode_agent() -> [env] ag.AgentLoop {
+  let base := { name: "build", goal: bpo.system(), model: prov.make_model_ref("opencode", tools.opencode_model()), provider: providers.opencode_go(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
+  ag.with_permission_gate(base, rules.build_permission())
+}
+
 fn vertex_agent() -> [env] ag.AgentLoop {
   let base := { name: "build", goal: bpo.system(), model: vtx.gemini_35_flash(), provider: providers.vertex(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())

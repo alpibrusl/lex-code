@@ -1,7 +1,9 @@
 [package]
-name    = "lex-code"
-version = "0.1.0"
-lex     = "0.9.7"
+name        = "lex-code"
+version     = "0.1.0"
+lex         = "0.10.10"
+license     = "EUPL-1.2"
+description = "A Lex-native coding assistant — build/plan/explore/refactor/spec/test/review agents, TUI + A2A + ACP servers, lex-vcs tools."
 
 [dependencies]
 lex-llm         = { git = "https://github.com/alpibrusl/lex-llm" }
@@ -14,6 +16,7 @@ lex-web         = { git = "https://github.com/alpibrusl/lex-web" }
 lex-orm         = { git = "https://github.com/alpibrusl/lex-orm" }
 lex-mcp         = { git = "https://github.com/alpibrusl/lex-mcp" }
 lex-agent-llm   = { git = "https://github.com/alpibrusl/lex-agent-llm" }
+lex-memory      = { git = "https://github.com/alpibrusl/lex-memory" }
 
 [bin]
 name = "lex-code"

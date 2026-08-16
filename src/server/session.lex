@@ -32,6 +32,8 @@ import "../agents/review" as review_a
 
 import "./persist" as persist
 
+import "./session_events" as evs
+
 type AgentMode = Build | Plan | Explore | Refactor | Spec | Test | Review
 
 type Session = { id :: Str, mode :: AgentMode, messages :: List[msg.Message], log :: trail_log.Log, parent :: Option[Str] }
@@ -103,6 +105,15 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Test => test_a.google_agent(),
       Review => review_a.google_agent(),
     },
+    "opencode" => match mode {
+      Build => build_agent.opencode_agent(),
+      Plan => plan_agent.opencode_agent(),
+      Explore => explore_agent.opencode_agent(),
+      Refactor => refactor_agent.opencode_agent(),
+      Spec => spec_a.opencode_agent(),
+      Test => test_a.opencode_agent(),
+      Review => review_a.opencode_agent(),
+    },
     _ => match mode {
       Build => build_agent.agent(),
       Plan => plan_agent.agent(),
@@ -126,23 +137,98 @@ fn new_session_with_provider(id :: Str, mode :: AgentMode, provider_tag :: Str) 
   }
 }
 
-fn run_turn(session :: Session, user_input :: Str) -> [env, net, llm, io, proc, sql, time] TurnResult {
+fn run_turn(session :: Session, user_input :: Str) -> [env, net, llm, io, proc, sql, time, approval] TurnResult {
   run_turn_with_provider(session, user_input, "anthropic")
 }
 
-fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time] TurnResult {
-  let user_msg := msg.user(user_input)
-  let messages := list.concat(session.messages, [user_msg])
-  let agent := pick_agent(session.mode, provider_tag)
-  let step_iter := ag.run_loop_traced(agent, messages, session.log, session.parent)
-  let steps := iter.to_list(step_iter)
-  let final_msg := find_done_msg(steps)
-  let new_msgs := match final_msg {
-    None => messages,
-    Some(m) => list.concat(messages, [m]),
+# The turn contract (#54): the model context is DERIVED from the session's
+# trail log, not read from the in-memory cache. Sequence: append the user
+# event, re-derive the history, check the cache agrees, and only then call
+# the provider. Any log failure or divergence refuses the turn in-band (the
+# same idiom as run_loop's "[max_steps reached]") instead of letting the
+# model see a conversation the durable record cannot reproduce.
+fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time, approval] TurnResult {
+  match evs.record_user(session.log, user_input) {
+    Err(e) => refused_turn(session, str.concat("session log append failed: ", e)),
+    Ok(_) => match evs.session_history(session.log) {
+      Err(e) => refused_turn(session, str.concat("session history underivable: ", e)),
+      Ok(derived) => {
+        let expected := list.concat(session.messages, [msg.user(user_input)])
+        if evs.history_eq(derived, expected) {
+          let agent := pick_agent(session.mode, provider_tag)
+          let step_iter := ag.run_loop_traced(agent, derived, session.log, session.parent)
+          let steps := iter.to_list(step_iter)
+          finish_turn(session, derived, steps)
+        } else {
+          refused_turn(session, "cached messages diverge from the trail-derived history")
+        }
+      },
+    },
+  }
+}
+
+# Same turn-handling as run_turn_with_provider, but invokes on_step for each
+# Step as it's pulled off the loop's Iter instead of collecting the whole
+# thing first — so a caller (the ACP server) can emit a protocol notification
+# per step. Note this is NOT token-level real-time streaming: run_loop_traced
+# already runs the full LLM/tool loop to completion internally before
+# returning its Iter (see lex-llm/src/agent.lex's run_loop_traced, which
+# wraps an already-materialized list via iter.from_list) — on_step fires in a
+# tight burst right after the blocking call returns, in step order, not
+# interleaved with live token generation. True interleaved streaming would
+# need a callback threaded into lex-llm's own loop, a larger change.
+fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provider_tag :: Str, on_step :: (d.Step) -> [io] Unit) -> [env, net, llm, io, proc, sql, time, approval] TurnResult {
+  match evs.record_user(session.log, user_input) {
+    Err(e) => refused_turn(session, str.concat("session log append failed: ", e)),
+    Ok(_) => match evs.session_history(session.log) {
+      Err(e) => refused_turn(session, str.concat("session history underivable: ", e)),
+      Ok(derived) => {
+        let expected := list.concat(session.messages, [msg.user(user_input)])
+        if evs.history_eq(derived, expected) {
+          let agent := pick_agent(session.mode, provider_tag)
+          let step_iter := ag.run_loop_traced(agent, derived, session.log, session.parent)
+          let steps := drain_with_callback(step_iter, on_step)
+          finish_turn(session, derived, steps)
+        } else {
+          refused_turn(session, "cached messages diverge from the trail-derived history")
+        }
+      },
+    },
+  }
+}
+
+# Close a turn: record the assistant reply as a durable event and extend the
+# cache. A FAILED assistant append is deliberately not patched over — the
+# cache keeps the message anyway, so the next turn's derivation check finds
+# the divergence and refuses loudly. Noisy failure over silent context loss.
+fn finish_turn(session :: Session, derived :: List[msg.Message], steps :: List[d.Step]) -> [sql, time] TurnResult {
+  let new_msgs := match find_done_msg(steps) {
+    None => derived,
+    Some(m) => {
+      let __recorded := evs.record_assistant(session.log, m)
+      list.concat(derived, [m])
+    },
   }
   let updated := { id: session.id, mode: session.mode, messages: new_msgs, log: session.log, parent: None }
   { steps: steps, session: updated }
+}
+
+# A refused turn spends no provider call: one in-band StepDone explains why,
+# and the session is returned unchanged so the caller can inspect or reset.
+fn refused_turn(session :: Session, reason :: Str) -> TurnResult {
+  { steps: [StepDone(AssistantMsg(str.join(["[refused: ", reason, "]"], ""), []))], session: session }
+}
+
+fn drain_with_callback(it :: Iter[d.Step], on_step :: (d.Step) -> [io] Unit) -> [io] List[d.Step] {
+  match iter.next(it) {
+    None => [],
+    Some(p) => match p {
+      (step, rest) => {
+        let __emitted := on_step(step)
+        list.concat([step], drain_with_callback(rest, on_step))
+      },
+    },
+  }
 }
 
 fn find_done_msg(steps :: List[d.Step]) -> Option[msg.Message] {

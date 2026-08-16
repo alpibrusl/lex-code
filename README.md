@@ -89,6 +89,7 @@ lex-code --plan --ollama "how should we structure the session module?"
 | `--litellm` | LiteLLM proxy | `$LITELLM_MODEL` | none (proxy handles keys) |
 | `--ollama` | Ollama (local, native API) | `$OLLAMA_MODEL` | none |
 | `--vllm` | vLLM (local/remote) | `$VLLM_MODEL` | none |
+| `--opencode` | OpenCode Go plan (cloud, direct) | `$OPENCODE_MODEL` | `OPENCODE_API_KEY` |
 
 ### Ollama
 
@@ -117,33 +118,67 @@ VLLM_MODEL=deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct \
 `VLLM_MODEL` defaults to `mistralai/Mistral-7B-Instruct-v0.3`.
 `VLLM_BASE_URL` defaults to `http://localhost:8000/v1/chat/completions`.
 
-### LiteLLM (local models via proxy)
+### OpenCode Go plan
 
-[LiteLLM](https://github.com/BerriAI/litellm) is the recommended path for running local models. It provides an OpenAI-compatible endpoint over any backend (Ollama, vLLM, MLX, …), which gives cleaner tool calling than the native Ollama wire format.
+[OpenCode Go](https://opencode.ai/docs/zen) bundles cloud access to several open-weight coding models (DeepSeek, Qwen3, Kimi, GLM, MiniMax, MiMo) behind one subscription key. Two ways to reach it — same key either way:
 
 ```sh
-# start the LiteLLM proxy (config at project root)
-litellm --config litellm_config.yaml --port 4000
+# native (direct to the Go endpoint, no proxy)
+export OPENCODE_API_KEY=$(cat ~/.credentials/opencode/key | tr -d '\n')
+lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+  src/tui/main.lex main -- --opencode "implement list.zip"
+
+# override the default model (kimi-k2.7-code)
+OPENCODE_MODEL=qwen3.7-max \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+  src/tui/main.lex main -- --opencode "implement list.zip"
+
+# via the LiteLLM proxy instead (shares one proxy + model list with lex-loom — see below)
+LITELLM_MODEL=deepseek-v4-flash \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+  src/tui/main.lex main -- --litellm "implement list.zip"
+```
+
+`OPENCODE_MODEL` accepts any Go-plan model id (see `litellm/config.yaml`'s "OpenCode Go plan" section for the full list). `OPENCODE_BASE_URL` overrides the endpoint if you're routing through a local reasoning proxy instead of hitting `opencode.ai` directly.
+
+### LiteLLM (local models + OpenCode Go via proxy)
+
+[LiteLLM](https://github.com/BerriAI/litellm) is the recommended path for running local models, and the only path that gives OpenCode Go's thinking-mode models correct `merge_reasoning_content_in_choices` handling. It provides an OpenAI-compatible endpoint over any backend (Ollama, vLLM, OpenCode Go, MLX, …), which gives cleaner tool calling than the native Ollama wire format.
+
+This repo ships a ready-to-run proxy config at `litellm/config.yaml` + `litellm/docker-compose.yml` — kept in sync with [lex-loom](https://github.com/alpibrusl/lex-loom)'s own `litellm/` directory (same model list, same OpenCode Go entries) so both repos can point at one shared proxy instance.
+
+```sh
+# start the bundled proxy
+cd litellm
+ANTHROPIC_API_KEY=... OPENAI_API_KEY=... OPENCODE_API_KEY=... docker compose up -d
+cd ..
 
 # run lex-code against qwen3-coder:30b (recommended local model)
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
   src/tui/main.lex main
 
 # one-shot via the --litellm flag
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+  src/tui/main.lex main -- --litellm "implement list.zip"
+
+# OpenCode Go through the proxy instead of native --opencode
+LITELLM_MODEL=kimi-k2.7-code \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
   src/tui/main.lex main -- --litellm "implement list.zip"
 
 # override the proxy URL (default: http://localhost:4000)
 LITELLM_BASE_URL=http://gpu-box:4000 \
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
   src/tui/main.lex main -- --litellm
 ```
 
-`LITELLM_MODEL` is the model name as it appears in your `litellm_config.yaml` `model_name` field.
+`LITELLM_MODEL` is the model name as it appears in `litellm/config.yaml`'s `model_name` field.
 `LITELLM_BASE_URL` defaults to `http://localhost:4000`.
+
+Running against a standalone LiteLLM install instead of the bundled compose file works the same way — point `litellm --config <your-config.yaml> --port 4000` at any config with the model names you use.
 
 #### Local model compatibility
 
@@ -165,7 +200,7 @@ curl -s http://localhost:4000/v1/chat/completions \
   > /dev/null
 
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
   src/bootstrap/fizzbuzz_lex.lex main
 # [fizzbuzz_lex] starting build via litellm
 # [fizzbuzz_lex] done — steps: 71
@@ -243,6 +278,26 @@ curl -X POST http://localhost:8080/runs/stream \
 # event: run.completed
 # data: {"run_id":"...","agent_id":"lex-code","status":"completed","output":[...]}
 ```
+
+### Agent Client Protocol (ACP, Zed) — Phase 1
+
+Not the same "ACP" as above — this is [Zed's Agent Client Protocol](https://zed.dev/acp), an unrelated
+JSON-RPC-over-stdio standard for launching a coding agent as a subprocess (Zed, JetBrains, Neovim, and
+Emacs all speak it; opencode is one of the other agents already on the [ACP Registry](https://zed.dev/blog/acp-registry)).
+
+```sh
+LEX_CODE_PROVIDER=anthropic ANTHROPIC_API_KEY=… \
+  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,crypto,random,approval \
+  src/server/client_protocol.lex main
+```
+
+Phase 1 covers `initialize`, `session/new`, `session/prompt` (streaming `session/update`
+notifications per step), and `session/close` — enough to work from an ACP-aware editor. Not yet
+implemented: `session/request_permission`, `$/cancel_request`, client-mediated `fs/*`/`terminal/*`,
+and `auth/login` — see the header comment in `src/server/client_protocol.lex` for why each is
+deferred rather than silently missing. The exact `session/update` field shapes are a best-effort
+reconstruction of the protocol's v2 schema; validate against a real client before relying on this
+for production interop.
 
 ## Tools
 
@@ -406,6 +461,14 @@ authorised to use.
 - [x] v0.3 — parallel multi-agent (`std.conc`), VSCode extension, web frontend, bootstrap script
 - [x] v0.4 — lex-vcs tools (17), CLI one-shot mode, Ollama + vLLM providers, install target
 - [x] v0.5 — ACP server (`src/server/acp.lex`), ACP helpers in lex-agent
+- [x] v0.6 — OpenCode Go provider (native + via the bundled LiteLLM proxy, shared config with lex-loom)
+- [x] v0.7 — Agent Client Protocol (Zed) server, Phase 1: `initialize`/`session/new`/`session/prompt`/`session/close`
+
+---
+
+## License
+
+EUPL-1.2 — matches the rest of the lex ecosystem.
 
 ---
 

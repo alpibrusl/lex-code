@@ -45,3 +45,8 @@ fn google_agent() -> [env] ag.AgentLoop {
   ag.with_permission_gate(base, rules.refactor_permission())
 }
 
+fn opencode_agent() -> [env] ag.AgentLoop {
+  let base := { name: "refactor", goal: rp.system(), model: prov.make_model_ref("opencode", tools.opencode_model()), provider: providers.opencode_go(), tools: tools.tools_for_spec(rules.refactor_permission()), options: { temperature: None, top_p: None, max_steps: Some(40), max_tokens: None }, permission_spec: None }
+  ag.with_permission_gate(base, rules.refactor_permission())
+}
+
