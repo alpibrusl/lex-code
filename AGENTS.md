@@ -1,83 +1,598 @@
-# lex-code — Agent Guidelines
+# Idiomatic Lex for AI Agents
 
-A Lex-native coding assistant — agents, tools, TUI, and A2A/ACP
-servers, all written in Lex. Read `lex agent-guidelines` in full
-before writing code. The four highest-leverage discipline rules:
+> **Audience.** This doc is for AI agents (Claude Code, Cursor, Aider, Codex,
+> Copilot, …) writing or modifying Lex code. Humans should read `README.md`
+> first.
+>
+> **Status.** Authoritative — the rules in this file are the project
+> conventions for any Lex codebase. Rule numbers are stable; new rules
+> append.
+>
+> **Discovery.**
+> ```sh
+> lex agent-guidelines                # print this doc to stdout
+> lex agent-guidelines > AGENTS.md    # capture into a downstream repo
+> ```
 
-1. **Narrow effects, always.** `fn foo() -> [fs_write("/tmp/x")] T`,
-   not `[fs_write]`. If the type checker rejects, narrow the body.
-2. **Repair, don't regenerate.** `lex check --output json` →
-   `lex repair --apply`. Only regenerate after two failed repairs.
-3. **`examples {}` blocks on every pure fn.** They fold into the
-   SigId and run at `lex check` time.
-4. **Use the stdlib.** `std.crypto` for hashing, `std.regex` over
-   hand-rolled scanners.
+The Lex toolchain encodes a lot of opinions the type checker enforces and
+a few more it doesn't. This doc is the second list — the discipline that
+makes Lex code idiomatic, auditable, and cheap for the next agent to
+extend. Skim once, then refer back when you write.
 
-## The loop
+**Semantics:**
 
-```sh
-lex pkg install                 # resolves lex-llm, lex-agent, lex-trail, lex-spec, lex-schema, ...
-lex check <each src/*.lex file> # this repo has no tests/ dir — see below
-lex fmt --check src/
+- **MUST** — non-negotiable. Agents that violate land code that's
+  type-correct but expensive to maintain.
+- **SHOULD** — strong preference. Override only with a one-line comment
+  explaining why.
+- **AVOID** — common anti-pattern. The fix is usually trivial; just don't.
+
+---
+
+## 1. Effect discipline
+
+The single highest-leverage thing you can do. Effect annotations are how
+the runtime decides whether to refuse a body before any code runs. Wide
+annotations are correct but worthless; the value of the effect system is
+exactly the narrowness.
+
+### 1.1 Declare the narrowest effect set (MUST)
+
+```lex
+# AVOID — shotgun annotation
+fn write_log(line :: Str) -> [io, fs_read, fs_write, net] Result[Unit, Str] {
+  fs.write("/var/log/app.log", line)
+}
+
+# GOOD — only what's used, with a path scope
+fn write_log(line :: Str) -> [fs_write("/var/log/app.log")] Result[Unit, Str] {
+  fs.write("/var/log/app.log", line)
+}
 ```
 
-There is no `tests/` directory. CI type-checks every file in `src/`
-individually, then gates on the manifesto demo examples:
+The compiler will *accept* the shotgun form — but `lex run` requires
+broader `--allow-effects` grants and reviewers can't tell what the fn
+actually touches.
 
-```sh
-lex check examples/manifesto_parallel.lex          # must pass
-lex check examples/manifesto_parallel_bad.lex      # must FAIL (missing [concurrent])
-bash examples/manifesto_semantic_diff/run.sh        # semantic diff must surface the effect-row change
+### 1.2 Don't broaden effects to satisfy the compiler (MUST)
+
+When `lex check` says "effect `fs_write` not declared at line X," the
+fix is **almost never** "add `fs_write` to the signature." It's "remove
+the code that needed `fs_write`," or "narrow the path scope to where the
+write actually happens."
+
+If a function is supposed to be pure and the checker says otherwise,
+**something is wrong with the body**, not the signature.
+
+### 1.3 Pure functions declare no effects (MUST)
+
+```lex
+# GOOD — no [...] before the return type
+fn double(n :: Int) -> Int { n * 2 }
+
+# AVOID — adding [io] "just in case" or "because the caller is impure"
+fn double(n :: Int) -> [io] Int { n * 2 }   # ← compiler will complain anyway
 ```
 
-Treat those three as the regression suite until a real `tests/`
-directory exists.
+Purity is contagious in the right direction: pure fns can be called
+from anywhere, including from `examples {}` blocks, `spec {}` blocks,
+and inside `lex repair`'s safety-bounded environment.
 
-## Project-specific overrides — lex-code
+### 1.4 Use per-path / per-host scopes wherever you can (SHOULD)
 
-- **Two call sites per agent mode, times seven files.** Each
-  `src/agents/*.lex` (build, explore, plan, refactor, review,
-  spec_agent, test_agent) defines one `AgentLoop`-builder per
-  provider: `agent()` (Anthropic), `openai_agent()`, `mistral_agent()`,
-  `google_agent()`, `vertex_agent()`, `ollama_agent()`,
-  `vllm_agent()`, `litellm_agent()`, `opencode_agent()`. Adding a
-  provider means adding the function to **all seven** files *and* a
-  matching branch in `src/server/session.lex`'s `pick_agent` — a
-  missing branch is a silent fallthrough, not a type error.
-- **`select_provider_tag` (TUI) and `pick_agent` (session) must move
-  together.** A new `--flag` in `src/tui/main.lex` with no matching
-  `"tag" => ...` arm in `session.lex`'s `pick_agent` silently no-ops
-  rather than failing to compile — always change both in the same
-  commit.
-- **Local-model tool budgets are curated, not accidental.**
-  `ollama_agent`/`litellm_agent` use `tools.minimal_tools()` (build)
-  or `[]` (every other mode) instead of `all_tools()` — 38 tool
-  schemas overwhelm small local models (see the local-model
-  compatibility table in `README.md`). Don't widen this without
-  re-testing against a real local model.
-- **Permission specs gate tool *visibility*, not just execution.**
-  `ag.with_permission_gate(base, rules.<mode>_permission())` (from
-  `src/permissions/rules.lex`) filters the tool list at construction
-  time. Every provider variant for a given mode must be wrapped with
-  the *same* permission spec — don't special-case one provider's tool
-  list without updating its spec.
-- **`src/server/session.lex` is the single turn-handling path.** The
-  TUI, the A2A server (`src/server/api.lex`), the BeeAI ACP server
-  (`src/server/acp.lex`), and the Zed Agent Client Protocol server
-  (`src/server/client_protocol.lex`) are four transports over the same
-  `Session`/`run_turn_with_provider` (`run_turn_streaming_with_provider`
-  for the one transport — ACP — that needs a per-step callback). Extend
-  `session.lex`, don't duplicate turn logic into a transport file.
-- **Two different protocols are both called "ACP" in this repo.**
-  `src/server/acp.lex` is BeeAI's REST-based Agent Communication
-  Protocol. `src/server/client_protocol.lex` is Zed's JSON-RPC-over-
-  stdio Agent Client Protocol — an unrelated standard that happens to
-  share the acronym. Don't rename either file to disambiguate further;
-  the doc comments at the top of each already do, and the README's
-  "Server Protocols" section labels them accordingly.
-- **LiteLLM config lives in `litellm/`.** `config.yaml` +
-  `docker-compose.yml` are the reference proxy setup (Ollama local
-  models, vLLM, ChatGPT/Claude subscription passthrough, OpenCode Go)
-  — kept in sync with `lex-loom`'s own `litellm/` directory since both
-  repos are meant to work against the same proxy. Don't fork the model
-  list; add new entries to both repos together.
+```lex
+# GOOD — fs_read scoped to a specific directory
+fn load_config(name :: Str) -> [fs_read("/etc/myapp/")] Result[Str, Str] { ... }
+
+# GOOD — net scoped to a specific host
+fn fetch_weather(zip :: Str) -> [net("api.weather.example")] Result[Str, Str] { ... }
+```
+
+The runtime enforces these scopes; per-fn `--allow-fs-read PATH` and
+`--allow-net-host HOST` grants do too. Wide scopes are auditable as
+"this function could touch anything"; narrow scopes are auditable as
+"this function touched what it claimed."
+
+### 1.5 Effect rows propagate through closures and HOFs (informational)
+
+You don't need to copy effects from a closure body to the surrounding
+fn signature manually — `list.map` and friends carry the closure's
+effects in their inferred row, and `lex check` propagates them. If the
+checker complains, the fix is to narrow the *body*, not to widen the
+outer signature.
+
+### 1.6 Record-field closures have invariant effect rows (MUST)
+
+When a function type appears as a record field (e.g. `Skill.handle`,
+`Tool.execute`), its declared effect row is **invariant** — the closure
+you supply must match it *exactly*, not merely be a superset or subset.
+Effect rows unify by equality, not subtyping, so the polymorphism that
+makes `list.map` accept any effectful closure does **not** apply when
+the row is pinned by a record type.
+
+```lex
+# Skill.handle is declared as:
+#   handle :: (Message) -> [io, time, crypto, random, sql,
+#                           fs_read, fs_write, net, concurrent] HandlerOutcome
+#
+# AVOID — adding `env` (or dropping `crypto`) makes the row a superset/
+# subset, which is rejected even though it "looks" safe.
+# GOOD — the closure declares the row verbatim and the body uses only
+# those effects.
+```
+
+The checker surfaces this as `rule_tag: "effect-row-mismatch"` with a
+`rule_explanation` that names the invariance. The fix is the same as
+§1.2: **narrow the body** so it uses only the declared effects. Do
+**not** broaden the declared row to match the body — for a record-field
+closure you usually can't (the row is fixed by the record type), and
+where you can, broadening defeats the audit value of the annotation.
+
+---
+
+## 2. Authoring style
+
+### 2.1 Every pure fn gets an `examples {}` block (SHOULD)
+
+```lex
+fn add(x :: Int, y :: Int) -> Int
+  examples {
+    add(0, 0)   => 0,
+    add(2, 3)   => 5,
+    add(-1, 1)  => 0,
+  }
+{
+  x + y
+}
+```
+
+Examples are folded into the canonical AST, so they're **part of the
+SigId**. Two implementations with different example sets are different
+signatures; this makes them load-bearing regression tests at no
+authoring cost.
+
+Effectful fns can't carry examples in v1 (determinism rule). See
+`#369` for the design.
+
+### 2.2 Use `spec {}` for behavioural contracts (SHOULD when behaviour matters)
+
+```lex
+spec clamp_bounds {
+  forall x :: Int, lo :: Int, hi :: Int where lo <= hi:
+    let r := clamp(x, lo, hi)
+    (r >= lo) and (r <= hi)
+}
+```
+
+Then `lex spec check clamp_bounds.spec --source clamp.lex` randomised-property checks
+it; `lex spec smt` emits SMT-LIB 2 for external Z3.
+
+### 2.3 Use `Result[T, E]` and `Option[T]` — no exceptions, no null (MUST)
+
+```lex
+# GOOD
+fn parse_int(s :: Str) -> Result[Int, ParseError] { ... }
+
+# AVOID — no exceptions in user code; the language doesn't have them
+fn parse_int(s :: Str) -> Int { throw "..."}   # ← won't compile
+```
+
+Idiom: `match res { Ok(x) => ..., Err(e) => ... }` or pipe through
+`result.map` / `result.and_then` / `result.map_err`.
+
+### 2.4 Pipe over nested match (SHOULD)
+
+```lex
+# AVOID — nested matches
+match parse_int(s) {
+  Ok(n) => match double(n) {
+    Ok(m) => Ok(m + 1),
+    Err(e) => Err(e),
+  },
+  Err(e) => Err(e),
+}
+
+# GOOD — pipe + and_then
+parse_int(s)
+  |> result.and_then(double)
+  |> result.map(fn (m :: Int) -> Int { m + 1 })
+```
+
+### 2.5 Exhaustive matches; no `_ =>` to silence (AVOID `_ =>` when not catch-all)
+
+```lex
+type Status = Healthy | Sick | Recovering
+
+# AVOID — adding `_ =>` swallows a new variant added later
+match s {
+  Healthy => "ok",
+  _       => "not ok",          # ← Recovering gets bucketed silently
+}
+
+# GOOD — listed exhaustively; the checker enforces it
+match s {
+  Healthy    => "ok",
+  Sick       => "nope",
+  Recovering => "wait",
+}
+```
+
+`_ =>` is fine when you genuinely want a catch-all (e.g., the right-hand
+side of a `try`); reserve it for that case.
+
+### 2.6 Syntax pitfalls — `::`, `:=`, `->` (MUST)
+
+Coming from Rust / TS / Python? These differ:
+
+| Lex | Meaning | Mistake to avoid |
+|---|---|---|
+| `x :: Int` | type annotation on a param / binding | `x: Int` (Lex error: expected `::`) |
+| `let x := e` | let binding | `let x = e` (Lex error: expected `:=`) |
+| `-> T` | return type | `: T` (Lex error: missing return arrow) |
+
+The checker error message is clear when you slip; this rule is here so
+you don't have to slip in the first place.
+
+---
+
+## 3. Module choice — use the stdlib
+
+Lex's stdlib is the slice the language owns. Whenever you reach for raw
+bytes, a syscall, or string-bashing — check the stdlib first.
+
+### 3.1 Concurrency: `std.conc` actors, never spawn threads (MUST)
+
+```lex
+import "std.conc" as conc
+
+fn counter(state :: Int, msg :: Int) -> (Int, Int) {
+  let next := state + msg
+  (next, next)
+}
+
+fn use_counter() -> [concurrent] Int {
+  let a := conc.spawn(0, counter)
+  conc.ask(a, 5)            # state becomes 5, reply 5
+}
+```
+
+`conc.spawn` / `conc.ask` / `conc.tell` are the actor primitives.
+Synchronous mailbox — handler runs on the caller's thread under a
+per-actor mutex. **Do not** try to spawn OS threads via FFI; you can't,
+and you don't need to.
+
+### 3.2 SQL: `std.sql` for SQLite and Postgres (MUST)
+
+```lex
+import "std.sql" as sql
+
+fn pg_users(conn :: Str) -> [sql, fs_write] Result[List[{ id :: Int, name :: Str }], SqlError] {
+  match sql.open(conn) {                # "postgres://...", ":memory:", or file path
+    Ok(db) => sql.query(db, "SELECT id, name FROM users ORDER BY id", []),
+    Err(e) => Err(e),
+  }
+}
+```
+
+Use parameterised queries (`sql.query(db, "... WHERE id = $1", [id])`),
+never string-concat into SQL.
+
+### 3.3 Crypto: `std.crypto`, never roll your own (MUST)
+
+`std.crypto` ships SHA-256/512, BLAKE2b, MD5, HMAC, AES-GCM,
+ChaCha20-Poly1305, PBKDF2, HKDF, Argon2id, base64, base64url, hex, and
+constant-time `eq`. CSPRNG is `crypto.random(n)` under `[random]`.
+
+Hand-rolling MACs, AEADs, or "XOR with a key" is wrong every time.
+
+### 3.4 Strings, regex, parsing — stdlib first (SHOULD)
+
+- `std.regex` over hand-rolled scanners
+- `std.str.split` / `.replace` / `.trim` over manual loops
+- `std.toml` / `std.yaml` / `std.csv` for config + tabular data
+- `std.json` (via `lex-types::builtins`) for JSON
+
+### 3.5 Orchestration: `std.flow` combinators (SHOULD)
+
+`flow.sequential` / `flow.branch` / `flow.parallel_list` over ad-hoc
+control flow. They compose cleanly and the closures carry their effects
+through the row inference.
+
+### 3.6 HTTP: `std.http` with per-host scopes (MUST for net)
+
+```lex
+import "std.http" as http
+
+fn fetch_json(url :: Str) -> [net] Result[HttpResponse, HttpError] {
+  http.get(url)
+}
+```
+
+Always pair with `--allow-net-host` at the policy gate. Never construct
+raw sockets.
+
+### 3.7 Redis: `std.redis` for pub/sub and key-value (MUST for Redis)
+
+```lex
+import "std.redis" as redis
+
+# Key-value
+fn cache_set(url :: Str, key :: Str, val :: Str) -> [net] Unit {
+  match redis.connect(url) {
+    Ok(conn) => redis.set(conn, key, val),
+    Err(_)   => Unit,
+  }
+}
+
+# Pub/Sub fan-out (blocking loop; use in a dedicated actor or thread)
+fn listen(url :: Str, channel :: Str) -> [net] Nil {
+  match redis.connect(url) {
+    Ok(conn) => redis.subscribe(conn, channel, fn(ch :: Str, msg :: Str) -> Unit {
+      io.print(msg)
+    }),
+    Err(e) => io.print(e),
+  }
+}
+```
+
+All `std.redis` ops carry `[net]`; `--allow-effects net` is the only
+policy grant required. `subscribe` and `psubscribe` block the calling
+thread indefinitely (they return `Nil`) and open a dedicated connection
+internally — Redis forbids non-Pub/Sub commands on a subscribed connection.
+`brpop` with `timeout_secs = 0` blocks until an item is available; the
+runtime does not treat this as a hung effect.
+
+For connection pooling, pub/sub fan-out helpers, and work-queue retry
+logic use `lex-queue`, which builds on top of `std.redis`.
+
+### 3.8 WebSocket clients: `net.dial_ws` / `net.dial_ws_actor` (SHOULD)
+
+Both functions block for the lifetime of the connection — call them from
+`conc.spawn`.
+
+`net.dial_ws(url, subprotocol, on_open, on_message)` — reactive client.
+Each callback returns exactly one `WsAction` (`ws.send(frame)` or
+`ws.noop()`). No proactive sends beyond that one return value.
+
+`net.dial_ws_actor(url, subprotocol, name, on_open, on_message)` — same
+reactive interface, plus the connection is registered in the `conc`
+registry under `name`. Other actors (heartbeat loops, meter-value timers)
+can push frames at any time via `conc.tell(conc.lookup(name), frame_str)`;
+the runtime delivers them on the next 50 ms read-timeout tick.
+Unregisters automatically on disconnect.
+
+Use `dial_ws_actor` whenever the client must send unsolicited frames
+(OCPP Heartbeat, OCPP MeterValues, keep-alives). Use `dial_ws` for
+purely request/response clients.
+
+---
+
+## 4. The repair-not-regenerate rule
+
+When `lex check` rejects your code, you have two paths:
+
+1. Throw away the body and regenerate.
+2. Apply `lex repair --apply` with the structured fix the checker
+   suggested.
+
+**Always try path 2 first.** Path 1 burns budget and produces churn
+that's hostile to merge / blame / spec.
+
+### 4.1 On type-check failure, run `lex check --output json` (MUST)
+
+```json
+{
+  "kind": "type_error",
+  "rule_tag": "EFFECT_NOT_DECLARED",
+  "position": {"file": "src/handler.lex", "line": 14, "col": 22},
+  "rule_explanation": "effect `fs_write` reached at this position is not declared in the enclosing fn signature.",
+  "suggested_transform": { "kind": "narrow_path", "param": "path", "value": "/tmp/handler-output/" }
+}
+```
+
+The `rule_tag` and `suggested_transform` are what `lex repair --apply`
+consumes.
+
+### 4.2 If the error has a `suggested_transform`, apply it verbatim (SHOULD)
+
+```bash
+lex --output json repair <failed_op_id> \
+  --apply --transform '<paste the suggested_transform here>' \
+  --store .lex-store
+# → {"outcome":"passed","applied_op_id":"op_..."}
+```
+
+The output lands as a `RepairAttempt` attestation linked to the
+originating hint. Future agents (and `lex blame --with-evidence`) can
+follow the chain.
+
+### 4.3 Only regenerate the whole body after 2 failed repairs (SHOULD)
+
+If two `lex repair --apply` attempts fail, the structural fix doesn't
+exist — the body's design is wrong, not its syntax. Regenerate the body
+*intentionally* (not as a reflex), keeping the signature stable so the
+SigId — and the existing attestations — survive.
+
+---
+
+## 5. Multi-agent coordination
+
+Many agents may edit the same code in parallel. Lex provides primitives
+for this; use them.
+
+### 5.1 Use `Candidate` / `Promote` for parallel emit (SHOULD)
+
+Instead of racing to overwrite a branch head, propose `Candidate` ops
+that don't advance the head; a downstream policy `Promote`s the winner.
+
+```bash
+# Each proposer pushes a candidate; head is unchanged.
+lex publish --candidate --branch main src/handler.lex
+
+# Selector picks one (manually or via `lex producer-trust recompute`).
+lex stage promote-candidate <candidate_op_id> --branch main
+```
+
+CAS contention drops to zero. Each candidate is attested
+independently; the loser candidates remain in the log for replay.
+
+### 5.2 Respect the session budget gate (MUST)
+
+```http
+HTTP/1.1 503 Service Unavailable
+Retry-After: 0
+{"error":"session 'sid_xyz' budget exceeded (spent_after=450, cap=400)", ...}
+```
+
+`Retry-After: 0` is **not** "retry in 0 seconds." It's "don't retry
+as-is; either raise the cap, refactor to spend less, or stop." Auto-retry
+on this response makes the cap meaningless.
+
+### 5.3 Tool registry manifests match real effects (MUST)
+
+When you register a tool via `POST /tools`:
+
+```json
+{
+  "name": "weather-fetcher",
+  "effects": ["net('api.weather.example')"],
+  "source": "fn fetch(zip :: Str) -> ..."
+}
+```
+
+The declared `effects` field MUST match what the source's type-checked
+signature claims. Overdeclaring is bad; underdeclaring means the tool
+will fail at runtime in places callers didn't expect.
+
+---
+
+## 6. Hash and store hygiene
+
+The store keys on the canonical AST hash (SigId). Cosmetic changes that
+shift hashes are expensive — they invalidate attestations and force
+re-attest cycles.
+
+### 6.1 Run `lex fmt` before publish (MUST)
+
+```bash
+lex fmt src/        # auto-format
+lex fmt --check src/  # exit 1 if not formatted
+```
+
+`lex fmt` is canonical; two semantically-identical files normalise to
+byte-identical output.
+
+### 6.2 Don't reformat for "readability" (AVOID)
+
+If `lex fmt` produces output you don't like, file an issue; don't
+hand-rewrite into a non-canonical form. Hand-formatting that gets
+through `lex fmt --check` is a no-op anyway.
+
+### 6.3 Don't rename params/locals cosmetically (AVOID)
+
+Parameter and local names are part of the canonical AST.
+`fn add(x :: Int, y :: Int)` and `fn add(a :: Int, b :: Int)` have
+**different SigIds**. Rename only when the name was actually wrong.
+
+### 6.4 Don't reorder top-level fns cosmetically (AVOID)
+
+Top-level fn order is preserved by the canonicalizer. Reordering shifts
+the canonical AST; downstream tooling that keyed on SigIds may break.
+
+See `docs/design/canonicalization.md` for the full list of edits that
+preserve vs change a SigId.
+
+---
+
+## 7. Attestation hygiene
+
+Attestations are signed evidence that a gate (typecheck, spec, sandbox,
+examples, repair) covered a stage. The substrate emits them; you query
+them.
+
+### 7.1 Don't fabricate attestations (MUST)
+
+Attestations come from the gates (`lex check` → `TypeCheck`,
+`lex spec check` → `Spec`, `lex agent-tool` → `SandboxRun`, …). You
+cannot — and must not try to — write them directly. The signing
+boundary is what makes them load-bearing.
+
+### 7.2 Query attestations via `lex blame --with-evidence` (SHOULD)
+
+Before modifying a fn, check its evidence trail:
+
+```bash
+lex blame route --with-evidence --store .lex-store
+```
+
+Surfaces every TypeCheck / Spec / Examples / DiffBody / SandboxRun /
+RepairAttempt that touched the fn's stages. If you're about to redo
+work the substrate already attested, stop.
+
+### 7.3 `lex stage <id> --attestations` for a single stage (informational)
+
+Same query, scoped to one stage. Use when reviewing a `Candidate` you're
+considering promoting.
+
+---
+
+## 8. What NOT to do
+
+A short blocklist. Every one of these is a real anti-pattern AI agents
+emit. Avoid.
+
+| Pattern | Why it's wrong | Do instead |
+|---|---|---|
+| `_ => "ok"` outside a try/catch-all | Swallows new variants silently | List exhaustively |
+| Hand-rolled crypto | One bug = full compromise | `std.crypto` |
+| String-concat SQL | Injection | `sql.query(db, q, [args])` |
+| Wide `[net, io, fs_read, fs_write]` | Sandbox is meaningless | Narrow to what's used + path scopes |
+| `[io]` "just in case" | Pure fn won't typecheck anyway | Remove it |
+| Renaming params after publish | Different SigId; loses attestations | Don't |
+| Auto-retry on HTTP 503 from `lex serve` | Budget cap is intentional | Raise cap or refactor |
+| Mutation via FFI | No FFI; no mutation in user code | Build new values |
+| Spawning OS threads | Not supported; not needed | `std.conc` actors |
+| Bypassing the gate via `proc.exec` | Defeats the sandbox model | Don't; if you need OS access, declare `[proc]` explicitly |
+
+---
+
+## 9. Pre-"done" checklist
+
+Before claiming a task is complete, run all of:
+
+```bash
+lex check --strict src/        # type-check with extra lints
+lex fmt --check src/ tests/    # formatting
+lex test                        # all tests/test_*.lex
+lex ci                          # umbrella — same as above
+```
+
+Then verify by inspection:
+
+- [ ] Every fn signature declares the **narrowest** effect set.
+- [ ] Every pure fn has an `examples {}` block (or a one-line comment
+      explaining why not — usually "trivial accessor").
+- [ ] No `_ =>` arms outside catch-all error paths.
+- [ ] Stdlib used in preference to roll-your-own.
+- [ ] If you saw a `lex check` error during the task, you ran
+      `lex repair --apply` rather than regenerating the body.
+- [ ] No SigId churn from cosmetic edits (param renames, fn reordering).
+- [ ] Tool-registry manifests, if any, match the actual effect rows.
+
+---
+
+## 10. Where to read more
+
+- **`README.md`** — high-level pitch + agent-code loop overview.
+- **`docs/AGENT.md`** — reference: error envelope schema, every
+  `rule_tag`, stdlib module summary, sharp edges.
+- **`docs/design/canonicalization.md`** — which edits preserve a SigId
+  and which break it.
+- **`bench/REPORT.md`** — adversarial sandbox bench + infrastructure
+  comparison.
+- **`crates/lex-types/src/builtins.rs`** — every stdlib signature, the
+  source of truth.
+
+For an issue you can't resolve: file at
+<https://github.com/alpibrusl/lex-lang/issues>, include the
+`lex check --output json` envelope verbatim.

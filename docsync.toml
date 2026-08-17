@@ -1,0 +1,9 @@
+# docsync.toml — generated docs with a --check CI twin (lex doc-sync).
+# AGENTS.md is by convention a verbatim copy of `lex agent-guidelines`
+# (lex-lang's authoritative agent contract). The generator rides the
+# pinned toolchain, so a version bump that changes the guidelines forces
+# the refresh in the same PR.
+
+[[file]]
+path = "AGENTS.md"
+command = "lex agent-guidelines"
