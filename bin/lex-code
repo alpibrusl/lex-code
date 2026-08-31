@@ -10,6 +10,6 @@
 # required — widen it only if that output changes.
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LEX_CODE_EFFECTS="${LEX_CODE_EFFECTS:-approval,concurrent,env,fs_write,io,llm,net,proc,sql,time}"
+LEX_CODE_EFFECTS="${LEX_CODE_EFFECTS:-approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time}"
 exec lex run --allow-effects "$LEX_CODE_EFFECTS" \
   "$SCRIPT_DIR/../src/tui/main.lex" main -- "$@"

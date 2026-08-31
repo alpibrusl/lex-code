@@ -43,7 +43,7 @@ export ANTHROPIC_API_KEY=sk-...
 lex run src/bootstrap/run.lex
 
 # web UI + HTTP API on :7700 (see Web Frontend)
-lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/server/web.lex serve_web
 ```
 
@@ -128,17 +128,17 @@ VLLM_MODEL=deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct \
 ```sh
 # native (direct to the Go endpoint, no proxy)
 export OPENCODE_API_KEY=$(cat ~/.credentials/opencode/key | tr -d '\n')
-lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/tui/main.lex main -- --opencode "implement list.zip"
 
 # override the default model (kimi-k2.7-code)
 OPENCODE_MODEL=qwen3.7-max \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/tui/main.lex main -- --opencode "implement list.zip"
 
 # via the LiteLLM proxy instead (shares one proxy + model list with lex-loom — see below)
 LITELLM_MODEL=deepseek-v4-flash \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/tui/main.lex main -- --litellm "implement list.zip"
 ```
 
@@ -158,23 +158,23 @@ cd ..
 
 # run lex-code against qwen3-coder:30b (recommended local model)
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/tui/main.lex main
 
 # one-shot via the --litellm flag
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/tui/main.lex main -- --litellm "implement list.zip"
 
 # OpenCode Go through the proxy instead of native --opencode
 LITELLM_MODEL=kimi-k2.7-code \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/tui/main.lex main -- --litellm "implement list.zip"
 
 # override the proxy URL (default: http://localhost:4000)
 LITELLM_BASE_URL=http://gpu-box:4000 \
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/tui/main.lex main -- --litellm
 ```
 
@@ -261,7 +261,7 @@ server-launch choice, not a per-call argument.
 
 ```sh
 LEX_CODE_PROVIDER=anthropic ANTHROPIC_API_KEY=… \
-lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/server/mcp_main.lex main &
 
 curl -s http://localhost:7778/.well-known/agent.json
@@ -286,7 +286,7 @@ carries a server for it.
 
 ```sh
 LEX_CODE_PROVIDER=anthropic ANTHROPIC_API_KEY=… \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,crypto,random,approval \
+  lex run --allow-effects approval,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/server/client_protocol.lex main
 ```
 
@@ -402,7 +402,7 @@ process is the whole thing — no separate static server, and not
 `src/server/api.lex`, which has no entry point.
 
 ```sh
-lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/server/web.lex serve_web
 
 # then open http://localhost:7700

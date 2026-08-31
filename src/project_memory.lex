@@ -27,6 +27,8 @@ import "lex-memory/src/memory" as mem
 
 import "lex-orm/src/connection" as conn
 
+import "std.fs" as fs
+
 import "std.str" as str
 
 import "std.list" as list
@@ -110,5 +112,27 @@ fn store_many(pm :: ProjectMemory, entries :: List[(Str, Str, Str)]) -> [sql, fs
     }
   })
   ()
+}
+
+# ── One-shot recall for prompt injection ──────────────────────────────────────
+# The entry point session.lex uses, and the only one that has to be safe to
+# call unconditionally: memory is a convenience, so every failure path returns
+# "" and the session proceeds without it. A project that has never stored
+# anything must not pay for the feature, so this checks for the store before
+# opening it — `conn.connect_sqlite` CREATES the file it is pointed at, and
+# starting lex-code in a directory should not leave a database behind.
+fn recall_context() -> [sql, fs_read, fs_write, fs_walk] Str {
+  if fs.exists(db_path()) {
+    match open() {
+      Err(_) => "",
+      Ok(pm) => {
+        let ctx := recall_for_prompt(pm)
+        let __closed := close(pm)
+        ctx
+      },
+    }
+  } else {
+    ""
+  }
 }
 
