@@ -42,11 +42,9 @@ export ANTHROPIC_API_KEY=sk-...
 # bootstrap demo: impl → spec → test → review
 lex run src/bootstrap/run.lex
 
-# A2A server (JSON-RPC 2.0)
-lex run src/server/api.lex
-
-# ACP server (BeeAI Agent Communication Protocol)
-lex run src/server/acp.lex
+# web UI + HTTP API on :7700 (see Web Frontend)
+lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+  src/server/web.lex serve_web
 ```
 
 ## Install as a binary
@@ -243,20 +241,23 @@ Even with these fixes, thinking models tend to emit tool calls as embedded JSON 
 
 ### A2A (Agent-to-Agent, JSON-RPC 2.0)
 
-```sh
-lex run src/server/api.lex
-```
+> **Not runnable yet.** `src/server/api.lex` defines the capability and
+> handler but no `main`/`serve` entry point, so `lex run` on it has
+> nothing to call. Its `handle_chat` also only echoes: `Skill.handle`
+> pins an invariant effect row without `llm` (AGENTS.md §1.6), so the
+> handler structurally cannot run a turn until that type changes
+> upstream in lex-agent. The A2A **agent card** is served today by the
+> MCP server below, on `/.well-known/agent.json`.
 
-Exposes the standard Google A2A protocol: `tasks/send`, `tasks/get`, `tasks/cancel`,
+The intended surface: `tasks/send`, `tasks/get`, `tasks/cancel`,
 `tasks/sendSubscribe` (SSE). Agent card at `/.well-known/agent.json`.
 
 ### ACP (Agent Communication Protocol, BeeAI)
 
-```sh
-lex run src/server/acp.lex
-```
+> **Not runnable yet.** `src/server/acp.lex` is a single `handle_run`
+> function with no entry point wiring it to a listener.
 
-Exposes a REST API compatible with the BeeAI ACP standard:
+The intended surface — a REST API compatible with the BeeAI ACP standard:
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -283,6 +284,30 @@ curl -X POST http://localhost:8080/runs/stream \
 # event: run.completed
 # data: {"run_id":"...","agent_id":"lex-code","status":"completed","output":[...]}
 ```
+
+### MCP (Model Context Protocol)
+
+`src/server/mcp_main.lex` exposes lex-code as a single `code` tool over
+MCP, so any MCP-speaking host — Claude Code, Cursor, Zed — can hand it
+a task. `mode` selects the agent strategy; the provider is a
+server-launch choice, not a per-call argument.
+
+```sh
+LEX_CODE_PROVIDER=anthropic ANTHROPIC_API_KEY=… \
+lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+  src/server/mcp_main.lex main &
+
+curl -s http://localhost:7778/.well-known/agent.json
+curl -s -X POST http://localhost:7778/mcp \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+curl -s -X POST http://localhost:7778/mcp \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"code",
+       "arguments":{"task":"add retries to fetch()","mode":"refactor"}}}'
+```
+
+The same port serves the A2A agent card at
+`/.well-known/agent.json`. All eight modes are reachable through the
+`mode` argument (`build|plan|explore|refactor|spec|test|review|bar`).
 
 ### Agent Client Protocol (ACP, Zed) — Phase 1
 
@@ -384,11 +409,15 @@ lex-code
 │   │   └── vcs/         # 17 lex-vcs tools (ast_diff, op_*, branch_*, merge_*)
 │   ├── permissions/     # lex-spec Spec values per agent mode
 │   ├── server/
-│   │   ├── session.lex      # Session type, run_turn, AgentMode
-│   │   ├── multi_agent.lex  # std.conc parallel dispatch
-│   │   ├── persist.lex      # lex-trail log helpers
-│   │   ├── api.lex          # A2A server (JSON-RPC 2.0)
-│   │   └── acp.lex          # ACP server (BeeAI REST protocol)
+│   │   ├── session.lex        # Session type, run_turn, AgentMode
+│   │   ├── session_events.lex # Durable conversation record (the trail)
+│   │   ├── multi_agent.lex    # std.conc parallel dispatch
+│   │   ├── persist.lex        # lex-trail log helpers
+│   │   ├── web.lex            # HTTP: static src/web + POST /a2a  (runnable)
+│   │   ├── mcp_main.lex       # MCP + A2A agent card on :7778     (runnable)
+│   │   ├── client_protocol.lex # Zed ACP over stdio, Phase 1      (runnable)
+│   │   ├── api.lex            # A2A — no entry point yet
+│   │   └── acp.lex            # BeeAI ACP — no entry point yet
 │   ├── tui/main.lex     # CLI REPL + one-shot mode
 │   ├── web/             # Web frontend (vanilla JS)
 │   └── bootstrap/run.lex  # Demo 4-phase pipeline
@@ -399,15 +428,27 @@ lex-code
 
 ## Web Frontend
 
-```sh
-# start the A2A server
-lex run src/server/api.lex
+`src/server/web.lex` is the backend: it serves the static files in
+`src/web/` **and** the `POST /a2a` endpoint the page calls, so one
+process is the whole thing — no separate static server, and not
+`src/server/api.lex`, which has no entry point.
 
-# open in browser
-open src/web/index.html
-# or serve with any static server:
-npx serve src/web
+```sh
+lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_write,io,llm,net,proc,random,sql,time \
+  src/server/web.lex serve_web
+
+# then open http://localhost:7700
 ```
+
+`PORT` (default 7700) and `WEB_DIR` (default `src/web`) override the
+defaults. The effect list is what `lex check src/server/web.lex`
+reports as required.
+
+Each `POST /a2a` currently starts a **fresh session**: the request
+carries a `session_id` and the page stores the one it gets back, but
+the handler mints a new one per call, so the page has no conversation
+memory across turns. Fine for the demo it is; not yet a client to work
+in.
 
 ## Parallel Multi-Agent (`std.conc`)
 
