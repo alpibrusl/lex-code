@@ -19,21 +19,25 @@ bash examples/manifesto_full_chain/demo.sh
 
 ## Quickstart
 
+Use `bin/lex-code` rather than calling `lex run` by hand: it supplies
+the capability grant every session needs and the `main --` separator
+that stops your first flag being read as a function name.
+
 ```sh
 # set provider key
 export ANTHROPIC_API_KEY=sk-...
 
 # build mode (default), interactive REPL
-lex run src/tui/main.lex
+./bin/lex-code
 
 # one-shot CLI mode (exits after the task)
-lex run src/tui/main.lex "implement list.zip"
+./bin/lex-code "implement list.zip"
 
 # plan mode
-lex run src/tui/main.lex -- --plan
+./bin/lex-code --plan
 
 # mistral provider
-lex run src/tui/main.lex -- --mistral
+./bin/lex-code --mistral
 
 # bootstrap demo: impl → spec → test → review
 lex run src/bootstrap/run.lex
@@ -386,35 +390,12 @@ lex-code
 │   │   ├── api.lex          # A2A server (JSON-RPC 2.0)
 │   │   └── acp.lex          # ACP server (BeeAI REST protocol)
 │   ├── tui/main.lex     # CLI REPL + one-shot mode
-│   ├── vscode/          # VSCode extension (TypeScript)
 │   ├── web/             # Web frontend (vanilla JS)
 │   └── bootstrap/run.lex  # Demo 4-phase pipeline
 ├── bin/lex-code      # Shell wrapper (used by make install)
 ├── Makefile          # install / uninstall targets
 └── lex.toml
 ```
-
-## VSCode Extension
-
-```sh
-cd src/vscode
-npm install
-npm run build
-# then install .vsix or press F5 in VSCode to debug
-```
-
-Open the panel: **Cmd+Shift+L** (Mac) / **Ctrl+Shift+L** (Linux/Windows).
-
-Commands available via the Command Palette:
-- `Lex Code: Open Chat`
-- `Lex Code: Build mode`
-- `Lex Code: Plan mode`
-- `Lex Code: Refactor mode`
-- `Lex Code: Spec mode`
-- `Lex Code: Test mode`
-- `Lex Code: Review mode`
-
-Configure server URL, default mode, and provider via **Settings → Lex Code**.
 
 ## Web Frontend
 
@@ -522,11 +503,16 @@ authorised to use.
 
 - [x] v0.1 — agents, tools, TUI REPL, A2A server, lex-trail persistence
 - [x] v0.2 — refactor/spec/test/review agents, store tools, lex-spec permissions, Mistral provider
-- [x] v0.3 — parallel multi-agent (`std.conc`), VSCode extension, web frontend, bootstrap script
+- [x] v0.3 — parallel multi-agent (`std.conc`), VSCode extension (since removed, superseded by v0.7's ACP server), web frontend, bootstrap script
 - [x] v0.4 — lex-vcs tools (17), CLI one-shot mode, Ollama + vLLM providers, install target
 - [x] v0.5 — ACP server (`src/server/acp.lex`), ACP helpers in lex-agent
 - [x] v0.6 — OpenCode Go provider (native + via the bundled LiteLLM proxy, shared config with lex-loom)
 - [x] v0.7 — Agent Client Protocol (Zed) server, Phase 1: `initialize`/`session/new`/`session/prompt`/`session/close`
+
+The VSCode extension was dropped once that server existed: one ACP
+implementation reaches Zed, JetBrains, Neovim and Emacs, where the
+extension reached one editor and was the only TypeScript in the repo —
+so the only code `lex check`, `lex fmt` and CI could not see.
 
 ---
 

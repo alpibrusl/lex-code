@@ -244,7 +244,7 @@ fn collect_final_text(steps :: List[d.Step]) -> Str {
 }
 
 fn main() -> [env, io, net, llm, proc, sql, fs_write, time, approval] Nil {
-  let argv := []
+  let argv := io.argv()
   let provider_tag := select_provider_tag(argv)
   let mode := select_mode(argv)
   match find_task(argv) {
