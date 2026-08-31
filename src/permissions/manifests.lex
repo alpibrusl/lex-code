@@ -32,6 +32,13 @@ fn review_manifest_json() -> Str {
   manifest_json("lex-code review mode", "ReadOnly", "None", "None", "Namespace", 300, 200, 0, 50)
 }
 
+# Bar mode reads the repository and runs read-only probes (git log,
+# find, grep) — hence exec Sandboxed where review needs none, and the
+# same ReadOnly filesystem.
+fn bar_manifest_json() -> Str {
+  manifest_json("lex-code bar mode", "ReadOnly", "None", "Sandboxed", "Namespace", 300, 200, 0, 50)
+}
+
 fn spec_manifest_json() -> Str {
   manifest_json("lex-code spec mode", "ReadWrite", "None", "None", "Namespace", 300, 200, 0, 50)
 }
@@ -58,16 +65,20 @@ fn json_for_mode(mode :: Str) -> Str {
       if mode == "review" {
         review_manifest_json()
       } else {
-        if mode == "spec" {
-          spec_manifest_json()
+        if mode == "bar" {
+          bar_manifest_json()
         } else {
-          if mode == "test" {
-            test_manifest_json()
+          if mode == "spec" {
+            spec_manifest_json()
           } else {
-            if mode == "refactor" {
-              refactor_manifest_json()
+            if mode == "test" {
+              test_manifest_json()
             } else {
-              build_manifest_json()
+              if mode == "refactor" {
+                refactor_manifest_json()
+              } else {
+                build_manifest_json()
+              }
             }
           }
         }

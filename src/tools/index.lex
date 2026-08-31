@@ -18,6 +18,8 @@ import "./os_check" as os_check_tool
 
 import "./lex_audit" as audit_tool
 
+import "./bar_check" as bar_check_tool
+
 import "./lex_run" as run_tool
 
 import "./lex_test" as test_tool
@@ -105,7 +107,7 @@ fn vcs_tools() -> List[t.Tool] {
 }
 
 fn all_tools() -> List[t.Tool] {
-  list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), check_tool.tool(), os_check_tool.tool(), audit_tool.tool(), run_tool.tool(), test_tool.tool(), spec_check_tool.tool(), spec_smt_tool.tool(), sigid_tool.tool(), attest_tool.tool(), effects_tool.tool(), store_diff_tool.tool(), store_apply_tool.tool(), store_merge_tool.tool(), guidelines_tool.tool()], vcs_tools())
+  list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), check_tool.tool(), os_check_tool.tool(), audit_tool.tool(), run_tool.tool(), test_tool.tool(), spec_check_tool.tool(), spec_smt_tool.tool(), sigid_tool.tool(), attest_tool.tool(), effects_tool.tool(), store_diff_tool.tool(), store_apply_tool.tool(), store_merge_tool.tool(), guidelines_tool.tool(), bar_check_tool.tool()], vcs_tools())
 }
 
 # Curated minimal toolset for local models (LiteLLM/Ollama). Full all_tools()
@@ -211,5 +213,18 @@ fn test_tools() -> List[t.Tool] {
 
 fn review_tools() -> List[t.Tool] {
   tools_for_spec(rules.review_permission())
+}
+
+fn bar_tools() -> List[t.Tool] {
+  tools_for_spec(rules.bar_permission())
+}
+
+# Curated bar toolset for local models. bar_tools() ships 19 schemas, 9 of
+# them lex-vcs tools a bar walk never calls — exactly the overload
+# minimal_tools() exists to avoid. A walk needs the probe runner and enough
+# to confirm what it reports; everything else is noise a 7B model pays for
+# on every turn.
+fn bar_minimal_tools() -> List[t.Tool] {
+  [bar_check_tool.tool(), read_tool.tool(), grep_tool.tool(), glob_tool.tool()]
 }
 

@@ -48,6 +48,13 @@ fn review_permission() -> sp.Spec {
   allow_tools("review_tools", list.concat(["read", "grep", "glob", "lex_check", "lex_audit", "sigid_lookup", "effects_of", "attestation_query", "load_guidelines"], vcs_read_names()))
 }
 
+# BAR mode reads and reports; it never edits. The tool list is
+# review's, plus the bar_check probe runner — deliberately without
+# write, edit or bash, so a walk cannot quietly turn into a fix.
+fn bar_permission() -> sp.Spec {
+  allow_tools("bar_tools", list.concat(["bar_check", "read", "grep", "glob", "lex_check", "lex_audit", "sigid_lookup", "effects_of", "attestation_query", "load_guidelines"], vcs_read_names()))
+}
+
 fn spec_permission() -> sp.Spec {
   allow_tools("spec_tools", ["read", "write", "edit", "grep", "glob", "lex_check", "lex_spec_check", "lex_spec_smt"])
 }

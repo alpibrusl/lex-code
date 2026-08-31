@@ -19,30 +19,32 @@ bash examples/manifesto_full_chain/demo.sh
 
 ## Quickstart
 
+Use `bin/lex-code` rather than calling `lex run` by hand: it supplies
+the capability grant every session needs and the `main --` separator
+that stops your first flag being read as a function name.
+
 ```sh
 # set provider key
 export ANTHROPIC_API_KEY=sk-...
 
 # build mode (default), interactive REPL
-lex run src/tui/main.lex
+./bin/lex-code
 
 # one-shot CLI mode (exits after the task)
-lex run src/tui/main.lex "implement list.zip"
+./bin/lex-code "implement list.zip"
 
 # plan mode
-lex run src/tui/main.lex -- --plan
+./bin/lex-code --plan
 
 # mistral provider
-lex run src/tui/main.lex -- --mistral
+./bin/lex-code --mistral
 
 # bootstrap demo: impl → spec → test → review
 lex run src/bootstrap/run.lex
 
-# A2A server (JSON-RPC 2.0)
-lex run src/server/api.lex
-
-# ACP server (BeeAI Agent Communication Protocol)
-lex run src/server/acp.lex
+# web UI + HTTP API on :7700 (see Web Frontend)
+lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
+  src/server/web.lex serve_web
 ```
 
 ## Install as a binary
@@ -76,6 +78,7 @@ lex-code --plan --ollama "how should we structure the session module?"
 | `--spec` | Spec | Generate lex-spec `Spec` values |
 | `--test` | Test | Write unit and property tests |
 | `--review` | Review | Code-review: correctness, style, effects |
+| `--bar` | Bar | Walk a project against the minimum bar, read-only ([below](#minimum-bar-mode)) |
 | `--multi` | Multi | Run Build + Test in parallel via `std.conc` |
 
 ## Providers
@@ -125,17 +128,17 @@ VLLM_MODEL=deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct \
 ```sh
 # native (direct to the Go endpoint, no proxy)
 export OPENCODE_API_KEY=$(cat ~/.credentials/opencode/key | tr -d '\n')
-lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/tui/main.lex main -- --opencode "implement list.zip"
 
 # override the default model (kimi-k2.7-code)
 OPENCODE_MODEL=qwen3.7-max \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/tui/main.lex main -- --opencode "implement list.zip"
 
 # via the LiteLLM proxy instead (shares one proxy + model list with lex-loom — see below)
 LITELLM_MODEL=deepseek-v4-flash \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/tui/main.lex main -- --litellm "implement list.zip"
 ```
 
@@ -155,23 +158,23 @@ cd ..
 
 # run lex-code against qwen3-coder:30b (recommended local model)
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/tui/main.lex main
 
 # one-shot via the --litellm flag
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/tui/main.lex main -- --litellm "implement list.zip"
 
 # OpenCode Go through the proxy instead of native --opencode
 LITELLM_MODEL=kimi-k2.7-code \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/tui/main.lex main -- --litellm "implement list.zip"
 
 # override the proxy URL (default: http://localhost:4000)
 LITELLM_BASE_URL=http://gpu-box:4000 \
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/tui/main.lex main -- --litellm
 ```
 
@@ -238,56 +241,52 @@ Even with these fixes, thinking models tend to emit tool calls as embedded JSON 
 
 ### A2A (Agent-to-Agent, JSON-RPC 2.0)
 
-```sh
-lex run src/server/api.lex
-```
+> **Not runnable yet.** `src/server/api.lex` defines the capability and
+> handler but no `main`/`serve` entry point, so `lex run` on it has
+> nothing to call. Its `handle_chat` also only echoes: `Skill.handle`
+> pins an invariant effect row without `llm` (AGENTS.md §1.6), so the
+> handler structurally cannot run a turn until that type changes
+> upstream in lex-agent. The A2A **agent card** is served today by the
+> MCP server below, on `/.well-known/agent.json`.
 
-Exposes the standard Google A2A protocol: `tasks/send`, `tasks/get`, `tasks/cancel`,
+The intended surface: `tasks/send`, `tasks/get`, `tasks/cancel`,
 `tasks/sendSubscribe` (SSE). Agent card at `/.well-known/agent.json`.
 
-### ACP (Agent Communication Protocol, BeeAI)
+### MCP (Model Context Protocol)
 
-```sh
-lex run src/server/acp.lex
-```
-
-Exposes a REST API compatible with the BeeAI ACP standard:
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/` | Agent info JSON |
-| `POST` | `/runs` | Synchronous run — returns completed JSON |
-| `POST` | `/runs/stream` | Streaming run — SSE events |
-
-Example:
-```sh
-curl -X POST http://localhost:8080/runs \
-  -H 'Content-Type: application/json' \
-  -d '{"input":[{"role":"user","content":[{"type":"text","text":"write list.zip"}]}]}'
-```
-
-Streaming example:
-```sh
-curl -X POST http://localhost:8080/runs/stream \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: text/event-stream' \
-  -d '{"input":[{"role":"user","content":[{"type":"text","text":"write list.zip"}]}]}'
-# event: run.started
-# data: {"run_id":"...","status":"running"}
-#
-# event: run.completed
-# data: {"run_id":"...","agent_id":"lex-code","status":"completed","output":[...]}
-```
-
-### Agent Client Protocol (ACP, Zed) — Phase 1
-
-Not the same "ACP" as above — this is [Zed's Agent Client Protocol](https://zed.dev/acp), an unrelated
-JSON-RPC-over-stdio standard for launching a coding agent as a subprocess (Zed, JetBrains, Neovim, and
-Emacs all speak it; opencode is one of the other agents already on the [ACP Registry](https://zed.dev/blog/acp-registry)).
+`src/server/mcp_main.lex` exposes lex-code as a single `code` tool over
+MCP, so any MCP-speaking host — Claude Code, Cursor, Zed — can hand it
+a task. `mode` selects the agent strategy; the provider is a
+server-launch choice, not a per-call argument.
 
 ```sh
 LEX_CODE_PROVIDER=anthropic ANTHROPIC_API_KEY=… \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,crypto,random,approval \
+lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
+  src/server/mcp_main.lex main &
+
+curl -s http://localhost:7778/.well-known/agent.json
+curl -s -X POST http://localhost:7778/mcp \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+curl -s -X POST http://localhost:7778/mcp \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"code",
+       "arguments":{"task":"add retries to fetch()","mode":"refactor"}}}'
+```
+
+The same port serves the A2A agent card at
+`/.well-known/agent.json`. All eight modes are reachable through the
+`mode` argument (`build|plan|explore|refactor|spec|test|review|bar`).
+
+### Agent Client Protocol (ACP, Zed) — Phase 1
+
+[Zed's Agent Client Protocol](https://zed.dev/acp) — a JSON-RPC-over-stdio standard for launching a
+coding agent as a subprocess (Zed, JetBrains, Neovim, and Emacs all speak it; opencode is one of the
+other agents already on the [ACP Registry](https://zed.dev/blog/acp-registry)). Note the name collides
+with BeeAI's Agent *Communication* Protocol, which is a different, unrelated thing; lex-code no longer
+carries a server for it.
+
+```sh
+LEX_CODE_PROVIDER=anthropic ANTHROPIC_API_KEY=… \
+  lex run --allow-effects approval,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
   src/server/client_protocol.lex main
 ```
 
@@ -369,7 +368,8 @@ The agent can read and drive lex-vcs directly via these tools.
 ```
 lex-code
 ├── src/
-│   ├── agents/          # AgentDef values (build, plan, explore, refactor, spec, test, review)
+│   ├── agents/          # AgentDef values (build, plan, explore, refactor, spec, test, review, bar)
+│   ├── bar/             # Minimum-bar ledger, probe ids, repository probes
 │   ├── prompts/         # System prompts per mode
 │   ├── tools/           # Tool implementations
 │   │   ├── standard/    # read, write, edit, grep, glob, bash, todowrite
@@ -378,13 +378,15 @@ lex-code
 │   │   └── vcs/         # 17 lex-vcs tools (ast_diff, op_*, branch_*, merge_*)
 │   ├── permissions/     # lex-spec Spec values per agent mode
 │   ├── server/
-│   │   ├── session.lex      # Session type, run_turn, AgentMode
-│   │   ├── multi_agent.lex  # std.conc parallel dispatch
-│   │   ├── persist.lex      # lex-trail log helpers
-│   │   ├── api.lex          # A2A server (JSON-RPC 2.0)
-│   │   └── acp.lex          # ACP server (BeeAI REST protocol)
+│   │   ├── session.lex        # Session type, run_turn, AgentMode
+│   │   ├── session_events.lex # Durable conversation record (the trail)
+│   │   ├── multi_agent.lex    # std.conc parallel dispatch
+│   │   ├── persist.lex        # lex-trail log helpers
+│   │   ├── web.lex            # HTTP: static src/web + POST /a2a  (runnable)
+│   │   ├── mcp_main.lex       # MCP + A2A agent card on :7778     (runnable)
+│   │   ├── client_protocol.lex # Zed ACP over stdio, Phase 1      (runnable)
+│   │   └── api.lex            # A2A — no entry point yet
 │   ├── tui/main.lex     # CLI REPL + one-shot mode
-│   ├── vscode/          # VSCode extension (TypeScript)
 │   ├── web/             # Web frontend (vanilla JS)
 │   └── bootstrap/run.lex  # Demo 4-phase pipeline
 ├── bin/lex-code      # Shell wrapper (used by make install)
@@ -392,39 +394,29 @@ lex-code
 └── lex.toml
 ```
 
-## VSCode Extension
-
-```sh
-cd src/vscode
-npm install
-npm run build
-# then install .vsix or press F5 in VSCode to debug
-```
-
-Open the panel: **Cmd+Shift+L** (Mac) / **Ctrl+Shift+L** (Linux/Windows).
-
-Commands available via the Command Palette:
-- `Lex Code: Open Chat`
-- `Lex Code: Build mode`
-- `Lex Code: Plan mode`
-- `Lex Code: Refactor mode`
-- `Lex Code: Spec mode`
-- `Lex Code: Test mode`
-- `Lex Code: Review mode`
-
-Configure server URL, default mode, and provider via **Settings → Lex Code**.
-
 ## Web Frontend
 
-```sh
-# start the A2A server
-lex run src/server/api.lex
+`src/server/web.lex` is the backend: it serves the static files in
+`src/web/` **and** the `POST /a2a` endpoint the page calls, so one
+process is the whole thing — no separate static server, and not
+`src/server/api.lex`, which has no entry point.
 
-# open in browser
-open src/web/index.html
-# or serve with any static server:
-npx serve src/web
+```sh
+lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
+  src/server/web.lex serve_web
+
+# then open http://localhost:7700
 ```
+
+`PORT` (default 7700) and `WEB_DIR` (default `src/web`) override the
+defaults. The effect list is what `lex check src/server/web.lex`
+reports as required.
+
+Each `POST /a2a` currently starts a **fresh session**: the request
+carries a `session_id` and the page stores the one it gets back, but
+the handler mints a new one per call, so the page has no conversation
+memory across turns. Fine for the demo it is; not yet a client to work
+in.
 
 ## Parallel Multi-Agent (`std.conc`)
 
@@ -447,6 +439,68 @@ let test_steps := conc.ask(test_actor, Execute(test_task))
 3. **test** — Test agent writes unit tests
 4. **review** — Review agent checks the whole thing
 
+## Minimum bar mode
+
+`--bar` walks a project against a checklist and reports where it stands.
+It never edits: the output is a work queue, in the order the gaps will
+hurt.
+
+The checklist is not invented here. It is the two "short version" cards
+from [*Prompt to
+Production*](https://github.com/alpibrusl/prompt-to-production) ch. 16
+and [*Prompt to
+Evidence*](https://github.com/alpibrusl/prompt-to-evidence) ch. 15 —
+each book's five items with the worst consequence-to-effort ratio in it
+— plus four items from the production checklist that a repository can
+settle about itself. Fourteen in total, in `src/bar/ledger.lex`.
+
+The interesting part is the tier on each item, because it is an
+admission:
+
+| Tier | Count | What lex-code does |
+|------|-------|--------------------|
+| `repo` | 6 | Runs a probe and reports the verdict **and its bound** |
+| `attested` | 4 | Cannot verify. Asks, records who said it and when, and reports NOT DONE if nobody answers |
+| `judgement` | 4 | Cannot verify. Asks for the reasoning, not a verdict |
+
+Six of fourteen. "The database is backed up and a restore has actually
+been performed" is a claim about the world, and no coding agent can
+settle it — so BAR mode is forbidden from ticking it, and marking such
+an item not-applicable requires a stated reason. A bare N/A is how a
+checklist becomes a rubber stamp.
+
+The six probes, all read-only:
+
+| Probe | Item | What it cannot see |
+|-------|------|--------------------|
+| `secret_scan` | No secrets in the repository, checked through the history | Credentials in an unrecognised format; commits outside the range it reports |
+| `git_remote` | A remote copy that is not your laptop | Whether the remote is reachable or current |
+| `tests_present` | Tests exist for the paths that must not break | Which paths those are |
+| `ci_on_pr` | Tests run on every PR and block the merge | Branch protection — it lives in the forge, so this probe never returns better than `partial` |
+| `toolchain_pin` | What is pinned is pinned consistently | The `lex-*` packages, unpinned on purpose while they move fast; only the lex-lang toolchain is compared — `lex.toml` against every version named in `.github/workflows`, not a pin written in a Dockerfile or a README |
+| `examples_coverage` | Tested against a case with a known answer | Which fns are pure; an `examples {}` block **is** the known-answer test, so this is a floor, not coverage |
+
+```sh
+lex run src/tui/main.lex -- --bar "walk this project"
+
+# the probes alone, no model:
+lex run --allow-effects io,proc src/bar/checks.lex gate '"."' '"src"'
+```
+
+That last command is also a CI step: lex-code is held to the bar it
+walks other projects against. It fails the build on a `fail` verdict
+only — `partial` is the honest state for an item a probe can half
+answer, and failing on it would push the next author to weaken the
+probe rather than answer the question.
+
+It caught two real ones on the way in. First: `lex.toml` pinned
+toolchain 0.10.10 while CI installed 0.10.11. Then, once that was
+fixed, the probe itself turned out to be reading only the first
+`LEX_VERSION` assignment it found — so `publish.yml`, which writes the
+version inline in a download URL with no variable at all, had sat two
+patch versions behind unnoticed. It now reads every lex-lang version
+named in any workflow and names the file that disagrees.
+
 ## Permissions
 
 Each agent mode has a `lex-spec` `Spec` value (in `src/permissions/rules.lex`) that
@@ -458,11 +512,16 @@ authorised to use.
 
 - [x] v0.1 — agents, tools, TUI REPL, A2A server, lex-trail persistence
 - [x] v0.2 — refactor/spec/test/review agents, store tools, lex-spec permissions, Mistral provider
-- [x] v0.3 — parallel multi-agent (`std.conc`), VSCode extension, web frontend, bootstrap script
+- [x] v0.3 — parallel multi-agent (`std.conc`), VSCode extension (since removed, superseded by v0.7's Zed ACP server), web frontend, bootstrap script
 - [x] v0.4 — lex-vcs tools (17), CLI one-shot mode, Ollama + vLLM providers, install target
-- [x] v0.5 — ACP server (`src/server/acp.lex`), ACP helpers in lex-agent
+- [x] v0.5 — BeeAI ACP server (`src/server/acp.lex`), ACP helpers in lex-agent (server since removed — it never had a listener, and `lex-agent/acp_server` supplies only pure JSON/SSE builders, so finishing it meant writing a second HTTP server for a job `web.lex` and the MCP server already cover; the helpers remain upstream)
 - [x] v0.6 — OpenCode Go provider (native + via the bundled LiteLLM proxy, shared config with lex-loom)
 - [x] v0.7 — Agent Client Protocol (Zed) server, Phase 1: `initialize`/`session/new`/`session/prompt`/`session/close`
+
+The VSCode extension was dropped once that server existed: one ACP
+implementation reaches Zed, JetBrains, Neovim and Emacs, where the
+extension reached one editor and was the only TypeScript in the repo —
+so the only code `lex check`, `lex fmt` and CI could not see.
 
 ---
 

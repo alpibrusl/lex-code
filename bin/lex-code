@@ -1,5 +1,15 @@
 #!/usr/bin/env sh
 # Wrapper — requires `lex` CLI on PATH.
+#
+# Two things this has to get right, both of which `lex run FILE "$@"`
+# gets wrong: the first positional after the file is read as a function
+# name (so `lex-code --plan` panicked with `no function --plan`), and
+# the run needs a capability grant or every session refuses at the
+# first sql/fs_write. Hence the explicit `main --` and the effect list,
+# which is exactly what `lex check src/tui/main.lex` reports as
+# required — widen it only if that output changes.
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-exec lex run "$SCRIPT_DIR/../src/tui/main.lex" "$@"
+LEX_CODE_EFFECTS="${LEX_CODE_EFFECTS:-approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time}"
+exec lex run --allow-effects "$LEX_CODE_EFFECTS" \
+  "$SCRIPT_DIR/../src/tui/main.lex" main -- "$@"

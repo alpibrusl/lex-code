@@ -32,7 +32,7 @@ fn print_step(step :: d.Step) -> [io] Nil {
   }
 }
 
-fn repl(session :: sess.Session, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_write, time, approval] Nil {
+fn repl(session :: sess.Session, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval] Nil {
   io.print("\n> ")
   match io.read("-") {
     Err(_) => io.print("\nbye"),
@@ -51,7 +51,7 @@ fn repl(session :: sess.Session, provider_tag :: Str) -> [env, io, net, llm, pro
   }
 }
 
-fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_write, time, approval] Nil {
+fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval] Nil {
   match sess.new_session_with_provider("cli", mode, provider_tag) {
     Err(e) => io.print(str.concat(str.concat("error: ", e), "\n")),
     Ok(session) => {
@@ -64,7 +64,7 @@ fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str) -> [env, i
   }
 }
 
-fn multi_repl(provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_write, time, approval] Nil {
+fn multi_repl(provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval] Nil {
   io.print("\n[multi] task> ")
   match io.read("-") {
     Err(_) => io.print("\nbye"),
@@ -131,7 +131,11 @@ fn select_mode(argv :: List[Str]) -> sess.AgentMode {
             if has_flag(argv, "--review") {
               Review
             } else {
-              Build
+              if has_flag(argv, "--bar") {
+                Bar
+              } else {
+                Build
+              }
             }
           }
         }
@@ -187,7 +191,7 @@ fn select_provider_tag(argv :: List[Str]) -> Str {
 #
 #   [AGENTCMP_RESULT]	{"ok":true,"final":"<escaped>"}
 #
-fn run_headless(task :: Str, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_write, time, approval] Nil {
+fn run_headless(task :: Str, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval] Nil {
   match sess.new_session_with_provider("headless", Build, provider_tag) {
     Err(e) => io.print(str.join(["[AGENTCMP_RESULT]\t{\"ok\":false,\"final\":\"", e, "\"}\n"], "")),
     Ok(session) => {
@@ -239,15 +243,15 @@ fn collect_final_text(steps :: List[d.Step]) -> Str {
   }
 }
 
-fn main() -> [env, io, net, llm, proc, sql, fs_write, time, approval] Nil {
-  let argv := []
+fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval] Nil {
+  let argv := io.argv()
   let provider_tag := select_provider_tag(argv)
   let mode := select_mode(argv)
   match find_task(argv) {
     Some(task) => run_once(task, mode, provider_tag),
     None => {
       io.print(str.concat("lex-code — Lex-specialized coding assistant", "\n"))
-      io.print(str.concat("modes:     --plan | --explore | --refactor | --spec | --test | --review | --multi", "\n"))
+      io.print(str.concat("modes:     --plan | --explore | --refactor | --spec | --test | --review | --bar | --multi", "\n"))
       io.print(str.concat("providers: --mistral | --openai | --google | --vertex | --litellm | --ollama | --vllm | --opencode  (default: anthropic)", "\n"))
       io.print(str.concat("one-shot:  lex run src/tui/main.lex -- [flags] \"your task\"", "\n"))
       io.print(str.concat("Ctrl-D to exit", "\n"))

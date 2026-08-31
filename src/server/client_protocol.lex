@@ -1,9 +1,11 @@
 # lex-code — Agent Client Protocol (ACP) server — Phase 1
 #
-# NOT the same protocol as src/server/acp.lex, which speaks BeeAI's
-# REST-based Agent Communication Protocol. This file speaks Zed's Agent
-# Client Protocol — JSON-RPC 2.0 over stdin/stdout, NDJSON-framed (one
-# JSON object per line, no Content-Length headers). It's the protocol
+# The name "ACP" is taken twice in this space: BeeAI's REST-based Agent
+# Communication Protocol is a different, unrelated standard (lex-code
+# carried a sketch of a server for it until it was removed — it never
+# had a listener). This file speaks Zed's Agent Client Protocol —
+# JSON-RPC 2.0 over stdin/stdout, NDJSON-framed (one JSON object per
+# line, no Content-Length headers). It's the protocol
 # editors use to launch and drive a coding agent as a subprocess: Zed,
 # JetBrains (IntelliJ/PyCharm/GoLand/WebStorm), Neovim, and Emacs all
 # support it, and opencode is one of the agents already listed in the
@@ -174,7 +176,7 @@ fn handle_initialize(id :: jv.Json) -> [io] Unit {
   send(jrpc_result(id, JObj([("protocolVersion", JInt(2)), ("agentCapabilities", JObj([("loadSession", JBool(false)), ("promptCapabilities", JObj([("image", JBool(false)), ("audio", JBool(false))]))]))])))
 }
 
-fn handle_session_new(id :: jv.Json, params :: jv.Json, registry :: Registry, provider_tag :: Str) -> [sql, fs_write, crypto, random, io] Registry {
+fn handle_session_new(id :: jv.Json, params :: jv.Json, registry :: Registry, provider_tag :: Str) -> [sql, fs_read, fs_walk, fs_write, crypto, random, io] Registry {
   let sid := crypto.random_str_hex(16)
   match sess.new_session_with_provider(sid, Build, provider_tag) {
     Err(e) => {
@@ -188,7 +190,7 @@ fn handle_session_new(id :: jv.Json, params :: jv.Json, registry :: Registry, pr
   }
 }
 
-fn handle_session_prompt(id :: jv.Json, params :: jv.Json, registry :: Registry, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time, approval] Registry {
+fn handle_session_prompt(id :: jv.Json, params :: jv.Json, registry :: Registry, provider_tag :: Str) -> [env, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval] Registry {
   let sid := str_field(params, "sessionId")
   let prompt := extract_prompt_text(params)
   match map.get(registry, sid) {
@@ -230,7 +232,7 @@ fn handle_session_close(id :: jv.Json, params :: jv.Json, registry :: Registry) 
 }
 
 # ---- Dispatch + main loop ------------------------------------------------
-fn dispatch(line :: Str, registry :: Registry, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time, crypto, random, fs_write, approval] Registry {
+fn dispatch(line :: Str, registry :: Registry, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time, crypto, random, fs_read, fs_walk, fs_write, approval] Registry {
   match jv.parse_into_errors(line) {
     Err(_) => {
       let __sent := send(jrpc_error(JNull, -32700, "parse error"))
@@ -256,7 +258,7 @@ fn dispatch(line :: Str, registry :: Registry, provider_tag :: Str) -> [env, net
   }
 }
 
-fn serve(registry :: Registry, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time, crypto, random, fs_write, approval] Nil {
+fn serve(registry :: Registry, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time, crypto, random, fs_read, fs_walk, fs_write, approval] Nil {
   match io.readline() {
     None => (),
     Some(line) => if str.is_empty(str.trim(line)) {
@@ -267,7 +269,7 @@ fn serve(registry :: Registry, provider_tag :: Str) -> [env, net, llm, io, proc,
   }
 }
 
-fn main() -> [env, net, llm, io, proc, sql, time, crypto, random, fs_write, approval] Nil {
+fn main() -> [env, net, llm, io, proc, sql, time, crypto, random, fs_read, fs_walk, fs_write, approval] Nil {
   serve(map.new(), provider_tag_from_env())
 }
 

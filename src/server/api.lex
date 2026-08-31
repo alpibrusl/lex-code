@@ -30,12 +30,18 @@ fn mode_from_str(mode_str :: Str) -> sess.AgentMode {
   }
 }
 
+# Echoes. It cannot do more: `Skill.handle`'s effect row is fixed by
+# lex-agent and excludes `llm`, so no turn can run from here until that
+# type changes upstream (AGENTS.md §1.6).
+#
+# It used to open a session and discard it — `Ok(_) =>` — which proved
+# nothing and ran no turn. That call is gone, because the fixed row also
+# excludes `fs_walk`, and opening a session now probes for the project
+# memory store. Keeping a discarded session would have meant weakening
+# the memory design to satisfy a handler that does not use its result.
 fn handle_chat(message :: amsg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] a2a_srv.HandlerOutcome {
   match list.head(message.parts) {
-    Some(TextPart(text)) => match sess.new_session("api", Build) {
-      Err(e) => { next_state: TSFailed, reply: Some(amsg.agent_text(str.concat("session error: ", e))), artifacts: [] },
-      Ok(_) => { next_state: TSCompleted, reply: Some(amsg.agent_text(str.concat("received: ", text))), artifacts: [] },
-    },
+    Some(TextPart(text)) => { next_state: TSCompleted, reply: Some(amsg.agent_text(str.concat("received: ", text))), artifacts: [] },
     _ => { next_state: TSCompleted, reply: Some(amsg.agent_text("expected a text message")), artifacts: [] },
   }
 }

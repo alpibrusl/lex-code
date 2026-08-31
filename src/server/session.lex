@@ -30,13 +30,17 @@ import "../agents/test_agent" as test_a
 
 import "../agents/review" as review_a
 
+import "../agents/bar" as bar_a
+
 import "./persist" as persist
 
 import "./session_events" as evs
 
-type AgentMode = Build | Plan | Explore | Refactor | Spec | Test | Review
+import "../project_memory" as pmem
 
-type Session = { id :: Str, mode :: AgentMode, messages :: List[msg.Message], log :: trail_log.Log, parent :: Option[Str] }
+type AgentMode = Build | Plan | Explore | Refactor | Spec | Test | Review | Bar
+
+type Session = { id :: Str, mode :: AgentMode, messages :: List[msg.Message], log :: trail_log.Log, parent :: Option[Str], memory :: Str }
 
 type TurnResult = { steps :: List[d.Step], session :: Session }
 
@@ -50,6 +54,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.mistral_agent(),
       Test => test_a.mistral_agent(),
       Review => review_a.mistral_agent(),
+      Bar => bar_a.mistral_agent(),
     },
     "openai" => match mode {
       Build => build_agent.openai_agent(),
@@ -59,6 +64,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.openai_agent(),
       Test => test_a.openai_agent(),
       Review => review_a.openai_agent(),
+      Bar => bar_a.openai_agent(),
     },
     "google" => match mode {
       Build => build_agent.google_agent(),
@@ -68,6 +74,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.google_agent(),
       Test => test_a.google_agent(),
       Review => review_a.google_agent(),
+      Bar => bar_a.google_agent(),
     },
     "ollama" => match mode {
       Build => build_agent.ollama_agent(),
@@ -77,6 +84,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.ollama_agent(),
       Test => test_a.ollama_agent(),
       Review => review_a.ollama_agent(),
+      Bar => bar_a.ollama_agent(),
     },
     "litellm" => match mode {
       Build => build_agent.litellm_agent(),
@@ -86,6 +94,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.litellm_agent(),
       Test => test_a.litellm_agent(),
       Review => review_a.litellm_agent(),
+      Bar => bar_a.litellm_agent(),
     },
     "vllm" => match mode {
       Build => build_agent.vllm_agent(),
@@ -95,6 +104,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.vllm_agent(),
       Test => test_a.vllm_agent(),
       Review => review_a.vllm_agent(),
+      Bar => bar_a.vllm_agent(),
     },
     "vertex" => match mode {
       Build => build_agent.vertex_agent(),
@@ -104,6 +114,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.google_agent(),
       Test => test_a.google_agent(),
       Review => review_a.google_agent(),
+      Bar => bar_a.google_agent(),
     },
     "opencode" => match mode {
       Build => build_agent.opencode_agent(),
@@ -113,6 +124,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.opencode_agent(),
       Test => test_a.opencode_agent(),
       Review => review_a.opencode_agent(),
+      Bar => bar_a.opencode_agent(),
     },
     _ => match mode {
       Build => build_agent.agent(),
@@ -122,19 +134,57 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.agent(),
       Test => test_a.agent(),
       Review => review_a.agent(),
+      Bar => bar_a.agent(),
     },
   }
 }
 
-fn new_session(id :: Str, mode :: AgentMode) -> [sql, fs_write] Result[Session, Str] {
+fn new_session(id :: Str, mode :: AgentMode) -> [sql, fs_read, fs_walk, fs_write] Result[Session, Str] {
   new_session_with_provider(id, mode, "anthropic")
 }
 
-fn new_session_with_provider(id :: Str, mode :: AgentMode, provider_tag :: Str) -> [sql, fs_write] Result[Session, Str] {
+# Project memory is read once here rather than per turn: it changes on the
+# scale of a project, not a message, and reading it at session start keeps
+# `run_turn_with_provider`'s effect row unchanged. `recall_context` answers
+# "" for every failure — no store yet, unreadable db — so a session never
+# fails because memory was unavailable.
+fn new_session_with_provider(id :: Str, mode :: AgentMode, provider_tag :: Str) -> [sql, fs_read, fs_walk, fs_write] Result[Session, Str] {
   match persist.open_ephemeral() {
     Err(e) => Err(e),
-    Ok(log) => Ok({ id: id, mode: mode, messages: [], log: log, parent: None }),
+    Ok(log) => Ok({ id: id, mode: mode, messages: [], log: log, parent: None, memory: pmem.recall_context() }),
   }
+}
+
+# Prepend recalled project memory to an agent's system prompt. Pure, so the
+# examples below run at `lex check` time and CI covers the one thing that can
+# silently go wrong here: an empty recall must leave the prompt untouched
+# rather than trailing separators onto it.
+fn prefix_goal(goal :: Str, ctx :: Str) -> Str
+  examples {
+    prefix_goal("SYSTEM", "") => "SYSTEM",
+    prefix_goal("SYSTEM", "   ") => "SYSTEM",
+    prefix_goal("SYSTEM", "\n\nMemory:\n- uses std.conc") => "## PROJECT MEMORY\n\nMemory:\n- uses std.conc\n\nSYSTEM"
+  }
+{
+  let trimmed := str.trim(ctx)
+  if str.is_empty(trimmed) {
+    goal
+  } else {
+    str.join(["## PROJECT MEMORY\n\n", trimmed, "\n\n", goal], "")
+  }
+}
+
+# Why `Session.memory` is a field and not a message: it is prepended to the
+# agent's SYSTEM PROMPT, never to `messages`. #54's contract is that the
+# model's conversation is derived from the trail, and injecting an
+# out-of-band message would break exactly the property that derivation check
+# exists to hold. A system prompt is agent configuration, which the trail
+# never claimed to reproduce.
+#
+# (The comment belongs here rather than on the type: `lex fmt` cannot
+# preserve comments above a `type` declaration — lex-lang#755.)
+fn with_memory(agent :: ag.AgentLoop, ctx :: Str) -> ag.AgentLoop {
+  { name: agent.name, goal: prefix_goal(agent.goal, ctx), model: agent.model, provider: agent.provider, tools: agent.tools, options: agent.options, permission_spec: agent.permission_spec }
 }
 
 fn run_turn(session :: Session, user_input :: Str) -> [env, net, llm, io, proc, sql, time, approval] TurnResult {
@@ -155,7 +205,7 @@ fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag ::
       Ok(derived) => {
         let expected := list.concat(session.messages, [msg.user(user_input)])
         if evs.history_eq(derived, expected) {
-          let agent := pick_agent(session.mode, provider_tag)
+          let agent := with_memory(pick_agent(session.mode, provider_tag), session.memory)
           let step_iter := ag.run_loop_traced(agent, derived, session.log, session.parent)
           let steps := iter.to_list(step_iter)
           finish_turn(session, derived, steps)
@@ -185,7 +235,7 @@ fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provi
       Ok(derived) => {
         let expected := list.concat(session.messages, [msg.user(user_input)])
         if evs.history_eq(derived, expected) {
-          let agent := pick_agent(session.mode, provider_tag)
+          let agent := with_memory(pick_agent(session.mode, provider_tag), session.memory)
           let step_iter := ag.run_loop_traced(agent, derived, session.log, session.parent)
           let steps := drain_with_callback(step_iter, on_step)
           finish_turn(session, derived, steps)
@@ -209,7 +259,7 @@ fn finish_turn(session :: Session, derived :: List[msg.Message], steps :: List[d
       list.concat(derived, [m])
     },
   }
-  let updated := { id: session.id, mode: session.mode, messages: new_msgs, log: session.log, parent: None }
+  let updated := { id: session.id, mode: session.mode, messages: new_msgs, log: session.log, parent: None, memory: session.memory }
   { steps: steps, session: updated }
 }
 

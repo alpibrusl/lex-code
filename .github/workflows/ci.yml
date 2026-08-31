@@ -12,6 +12,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: lex-code
+          # Full history: the minimum-bar secret scan reads `git log`,
+          # and on the default depth-1 checkout it would only ever see
+          # the tip commit while reporting that it had looked.
+          fetch-depth: 0
 
       - uses: actions/checkout@v4
         with:
@@ -41,8 +45,13 @@ jobs:
       - name: Install Lex toolchain
         run: |
           set -euxo pipefail
-          LEX_VERSION="0.10.11"
-          curl -fsSL -o /tmp/lex.tgz \
+          LEX_VERSION="0.10.13"
+          # Backed off and limited: the release CDN returns a 504 often
+          # enough to redden a build on its own, and re-running the job
+          # by hand is not a fix. Retries are safe here — the request is
+          # a GET of an immutable release asset.
+          curl -fsSL --retry 5 --retry-delay 2 --retry-max-time 120 --retry-connrefused \
+            -o /tmp/lex.tgz \
             "https://github.com/alpibrusl/lex-lang/releases/download/v${LEX_VERSION}/lex-v${LEX_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
           tar -xzf /tmp/lex.tgz -C /tmp/
           echo "/tmp/lex-v${LEX_VERSION}-x86_64-unknown-linux-gnu" >> "$GITHUB_PATH"
@@ -88,6 +97,15 @@ jobs:
       # /tmp, no provider keys, no network.
       - name: Test
         run: lex test --allow-effects crypto,fs_read,fs_write,io,random,sql,time tests
+        working-directory: lex-code
+
+      # The minimum bar (src/bar/ledger.lex), applied to lex-code
+      # itself. Only `fail` verdicts break the build — `partial` is the
+      # honest state for an item a probe can only half-answer, and a
+      # gate that treated it as an error would push the next author to
+      # weaken the probe instead of answering the question.
+      - name: Minimum bar (self-check)
+        run: lex run --allow-effects io,proc src/bar/checks.lex gate '"."' '"src"'
         working-directory: lex-code
 
       - name: Manifesto demos
