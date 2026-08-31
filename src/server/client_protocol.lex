@@ -1,9 +1,11 @@
 # lex-code — Agent Client Protocol (ACP) server — Phase 1
 #
-# NOT the same protocol as src/server/acp.lex, which speaks BeeAI's
-# REST-based Agent Communication Protocol. This file speaks Zed's Agent
-# Client Protocol — JSON-RPC 2.0 over stdin/stdout, NDJSON-framed (one
-# JSON object per line, no Content-Length headers). It's the protocol
+# The name "ACP" is taken twice in this space: BeeAI's REST-based Agent
+# Communication Protocol is a different, unrelated standard (lex-code
+# carried a sketch of a server for it until it was removed — it never
+# had a listener). This file speaks Zed's Agent Client Protocol —
+# JSON-RPC 2.0 over stdin/stdout, NDJSON-framed (one JSON object per
+# line, no Content-Length headers). It's the protocol
 # editors use to launch and drive a coding agent as a subprocess: Zed,
 # JetBrains (IntelliJ/PyCharm/GoLand/WebStorm), Neovim, and Emacs all
 # support it, and opencode is one of the agents already listed in the

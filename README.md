@@ -252,39 +252,6 @@ Even with these fixes, thinking models tend to emit tool calls as embedded JSON 
 The intended surface: `tasks/send`, `tasks/get`, `tasks/cancel`,
 `tasks/sendSubscribe` (SSE). Agent card at `/.well-known/agent.json`.
 
-### ACP (Agent Communication Protocol, BeeAI)
-
-> **Not runnable yet.** `src/server/acp.lex` is a single `handle_run`
-> function with no entry point wiring it to a listener.
-
-The intended surface — a REST API compatible with the BeeAI ACP standard:
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/` | Agent info JSON |
-| `POST` | `/runs` | Synchronous run — returns completed JSON |
-| `POST` | `/runs/stream` | Streaming run — SSE events |
-
-Example:
-```sh
-curl -X POST http://localhost:8080/runs \
-  -H 'Content-Type: application/json' \
-  -d '{"input":[{"role":"user","content":[{"type":"text","text":"write list.zip"}]}]}'
-```
-
-Streaming example:
-```sh
-curl -X POST http://localhost:8080/runs/stream \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: text/event-stream' \
-  -d '{"input":[{"role":"user","content":[{"type":"text","text":"write list.zip"}]}]}'
-# event: run.started
-# data: {"run_id":"...","status":"running"}
-#
-# event: run.completed
-# data: {"run_id":"...","agent_id":"lex-code","status":"completed","output":[...]}
-```
-
 ### MCP (Model Context Protocol)
 
 `src/server/mcp_main.lex` exposes lex-code as a single `code` tool over
@@ -311,9 +278,11 @@ The same port serves the A2A agent card at
 
 ### Agent Client Protocol (ACP, Zed) — Phase 1
 
-Not the same "ACP" as above — this is [Zed's Agent Client Protocol](https://zed.dev/acp), an unrelated
-JSON-RPC-over-stdio standard for launching a coding agent as a subprocess (Zed, JetBrains, Neovim, and
-Emacs all speak it; opencode is one of the other agents already on the [ACP Registry](https://zed.dev/blog/acp-registry)).
+[Zed's Agent Client Protocol](https://zed.dev/acp) — a JSON-RPC-over-stdio standard for launching a
+coding agent as a subprocess (Zed, JetBrains, Neovim, and Emacs all speak it; opencode is one of the
+other agents already on the [ACP Registry](https://zed.dev/blog/acp-registry)). Note the name collides
+with BeeAI's Agent *Communication* Protocol, which is a different, unrelated thing; lex-code no longer
+carries a server for it.
 
 ```sh
 LEX_CODE_PROVIDER=anthropic ANTHROPIC_API_KEY=… \
@@ -416,8 +385,7 @@ lex-code
 │   │   ├── web.lex            # HTTP: static src/web + POST /a2a  (runnable)
 │   │   ├── mcp_main.lex       # MCP + A2A agent card on :7778     (runnable)
 │   │   ├── client_protocol.lex # Zed ACP over stdio, Phase 1      (runnable)
-│   │   ├── api.lex            # A2A — no entry point yet
-│   │   └── acp.lex            # BeeAI ACP — no entry point yet
+│   │   └── api.lex            # A2A — no entry point yet
 │   ├── tui/main.lex     # CLI REPL + one-shot mode
 │   ├── web/             # Web frontend (vanilla JS)
 │   └── bootstrap/run.lex  # Demo 4-phase pipeline
@@ -544,9 +512,9 @@ authorised to use.
 
 - [x] v0.1 — agents, tools, TUI REPL, A2A server, lex-trail persistence
 - [x] v0.2 — refactor/spec/test/review agents, store tools, lex-spec permissions, Mistral provider
-- [x] v0.3 — parallel multi-agent (`std.conc`), VSCode extension (since removed, superseded by v0.7's ACP server), web frontend, bootstrap script
+- [x] v0.3 — parallel multi-agent (`std.conc`), VSCode extension (since removed, superseded by v0.7's Zed ACP server), web frontend, bootstrap script
 - [x] v0.4 — lex-vcs tools (17), CLI one-shot mode, Ollama + vLLM providers, install target
-- [x] v0.5 — ACP server (`src/server/acp.lex`), ACP helpers in lex-agent
+- [x] v0.5 — BeeAI ACP server (`src/server/acp.lex`), ACP helpers in lex-agent (server since removed — it never had a listener, and `lex-agent/acp_server` supplies only pure JSON/SSE builders, so finishing it meant writing a second HTTP server for a job `web.lex` and the MCP server already cover; the helpers remain upstream)
 - [x] v0.6 — OpenCode Go provider (native + via the bundled LiteLLM proxy, shared config with lex-loom)
 - [x] v0.7 — Agent Client Protocol (Zed) server, Phase 1: `initialize`/`session/new`/`session/prompt`/`session/close`
 
