@@ -58,14 +58,14 @@ import "./session" as sess
 
 # ---- capability: one `code` tool, mode is a knob -------------------
 fn code_capability() -> cap.Capability {
-  cap.inbound("code", "Run a coding task with lex-code. `mode` selects the agent strategy (build|plan|explore|refactor|spec|test|review; default build).", { title: "CodeArgs", description: "A coding task for lex-code.", fields: [s.required_str("task", [StrNonEmpty]), s.optional(s.required_str("mode", []))] })
+  cap.inbound("code", "Run a coding task with lex-code. `mode` selects the agent strategy (build|plan|explore|refactor|spec|test|review|bar; default build).", { title: "CodeArgs", description: "A coding task for lex-code.", fields: [s.required_str("task", [StrNonEmpty]), s.optional(s.required_str("mode", []))] })
 }
 
-# ---- the 7 brains, built once under env ----------------------------
-type Brains = { build :: ag.AgentLoop, plan :: ag.AgentLoop, explore :: ag.AgentLoop, refactor :: ag.AgentLoop, spec :: ag.AgentLoop, test :: ag.AgentLoop, review :: ag.AgentLoop }
+# ---- the 8 brains, built once under env ----------------------------
+type Brains = { build :: ag.AgentLoop, plan :: ag.AgentLoop, explore :: ag.AgentLoop, refactor :: ag.AgentLoop, spec :: ag.AgentLoop, test :: ag.AgentLoop, review :: ag.AgentLoop, bar :: ag.AgentLoop }
 
 fn build_brains(tag :: Str) -> [env] Brains {
-  { build: sess.pick_agent(Build, tag), plan: sess.pick_agent(Plan, tag), explore: sess.pick_agent(Explore, tag), refactor: sess.pick_agent(Refactor, tag), spec: sess.pick_agent(Spec, tag), test: sess.pick_agent(Test, tag), review: sess.pick_agent(Review, tag) }
+  { build: sess.pick_agent(Build, tag), plan: sess.pick_agent(Plan, tag), explore: sess.pick_agent(Explore, tag), refactor: sess.pick_agent(Refactor, tag), spec: sess.pick_agent(Spec, tag), test: sess.pick_agent(Test, tag), review: sess.pick_agent(Review, tag), bar: sess.pick_agent(Bar, tag) }
 }
 
 fn brain_for(b :: Brains, mode :: Str) -> ag.AgentLoop {
@@ -87,7 +87,11 @@ fn brain_for(b :: Brains, mode :: Str) -> ag.AgentLoop {
             if mode == "review" {
               b.review
             } else {
-              b.build
+              if mode == "bar" {
+                b.bar
+              } else {
+                b.build
+              }
             }
           }
         }

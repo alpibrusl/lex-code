@@ -30,11 +30,13 @@ import "../agents/test_agent" as test_a
 
 import "../agents/review" as review_a
 
+import "../agents/bar" as bar_a
+
 import "./persist" as persist
 
 import "./session_events" as evs
 
-type AgentMode = Build | Plan | Explore | Refactor | Spec | Test | Review
+type AgentMode = Build | Plan | Explore | Refactor | Spec | Test | Review | Bar
 
 type Session = { id :: Str, mode :: AgentMode, messages :: List[msg.Message], log :: trail_log.Log, parent :: Option[Str] }
 
@@ -50,6 +52,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.mistral_agent(),
       Test => test_a.mistral_agent(),
       Review => review_a.mistral_agent(),
+      Bar => bar_a.mistral_agent(),
     },
     "openai" => match mode {
       Build => build_agent.openai_agent(),
@@ -59,6 +62,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.openai_agent(),
       Test => test_a.openai_agent(),
       Review => review_a.openai_agent(),
+      Bar => bar_a.openai_agent(),
     },
     "google" => match mode {
       Build => build_agent.google_agent(),
@@ -68,6 +72,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.google_agent(),
       Test => test_a.google_agent(),
       Review => review_a.google_agent(),
+      Bar => bar_a.google_agent(),
     },
     "ollama" => match mode {
       Build => build_agent.ollama_agent(),
@@ -77,6 +82,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.ollama_agent(),
       Test => test_a.ollama_agent(),
       Review => review_a.ollama_agent(),
+      Bar => bar_a.ollama_agent(),
     },
     "litellm" => match mode {
       Build => build_agent.litellm_agent(),
@@ -86,6 +92,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.litellm_agent(),
       Test => test_a.litellm_agent(),
       Review => review_a.litellm_agent(),
+      Bar => bar_a.litellm_agent(),
     },
     "vllm" => match mode {
       Build => build_agent.vllm_agent(),
@@ -95,6 +102,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.vllm_agent(),
       Test => test_a.vllm_agent(),
       Review => review_a.vllm_agent(),
+      Bar => bar_a.vllm_agent(),
     },
     "vertex" => match mode {
       Build => build_agent.vertex_agent(),
@@ -104,6 +112,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.google_agent(),
       Test => test_a.google_agent(),
       Review => review_a.google_agent(),
+      Bar => bar_a.google_agent(),
     },
     "opencode" => match mode {
       Build => build_agent.opencode_agent(),
@@ -113,6 +122,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.opencode_agent(),
       Test => test_a.opencode_agent(),
       Review => review_a.opencode_agent(),
+      Bar => bar_a.opencode_agent(),
     },
     _ => match mode {
       Build => build_agent.agent(),
@@ -122,6 +132,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Spec => spec_a.agent(),
       Test => test_a.agent(),
       Review => review_a.agent(),
+      Bar => bar_a.agent(),
     },
   }
 }

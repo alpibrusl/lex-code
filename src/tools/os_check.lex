@@ -20,6 +20,8 @@ fn params() -> s.ModelSchema {
 
 # Effects the mode forbids, derived from the lex-os grant for that mode.
 #   explore / plan / review — ReadOnly FS, No Net, No Exec
+#   bar                     — ReadOnly FS, No Net, Sandboxed Exec
+#                             (the probes shell out to git / find / grep)
 #   spec                    — ReadWrite FS, No Net, No Exec
 #   test / refactor         — ReadWrite FS, No Net, Sandboxed Exec
 #   build                   — Full FS, Allowlist Net, Full Exec (nothing forbidden)
@@ -27,13 +29,17 @@ fn forbidden_for_mode(mode :: Str) -> List[Str] {
   if mode == "explore" or mode == "plan" or mode == "review" {
     ["net", "proc", "fs_write"]
   } else {
-    if mode == "spec" {
-      ["net", "proc"]
+    if mode == "bar" {
+      ["net", "fs_write"]
     } else {
-      if mode == "test" or mode == "refactor" {
-        ["net"]
+      if mode == "spec" {
+        ["net", "proc"]
       } else {
-        []
+        if mode == "test" or mode == "refactor" {
+          ["net"]
+        } else {
+          []
+        }
       }
     }
   }
@@ -95,13 +101,17 @@ fn grant_summary_for_mode(mode :: Str) -> Str {
   if mode == "explore" or mode == "plan" or mode == "review" {
     "fs=read-only net=none exec=none"
   } else {
-    if mode == "spec" {
-      "fs=read-write net=none exec=none"
+    if mode == "bar" {
+      "fs=read-only net=none exec=sandboxed"
     } else {
-      if mode == "test" or mode == "refactor" {
-        "fs=read-write net=none exec=sandboxed"
+      if mode == "spec" {
+        "fs=read-write net=none exec=none"
       } else {
-        "fs=full net=allowlist exec=full"
+        if mode == "test" or mode == "refactor" {
+          "fs=read-write net=none exec=sandboxed"
+        } else {
+          "fs=full net=allowlist exec=full"
+        }
       }
     }
   }

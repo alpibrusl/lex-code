@@ -131,7 +131,11 @@ fn select_mode(argv :: List[Str]) -> sess.AgentMode {
             if has_flag(argv, "--review") {
               Review
             } else {
-              Build
+              if has_flag(argv, "--bar") {
+                Bar
+              } else {
+                Build
+              }
             }
           }
         }
@@ -247,7 +251,7 @@ fn main() -> [env, io, net, llm, proc, sql, fs_write, time, approval] Nil {
     Some(task) => run_once(task, mode, provider_tag),
     None => {
       io.print(str.concat("lex-code — Lex-specialized coding assistant", "\n"))
-      io.print(str.concat("modes:     --plan | --explore | --refactor | --spec | --test | --review | --multi", "\n"))
+      io.print(str.concat("modes:     --plan | --explore | --refactor | --spec | --test | --review | --bar | --multi", "\n"))
       io.print(str.concat("providers: --mistral | --openai | --google | --vertex | --litellm | --ollama | --vllm | --opencode  (default: anthropic)", "\n"))
       io.print(str.concat("one-shot:  lex run src/tui/main.lex -- [flags] \"your task\"", "\n"))
       io.print(str.concat("Ctrl-D to exit", "\n"))

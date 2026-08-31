@@ -80,7 +80,11 @@ fn mode_from_str(s :: Str) -> sess.AgentMode {
             if s == "review" {
               Review
             } else {
-              Build
+              if s == "bar" {
+                Bar
+              } else {
+                Build
+              }
             }
           }
         }

@@ -76,6 +76,7 @@ lex-code --plan --ollama "how should we structure the session module?"
 | `--spec` | Spec | Generate lex-spec `Spec` values |
 | `--test` | Test | Write unit and property tests |
 | `--review` | Review | Code-review: correctness, style, effects |
+| `--bar` | Bar | Walk a project against the minimum bar, read-only ([below](#minimum-bar-mode)) |
 | `--multi` | Multi | Run Build + Test in parallel via `std.conc` |
 
 ## Providers
@@ -369,7 +370,8 @@ The agent can read and drive lex-vcs directly via these tools.
 ```
 lex-code
 ├── src/
-│   ├── agents/          # AgentDef values (build, plan, explore, refactor, spec, test, review)
+│   ├── agents/          # AgentDef values (build, plan, explore, refactor, spec, test, review, bar)
+│   ├── bar/             # Minimum-bar ledger, probe ids, repository probes
 │   ├── prompts/         # System prompts per mode
 │   ├── tools/           # Tool implementations
 │   │   ├── standard/    # read, write, edit, grep, glob, bash, todowrite
@@ -446,6 +448,61 @@ let test_steps := conc.ask(test_actor, Execute(test_task))
 2. **spec** — Spec agent generates a lex-spec `Spec`
 3. **test** — Test agent writes unit tests
 4. **review** — Review agent checks the whole thing
+
+## Minimum bar mode
+
+`--bar` walks a project against a checklist and reports where it stands.
+It never edits: the output is a work queue, in the order the gaps will
+hurt.
+
+The checklist is not invented here. It is the two "short version" cards
+from [*Prompt to
+Production*](https://github.com/alpibrusl/prompt-to-production) ch. 16
+and [*Prompt to
+Evidence*](https://github.com/alpibrusl/prompt-to-evidence) ch. 15 —
+each book's five items with the worst consequence-to-effort ratio in it
+— plus four items from the production checklist that a repository can
+settle about itself. Fourteen in total, in `src/bar/ledger.lex`.
+
+The interesting part is the tier on each item, because it is an
+admission:
+
+| Tier | Count | What lex-code does |
+|------|-------|--------------------|
+| `repo` | 6 | Runs a probe and reports the verdict **and its bound** |
+| `attested` | 4 | Cannot verify. Asks, records who said it and when, and reports NOT DONE if nobody answers |
+| `judgement` | 4 | Cannot verify. Asks for the reasoning, not a verdict |
+
+Six of fourteen. "The database is backed up and a restore has actually
+been performed" is a claim about the world, and no coding agent can
+settle it — so BAR mode is forbidden from ticking it, and marking such
+an item not-applicable requires a stated reason. A bare N/A is how a
+checklist becomes a rubber stamp.
+
+The six probes, all read-only:
+
+| Probe | Item | What it cannot see |
+|-------|------|--------------------|
+| `secret_scan` | No secrets in the repository, checked through the history | Credentials in an unrecognised format; commits outside the range it reports |
+| `git_remote` | A remote copy that is not your laptop | Whether the remote is reachable or current |
+| `tests_present` | Tests exist for the paths that must not break | Which paths those are |
+| `ci_on_pr` | Tests run on every PR and block the merge | Branch protection — it lives in the forge, so this probe never returns better than `partial` |
+| `toolchain_pin` | What is pinned is pinned consistently | The `lex-*` packages, unpinned on purpose while they move fast; only the lex-lang toolchain is compared, `lex.toml` against CI |
+| `examples_coverage` | Tested against a case with a known answer | Which fns are pure; an `examples {}` block **is** the known-answer test, so this is a floor, not coverage |
+
+```sh
+lex run src/tui/main.lex -- --bar "walk this project"
+
+# the probes alone, no model:
+lex run --allow-effects io,proc src/bar/checks.lex gate '"."' '"src"'
+```
+
+That last command is also a CI step: lex-code is held to the bar it
+walks other projects against. It fails the build on a `fail` verdict
+only — `partial` is the honest state for an item a probe can half
+answer, and failing on it would push the next author to weaken the
+probe rather than answer the question. It caught a real one on the way
+in: `lex.toml` pinned toolchain 0.10.10 while CI installed 0.10.11.
 
 ## Permissions
 

@@ -8,7 +8,7 @@
 This repository is a **Lex** project — a Lex-native coding assistant
 (agents, tools, TUI, A2A/ACP servers). `AGENTS.md` carries the full
 discipline, including why this repo has no `tests/` directory and how
-provider support is wired across seven agent files plus
+provider support is wired across eight agent files plus
 `session.lex`.
 
 ## The loop
