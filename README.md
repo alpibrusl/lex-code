@@ -487,7 +487,7 @@ The six probes, all read-only:
 | `git_remote` | A remote copy that is not your laptop | Whether the remote is reachable or current |
 | `tests_present` | Tests exist for the paths that must not break | Which paths those are |
 | `ci_on_pr` | Tests run on every PR and block the merge | Branch protection — it lives in the forge, so this probe never returns better than `partial` |
-| `toolchain_pin` | What is pinned is pinned consistently | The `lex-*` packages, unpinned on purpose while they move fast; only the lex-lang toolchain is compared, `lex.toml` against CI |
+| `toolchain_pin` | What is pinned is pinned consistently | The `lex-*` packages, unpinned on purpose while they move fast; only the lex-lang toolchain is compared — `lex.toml` against every version named in `.github/workflows`, not a pin written in a Dockerfile or a README |
 | `examples_coverage` | Tested against a case with a known answer | Which fns are pure; an `examples {}` block **is** the known-answer test, so this is a floor, not coverage |
 
 ```sh
@@ -501,8 +501,15 @@ That last command is also a CI step: lex-code is held to the bar it
 walks other projects against. It fails the build on a `fail` verdict
 only — `partial` is the honest state for an item a probe can half
 answer, and failing on it would push the next author to weaken the
-probe rather than answer the question. It caught a real one on the way
-in: `lex.toml` pinned toolchain 0.10.10 while CI installed 0.10.11.
+probe rather than answer the question.
+
+It caught two real ones on the way in. First: `lex.toml` pinned
+toolchain 0.10.10 while CI installed 0.10.11. Then, once that was
+fixed, the probe itself turned out to be reading only the first
+`LEX_VERSION` assignment it found — so `publish.yml`, which writes the
+version inline in a download URL with no variable at all, had sat two
+patch versions behind unnoticed. It now reads every lex-lang version
+named in any workflow and names the file that disagrees.
 
 ## Permissions
 

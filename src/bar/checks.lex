@@ -44,6 +44,9 @@ type Probe = { id :: Str, verdict :: Verdict, detail :: Str, bound :: Str }
 
 type Pattern = { name :: Str, re :: Str }
 
+# A toolchain version as written down in one workflow file.
+type Pin = { file :: Str, version :: Str }
+
 type PkgTable = { lex :: Str }
 
 type LexToml = { package :: PkgTable }
@@ -119,7 +122,7 @@ fn lines_containing(text :: Str, needle :: Str) -> List[Str]
 # comparison so the two are read the same way.
 fn first_version(line :: Str) -> Option[Str]
   examples {
-    first_version("          LEX_VERSION=\"0.10.11\"") => Some("0.10.11"),
+    first_version("          LEX_VERSION=\"0.10.13\"") => Some("0.10.13"),
     first_version("no version here") => None
   }
 {
@@ -246,48 +249,88 @@ fn ci_on_pr(root :: Str) -> [io, proc] Probe {
 # The lex-* packages float on purpose while they move fast; only the
 # lex-lang toolchain is pinned. So the rule worth enforcing is not "pin
 # everything" but "the one pin that exists must agree everywhere it is
-# written down" — lex.toml against the version CI installs.
+# written down" — and EVERYWHERE means every workflow, not the first one
+# that happens to name LEX_VERSION. An earlier version of this probe read
+# only that variable, which let publish.yml sit two patch versions behind
+# ci.yml unnoticed: the exact drift the item exists to catch, missed by
+# the probe claiming to catch it.
 fn toolchain_pin(root :: Str) -> [io, proc] Probe {
-  let bound := "compares the toolchain pin in lex.toml against the version CI installs; the lex-* package dependencies are deliberately unpinned and are not checked"
+  let bound := "compares the toolchain pin in lex.toml against every lex-lang version named in .github/workflows (a LEX_VERSION assignment or a release-download URL); a pin written anywhere else — a Dockerfile, a devcontainer, a README install line — is not seen. The lex-* package dependencies are deliberately unpinned and are not checked."
   match io.read(joined(root, "lex.toml")) {
     Err(e) => { id: pid.toolchain_pin(), verdict: Unknown, detail: str.concat("cannot read lex.toml: ", e), bound: bound },
     Ok(manifest) => {
       let declared :: Result[LexToml, Str] := toml.parse(manifest)
       match declared {
         Err(e) => { id: pid.toolchain_pin(), verdict: Unknown, detail: str.concat("lex.toml has no [package] lex pin: ", e), bound: bound },
-        Ok(parsed) => compare_pin(root, parsed.package.lex, bound),
+        Ok(parsed) => compare_pins(root, parsed.package.lex, bound),
       }
     },
   }
 }
 
-fn compare_pin(root :: Str, declared :: Str, bound :: Str) -> [io, proc] Probe {
-  match ci_version(root) {
-    None => { id: pid.toolchain_pin(), verdict: Unknown, detail: str.join(["lex.toml pins ", declared, "; no LEX_VERSION found in .github/workflows to compare it against"], ""), bound: bound },
-    Some(installed) => if declared == installed {
-      { id: pid.toolchain_pin(), verdict: Pass, detail: str.join(["lex.toml and CI agree on toolchain ", declared], ""), bound: bound }
+fn compare_pins(root :: Str, declared :: Str, bound :: Str) -> [io, proc] Probe {
+  let pins := workflow_pins(root)
+  let drifted := list.filter(pins, fn (p :: Pin) -> Bool {
+    p.version != declared
+  })
+  if list.is_empty(pins) {
+    { id: pid.toolchain_pin(), verdict: Unknown, detail: str.join(["lex.toml pins ", declared, "; no lex-lang version found in .github/workflows to compare it against"], ""), bound: bound }
+  } else {
+    if list.is_empty(drifted) {
+      { id: pid.toolchain_pin(), verdict: Pass, detail: str.join(["lex.toml and ", int.to_str(list.len(pins)), " workflow reference(s) agree on toolchain ", declared], ""), bound: bound }
     } else {
-      { id: pid.toolchain_pin(), verdict: Fail, detail: str.join(["pin drift: lex.toml says ", declared, ", CI installs ", installed, " — the version this project is checked against is not the version it claims"], ""), bound: bound }
-    },
+      { id: pid.toolchain_pin(), verdict: Fail, detail: str.join(["pin drift: lex.toml says ", declared, ", but ", str.join(list.map(drifted, render_pin), "; "), " — the version this project is checked against is not the version it claims"], ""), bound: bound }
+    }
   }
 }
 
-fn ci_version(root :: Str) -> [io, proc] Option[Str] {
+fn render_pin(p :: Pin) -> Str
+  examples {
+    render_pin({ file: ".github/workflows/ci.yml", version: "0.10.13" }) => ".github/workflows/ci.yml installs 0.10.13"
+  }
+{
+  str.join([p.file, " installs ", p.version], "")
+}
+
+# Every lex-lang version a workflow names. Two spellings count: the
+# `LEX_VERSION=` assignment ci.yml uses, and a release-download URL,
+# which is how publish.yml writes it with no variable at all.
+fn pin_line_version(line :: Str) -> Option[Str]
+  examples {
+    pin_line_version("          LEX_VERSION=\"0.10.13\"") => Some("0.10.13"),
+    pin_line_version("  curl -fsSL \"https://github.com/alpibrusl/lex-lang/releases/download/v0.10.13/lex-v0.10.13-x86_64-unknown-linux-gnu.tar.gz\"") => Some("0.10.13"),
+    pin_line_version("      - uses: actions/checkout@v4") => None,
+    pin_line_version("          LEX_VERSION=") => None
+  }
+{
+  if str.contains(line, "LEX_VERSION") or str.contains(line, "lex-lang/releases/download") {
+    first_version(line)
+  } else {
+    None
+  }
+}
+
+# No examples block: an effectful fold over whatever workflow files are
+# on disk. pin_line_version above carries the cases that matter.
+fn workflow_pins(root :: Str) -> [io, proc] List[Pin] {
   match proc.run("find", [joined(root, ".github/workflows"), "-name", "*.yml", "-type", "f"]) {
-    Err(_) => None,
-    Ok(out) => list.fold(nonempty_lines(out.stdout), None, fn (acc :: Option[Str], f :: Str) -> [io] Option[Str] {
-      match acc {
-        Some(v) => Some(v),
-        None => match io.read(f) {
-          Err(_) => None,
-          Ok(content) => match list.head(lines_containing(content, "LEX_VERSION")) {
-            None => None,
-            Some(line) => first_version(line),
-          },
-        },
+    Err(_) => [],
+    Ok(out) => list.fold(nonempty_lines(out.stdout), [], fn (acc :: List[Pin], f :: Str) -> [io] List[Pin] {
+      match io.read(f) {
+        Err(_) => acc,
+        Ok(content) => list.concat(acc, pins_in_file(f, content)),
       }
     }),
   }
+}
+
+fn pins_in_file(file :: Str, content :: Str) -> List[Pin] {
+  list.fold(nonempty_lines(content), [], fn (acc :: List[Pin], line :: Str) -> List[Pin] {
+    match pin_line_version(line) {
+      None => acc,
+      Some(v) => list.concat(acc, [{ file: file, version: v }]),
+    }
+  })
 }
 
 # ── ev.known-answer ─────────────────────────────────────────────────────
