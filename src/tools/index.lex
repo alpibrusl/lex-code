@@ -219,3 +219,12 @@ fn bar_tools() -> List[t.Tool] {
   tools_for_spec(rules.bar_permission())
 }
 
+# Curated bar toolset for local models. bar_tools() ships 19 schemas, 9 of
+# them lex-vcs tools a bar walk never calls — exactly the overload
+# minimal_tools() exists to avoid. A walk needs the probe runner and enough
+# to confirm what it reports; everything else is noise a 7B model pays for
+# on every turn.
+fn bar_minimal_tools() -> List[t.Tool] {
+  [bar_check_tool.tool(), read_tool.tool(), grep_tool.tool(), glob_tool.tool()]
+}
+

@@ -1,11 +1,14 @@
 # BAR mode — walk a project against the minimum bar.
 #
-# Same shape as agents/review.lex, with two deliberate differences: the
-# toolset is review's minus nothing and plus bar_check, and the local
-# providers keep their tools instead of being degraded to none. Review
-# can still say something useful with no tools; a bar walk with no
-# bar_check is a model reciting a checklist from memory, which is the
-# failure mode this mode exists to replace.
+# Same shape as agents/review.lex, with two deliberate differences.
+#
+# The toolset is review's plus bar_check. And where review hands local
+# providers NO tools, bar hands them four: a walk with no bar_check is a
+# model reciting a checklist from memory, which is the failure mode this
+# mode exists to replace. Four rather than the full nineteen because
+# fifteen of those are lex-vcs and lex-store schemas a walk never calls,
+# and schema count is what drowns a small local model — the same reason
+# tools/index.lex curates minimal_tools() for ollama build.
 
 import "lex-llm/agent" as ag
 
@@ -42,12 +45,12 @@ fn google_agent() -> [env] ag.AgentLoop {
 }
 
 fn ollama_agent() -> [env] ag.AgentLoop {
-  let base := { name: "bar", goal: barp.system(), model: prov.ollama(providers.ollama_model()), provider: providers.ollama_local(), tools: tools.bar_tools(), options: { temperature: None, top_p: None, max_steps: Some(12), max_tokens: None }, permission_spec: None }
+  let base := { name: "bar", goal: barp.system(), model: prov.ollama(providers.ollama_model()), provider: providers.ollama_local(), tools: tools.bar_minimal_tools(), options: { temperature: None, top_p: None, max_steps: Some(12), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.bar_permission())
 }
 
 fn litellm_agent() -> [env] ag.AgentLoop {
-  let base := { name: "bar", goal: barp.system(), model: prov.make_model_ref("litellm", tools.litellm_model()), provider: providers.litellm(), tools: tools.bar_tools(), options: { temperature: None, top_p: None, max_steps: Some(12), max_tokens: None }, permission_spec: None }
+  let base := { name: "bar", goal: barp.system(), model: prov.make_model_ref("litellm", tools.litellm_model()), provider: providers.litellm(), tools: tools.bar_minimal_tools(), options: { temperature: None, top_p: None, max_steps: Some(12), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.bar_permission())
 }
 
