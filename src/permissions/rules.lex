@@ -28,11 +28,11 @@ fn allow_tools(rule_name :: Str, allowed :: List[Str]) -> sp.Spec {
 
 # ---- VCS name lists (canonical, reused below) ----------------------
 fn vcs_read_names() -> List[Str] {
-  ["vcs_ast_diff", "vcs_op_show", "vcs_op_log", "vcs_branch_list", "vcs_branch_current", "vcs_branch_show", "vcs_branch_peek", "vcs_branch_overlay", "vcs_merge_status"]
+  ["vcs_ast_diff", "vcs_op_show", "vcs_op_log", "vcs_branch_list", "vcs_branch_current", "vcs_branch_show", "vcs_branch_peek", "vcs_branch_overlay", "vcs_merge_status", "vcs_merge_show_conflicts"]
 }
 
 fn vcs_write_names() -> List[Str] {
-  ["vcs_branch_create", "vcs_branch_use", "vcs_merge_start", "vcs_merge_resolve", "vcs_merge_defer", "vcs_merge_commit"]
+  ["vcs_branch_create", "vcs_branch_use", "vcs_merge_start", "vcs_merge_resolve", "vcs_merge_resolve_one", "vcs_merge_defer", "vcs_merge_commit"]
 }
 
 # ---- Per-agent rules -----------------------------------------------
