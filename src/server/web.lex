@@ -24,6 +24,8 @@ import "std.env" as env
 
 import "std.int" as int
 
+import "std.time" as time
+
 import "std.crypto" as crypto
 
 import "lex-web/src/router" as router
@@ -41,6 +43,8 @@ import "lex-schema/json_value" as jv
 import "lex-llm/delta" as d
 
 import "./session" as sess
+
+import "./persist" as persist
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 fn get_env_w(key :: Str, fallback :: Str) -> [env] Str {
@@ -163,6 +167,101 @@ fn steps_to_json(steps :: List[d.Step]) -> Str {
   str.concat("[", str.concat(str.join(list.map(final.web_steps, web_step_json), ","), "]"))
 }
 
+# The client's session id, or a fresh one.
+#
+# `src/web/app.js` has always sent `params.session_id` and stored what came
+# back; this handler minted a new id per request and ignored it, so every
+# message started a new session and the page only looked conversational. #54
+# derives a durable record per session, and the web client was throwing it
+# away each turn.
+#
+# An id from the client is honoured as-is rather than checked against a
+# registry of known sessions: `resume_session` derives the conversation from
+# the log at `.lex/sessions/<id>.db`, and a log with no events derives an
+# empty conversation. An unknown id is therefore a working empty session, not
+# an error — one fewer failure mode, and the id is opaque to the server
+# either way.
+fn session_id_for(j :: jv.Json) -> [crypto, random] Str {
+  let claimed := str.trim(get_nested_str(j, "params", "session_id"))
+  if is_safe_id(claimed) {
+    claimed
+  } else {
+    crypto.random_str_hex(8)
+  }
+}
+
+# The id becomes a path: `.lex/sessions/<id>.db`. A client controls it, so
+# anything but lowercase hex is refused and replaced with a fresh one —
+# without this, `session_id: "../../etc/passwd"` picks the file the server
+# opens. Length is bounded for the same reason.
+fn is_safe_id(id :: Str) -> Bool
+  examples {
+    is_safe_id("a1b2c3d4") => true,
+    is_safe_id("") => false,
+    is_safe_id("../../etc/passwd") => false,
+    is_safe_id("a1b2c3d4/x") => false,
+    is_safe_id("A1B2C3D4") => false,
+    is_safe_id("g1b2c3d4") => false,
+    is_safe_id("0123456789012345678901234567890123456789012345678901234567890123456789") => false
+  }
+{
+  let n := str.len(id)
+  if n < 4 {
+    false
+  } else {
+    if n > 64 {
+      false
+    } else {
+      all_hex(id, 0)
+    }
+  }
+}
+
+fn all_hex(id :: Str, i :: Int) -> Bool {
+  if i >= str.len(id) {
+    true
+  } else {
+    if is_hex_char(str.char_at(id, i)) {
+      all_hex(id, i + 1)
+    } else {
+      false
+    }
+  }
+}
+
+fn is_hex_char(c :: Str) -> Bool
+  examples {
+    is_hex_char("0") => true,
+    is_hex_char("9") => true,
+    is_hex_char("a") => true,
+    is_hex_char("f") => true,
+    is_hex_char("g") => false,
+    is_hex_char("A") => false,
+    is_hex_char("/") => false,
+    is_hex_char(".") => false
+  }
+{
+  match c {
+    "0" => true,
+    "1" => true,
+    "2" => true,
+    "3" => true,
+    "4" => true,
+    "5" => true,
+    "6" => true,
+    "7" => true,
+    "8" => true,
+    "9" => true,
+    "a" => true,
+    "b" => true,
+    "c" => true,
+    "d" => true,
+    "e" => true,
+    "f" => true,
+    _ => false,
+  }
+}
+
 # ── A2A handler (carries [env] — bypasses router) ─────────────────────────────
 fn handle_a2a_body(body :: Str) -> [env, io, time, crypto, random, sql, fs_read, fs_walk, fs_write, net, concurrent, llm, proc, approval] resp.Response {
   match jv.parse(body) {
@@ -178,11 +277,11 @@ fn handle_a2a_body(body :: Str) -> [env, io, time, crypto, random, sql, fs_read,
         provider
       }
       let mode := mode_from_str(mode_str)
-      let sid := crypto.random_str_hex(8)
+      let sid := session_id_for(j)
       if str.is_empty(input) {
         resp.json(json_error(req_id, "params.input is required"))
       } else {
-        match sess.new_session_with_provider(sid, mode, prov) {
+        match sess.resume_session(sid, mode, prov) {
           Err(e) => resp.json(json_error(req_id, e)),
           Ok(session) => {
             let turn := sess.run_turn_with_provider(session, input, prov)
@@ -212,6 +311,12 @@ fn serve_web() -> [env, net, io, llm, proc, sql, fs_read, fs_walk, fs_write, tim
   let port := parse_int_or_w(get_env_w("PORT", "7700"), 7700)
   let web_dir := get_env_w("WEB_DIR", "src/web")
   let r := build_static_router(web_dir)
+  let swept := persist.sweep_old_sessions(time.now_ms())
+  let __s := if swept > 0 {
+    io.print(str.join(["[lex-code] swept ", int.to_str(swept), " session log(s) older than ", int.to_str(persist.max_session_age_days()), " days"], ""))
+  } else {
+    ()
+  }
   let __p := io.print(str.join(["[lex-code] web on :", int.to_str(port), "  static=", web_dir], ""))
   net.serve_fn(port, fn (req :: Request) -> [env, io, time, crypto, random, sql, fs_read, fs_walk, fs_write, net, concurrent, llm, proc, approval] Response {
     if req.method == "OPTIONS" {
