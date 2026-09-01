@@ -215,6 +215,30 @@ ok
 0
 ```
 
+## Web sessions
+
+The browser client sends `session_id` and the server honours it. A session is
+whatever its trail derives — `resume_session` reads
+`.lex/sessions/<id>.db` and rebuilds the conversation per request, so it
+survives a page reload *and* a server restart.
+
+This is not the registry pattern the ACP path uses, and could not be:
+`net.serve_fn` hands the handler a `Request` and nothing else, so there is no
+value to thread between requests and nowhere to keep an in-memory map. That
+constraint points at #54's contract rather than away from it — the
+conversation is a projection of the trail, so deriving it per request is the
+design, not a substitute for a cache.
+
+A client-supplied id becomes a file path, so it is checked: lowercase hex,
+4–64 characters, anything else replaced with a fresh id. An id the server has
+never seen is a working empty session rather than an error, because a log with
+no events derives the empty conversation.
+
+Session logs are swept at server start — older than
+`persist.max_session_age_days()` (30) by mtime, which moves on every turn.
+Age rather than count, so an eviction cannot take a conversation someone is
+still in.
+
 ## Project memory
 
 Facts that outlive a session — a convention, a version pin, a gotcha. Three

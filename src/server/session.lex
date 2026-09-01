@@ -172,6 +172,37 @@ fn new_session_with_provider(id :: Str, mode :: AgentMode, provider_tag :: Str) 
   }
 }
 
+# Resume a session from its durable trail, or start one that will persist.
+#
+# The web client cannot be served by the registry pattern the ACP path uses:
+# `net.serve_fn` hands the handler a Request and nothing else, so there is no
+# value to thread between requests and nowhere to keep an in-memory map.
+#
+# That constraint points at the right answer rather than a workaround. #54
+# already made the conversation a projection of the trail, so a session is
+# whatever its log derives — reconstructing it per request is the contract,
+# not a fallback for the lack of a cache. `open_persistent` puts the log at
+# `.lex/sessions/<id>.db`, so a session also survives a server restart, which
+# an in-memory registry never could.
+#
+# A new id and a known one take the same path: `session_history` on a log
+# with no events derives the empty conversation, which is exactly what a new
+# session's `messages` should be. There is no "does this exist" branch to get
+# wrong, and a client sending an id the server has never seen gets a working
+# empty session rather than an error.
+fn resume_session(id :: Str, mode :: AgentMode, provider_tag :: Str) -> [io, sql, fs_read, fs_walk, fs_write, time, crypto, random] Result[Session, Str] {
+  match persist.open_persistent(id) {
+    Err(e) => Err(e),
+    Ok(log) => {
+      let __consolidated := consolidate.run(id)
+      match evs.session_history(log) {
+        Err(e) => Err(str.concat("session history underivable: ", e)),
+        Ok(derived) => Ok({ id: id, mode: mode, messages: derived, log: log, parent: None, memory: pmem.recall_context() }),
+      }
+    },
+  }
+}
+
 # Prepend the recalled memory summary to an agent's system prompt. Pure, so
 # the examples below run at `lex check` time and CI covers the one thing that
 # can silently go wrong here: an empty recall must leave the prompt untouched
