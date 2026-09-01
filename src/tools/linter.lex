@@ -21,8 +21,37 @@ fn readback_limit() -> Int {
   200
 }
 
-fn count_lines(content :: Str) -> Int {
+fn count_lines(content :: Str) -> Int
+  examples {
+    count_lines("") => 1,
+    count_lines("one") => 1,
+    count_lines("one\ntwo") => 2,
+    count_lines("trailing\n") => 2
+  }
+{
   list.len(str.split(content, "\n"))
+}
+
+# Whether the read-back is worth its context cost.
+#
+# A rewrite is always shown however long the file: `changed` means the bytes
+# on disk are provably not the bytes the caller sent, which is the whole
+# reason this mechanism exists, and truncating exactly then would defeat it.
+# Absent a rewrite the file is echoed only up to `readback_limit`, since the
+# value is confirmation rather than news.
+fn should_readback(changed :: Bool, lines :: Int) -> Bool
+  examples {
+    should_readback(true, 5000) => true,
+    should_readback(false, 1) => true,
+    should_readback(false, 200) => true,
+    should_readback(false, 201) => false
+  }
+{
+  if changed {
+    true
+  } else {
+    lines <= readback_limit()
+  }
 }
 
 # Translate raw lex check JSON output into a human-readable fix hint.
@@ -258,27 +287,42 @@ fn has_change(outcomes :: List[LintOutcome]) -> Bool {
 # what's actually on disk rather than its generation buffer. Included when
 # `lex fmt` rewrote the file (`changed`) or the file is small enough to echo
 # wholesale; returns the empty string otherwise.
+#
+# This runs whether or not `lex check` passed. It used to be skipped on
+# failure, which inverted the point: `lex fmt` runs first and rewrites the
+# file even when the check that follows fails, so a failing lint is exactly
+# the case where what is on disk is not what the model wrote — and the case
+# where the model is about to send a follow-up `edit` whose `old_str` comes
+# from its own pre-format buffer and cannot match. The model was told the
+# file differed and not told how.
 fn readback_block(path :: Str, changed :: Bool) -> [io] Str {
   match io.read(path) {
     Err(_) => "",
     Ok(content) => {
       let n := count_lines(content)
-      let include := if changed {
-        true
-      } else {
-        if n <= readback_limit() {
-          true
-        } else {
-          false
-        }
-      }
-      if include {
+      if should_readback(changed, n) {
         str.concat("\n\nactual content (", str.concat(int.to_str(n), str.concat(" lines):\n\n", content)))
       } else {
         ""
       }
     },
   }
+}
+
+# Read-back for a file no linter covers.
+#
+# `run` returns an empty summary for any extension without a linter, so a
+# `.md`, `.yml` or `.sh` edit reports only "edited <path>". That is fine for
+# `write`, where the model just sent the exact bytes and echoing them back
+# tells it nothing it does not already know. It is not fine for `edit`: an
+# exact-string replacement means the model has never held the resulting file,
+# and it may never have held the original either (a `grep` is enough to pick
+# an `old_str`). So `edit` calls this and `write` does not.
+#
+# There is no formatter for these extensions and so no `changed` signal to
+# key on; the size cap is the only gate.
+fn readback(path :: Str) -> [io] Str {
+  readback_block(path, false)
 }
 
 fn join_lines(lines :: List[Str]) -> Str {
@@ -291,18 +335,20 @@ fn join_lines(lines :: List[Str]) -> Str {
   })
 }
 
+# Format, then type-check, then echo what is on disk.
+#
+# The read-back is bound before failure is, so making it conditional on
+# failure again takes a deliberate restructuring of this function rather than
+# an `if`. See the note on readback_block for why that matters. (The comment
+# lives here rather than beside the binding because `lex fmt` deletes
+# comments inside a function body — lex-lang#755.)
 fn run_for_lex(path :: Str) -> [io, proc] RunResult {
   let fmt := run_lex_fmt(path)
   let check := run_lex_check(path)
   let outcomes := [fmt, check]
-  let failed := has_failure(outcomes)
   let base := join_lines(list.map(outcomes, format_outcome))
-  let summary := if failed {
-    base
-  } else {
-    str.concat(base, readback_block(path, has_change(outcomes)))
-  }
-  { summary: summary, failed: failed }
+  let summary := str.concat(base, readback_block(path, has_change(outcomes)))
+  { summary: summary, failed: has_failure(outcomes) }
 }
 
 # Run all linters appropriate for the given file path, keyed by extension.
