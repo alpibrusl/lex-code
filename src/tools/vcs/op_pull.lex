@@ -15,7 +15,16 @@ import "lex-schema/schema" as s
 import "../util" as util
 
 fn params() -> s.ModelSchema {
-  { title: "VcsOpPullArgs", description: "Pull ops from a remote lex-vcs server.", fields: [s.required_str("remote_url", []), s.optional(s.required_str("branch", [])), s.optional(s.required_str("limit", [])), s.optional(s.required_str("dry_run", []))] }
+  { title: "VcsOpPullArgs", description: "Pull ops from a remote lex-vcs server.", fields: [s.required_str("remote_url", []), s.optional(s.required_str("branch", [])), s.optional(s.required_str("limit", [])), s.optional(s.required_bool("dry_run"))] }
+}
+
+# Same pairing as op_push: execute reads this with util.field_bool.
+fn dry_run_is_bool() -> Bool
+  examples {
+    dry_run_is_bool() => true
+  }
+{
+  util.declares_bool(params(), "dry_run")
 }
 
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {

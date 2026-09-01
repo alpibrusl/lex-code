@@ -15,7 +15,17 @@ import "lex-schema/schema" as s
 import "../util" as util
 
 fn params() -> s.ModelSchema {
-  { title: "VcsBranchPeekArgs", description: "Read another branch's ops without switching to it.", fields: [s.required_str("branch", []), s.optional(s.required_str("vs", [])), s.optional(s.required_str("since_fork", []))] }
+  { title: "VcsBranchPeekArgs", description: "Read another branch's ops without switching to it.", fields: [s.required_str("branch", []), s.optional(s.required_str("vs", [])), s.optional(s.required_bool("since_fork"))] }
+}
+
+# execute reads this with util.field_bool, so the schema must declare it a
+# boolean or the flag is silently dropped. See util.declares_bool (#28).
+fn since_fork_is_bool() -> Bool
+  examples {
+    since_fork_is_bool() => true
+  }
+{
+  util.declares_bool(params(), "since_fork")
 }
 
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
