@@ -10,7 +10,7 @@ import "std.list" as list
 
 type Phase = { name :: Str, task :: Str, mode :: sess.AgentMode }
 
-fn run_phase(phase :: Phase, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval] Nil {
+fn run_phase(phase :: Phase, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] Nil {
   io.print(str.concat("[bootstrap] starting phase: ", phase.name))
   match sess.new_session_with_provider(phase.name, phase.mode, provider_tag) {
     Err(e) => io.print(str.concat("[bootstrap] session error: ", e)),
@@ -22,11 +22,11 @@ fn run_phase(phase :: Phase, provider_tag :: Str) -> [env, io, net, llm, proc, s
   }
 }
 
-fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval] Nil {
+fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] Nil {
   let provider_tag := "anthropic"
   let task := "Add fn zip[A, B](xs :: List[A], ys :: List[B]) -> List[(A, B)] to src/list.lex"
   let phases := [{ name: "impl", task: task, mode: Build }, { name: "spec", task: str.concat("Write lex-spec Spec for list.zip: ", task), mode: Spec }, { name: "test", task: str.concat("Write unit tests for list.zip: ", task), mode: Test }, { name: "review", task: str.concat("Review the list.zip implementation and tests: ", task), mode: Review }]
-  let __lex_discard_1 := list.map(phases, fn (phase :: Phase) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval] Nil {
+  let __lex_discard_1 := list.map(phases, fn (phase :: Phase) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] Nil {
     run_phase(phase, provider_tag)
   })
   ()
