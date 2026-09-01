@@ -14,6 +14,8 @@ import "../server/session" as sess
 
 import "../server/multi_agent" as multi
 
+import "../server/graph" as graph
+
 # The live sink. run_turn_streaming_with_provider hands each Step to this the
 # moment it happens, so a TextChunk here is a token the model has just
 # produced rather than one recovered from a finished transcript.
@@ -64,29 +66,32 @@ fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str) -> [env, i
   }
 }
 
-fn multi_repl(provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] Nil {
-  io.print("\n[multi] task> ")
+fn multi_repl(provider_tag :: Str, pipeline :: graph.Node) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random, concurrent] Nil {
+  io.print(str.join(["\n[multi ", graph.render_shape(pipeline), "] task> "], ""))
   match io.read("-") {
     Err(_) => io.print("\nbye"),
     Ok(line) => {
       let task := str.trim(line)
       if str.is_empty(task) {
-        multi_repl(provider_tag)
+        multi_repl(provider_tag, pipeline)
       } else {
-        io.print("[impl agent running...]")
-        let result := multi.run_impl_then_test(task, provider_tag)
-        io.print("[impl agent done — test agent running...]")
-        let __lex_discard_3 := list.map(result.impl_steps, fn (s :: d.Step) -> [io] Nil {
-          print_step(s)
+        io.print(str.join(["[running ", int.to_str(graph.node_count(pipeline)), " agents...]"], ""))
+        let result := graph.run_graph(pipeline, task, provider_tag)
+        let __printed := list.map(result.results, fn (r :: graph.NodeResult) -> [io] Nil {
+          print_node(r)
         })
-        io.print("\n[test agent output:]")
-        let __lex_discard_4 := list.map(result.test_steps, fn (s :: d.Step) -> [io] Nil {
-          print_step(s)
-        })
-        multi_repl(provider_tag)
+        multi_repl(provider_tag, pipeline)
       }
     },
   }
+}
+
+fn print_node(r :: graph.NodeResult) -> [io] Nil {
+  io.print(str.join(["\n[", r.name, " agent output:]"], ""))
+  let __printed := list.map(r.steps, fn (s :: d.Step) -> [io] Nil {
+    print_step(s)
+  })
+  ()
 }
 
 fn has_flag(argv :: List[Str], flag :: Str) -> Bool
@@ -124,6 +129,49 @@ fn find_task(argv :: List[Str]) -> Option[Str]
       }
     }
   }))
+}
+
+# `--pipeline=NAME`, one token rather than two.
+#
+# Two tokens would break `find_task`, which takes the first argv entry not
+# starting with "-" — so `--pipeline impl_then_test` would silently run
+# "impl_then_test" as the task. Gluing the value to the flag keeps the
+# whole thing invisible to that scan.
+fn find_pipeline(argv :: List[Str]) -> Option[Str]
+  examples {
+    find_pipeline(["--pipeline=impl_then_test"]) => Some("impl_then_test"),
+    find_pipeline(["--multi", "--pipeline=x", "a task"]) => Some("x"),
+    find_pipeline(["--pipeline="]) => None,
+    find_pipeline(["--multi"]) => None,
+    find_pipeline([]) => None
+  }
+{
+  match list.head(list.filter(argv, fn (a :: Str) -> Bool {
+    str.starts_with(a, "--pipeline=")
+  })) {
+    None => None,
+    Some(tok) => match str.strip_prefix(tok, "--pipeline=") {
+      None => None,
+      Some(name) => if str.is_empty(name) {
+        None
+      } else {
+        Some(name)
+      },
+    },
+  }
+}
+
+# A `--pipeline=NAME` that names nothing must not quietly become the
+# default pipeline: the user asked for a specific arrangement of agents,
+# and running a different one is a wrong answer dressed as a working run.
+fn resolve_pipeline(name :: Option[Str]) -> Result[graph.Node, Str] {
+  match name {
+    None => Ok(graph.impl_then_test()),
+    Some(n) => match graph.preset(n) {
+      Some(node) => Ok(node),
+      None => Err(str.join(["unknown pipeline \"", n, "\" — try one of: ", str.join(graph.preset_names(), ", ")], "")),
+    },
+  }
 }
 
 # Precedence is first-match down the chain below, not command-line order:
@@ -278,7 +326,7 @@ fn collect_final_text(steps :: List[d.Step]) -> Str {
   }
 }
 
-type Invocation = { mode :: sess.AgentMode, provider :: Str, task :: Option[Str], multi :: Bool }
+type Invocation = { mode :: sess.AgentMode, provider :: Str, task :: Option[Str], multi :: Bool, pipeline :: Option[Str] }
 
 # The whole command line, resolved in one pure function.
 #
@@ -294,17 +342,18 @@ type Invocation = { mode :: sess.AgentMode, provider :: Str, task :: Option[Str]
 # then cover the whole parse path rather than its pieces.
 fn plan_invocation(argv :: List[Str]) -> Invocation
   examples {
-    plan_invocation([]) => { mode: Build, provider: "anthropic", task: None, multi: false },
-    plan_invocation(["--bar", "walk this repo"]) => { mode: Bar, provider: "anthropic", task: Some("walk this repo"), multi: false },
-    plan_invocation(["--ollama", "--plan"]) => { mode: Plan, provider: "ollama", task: None, multi: false },
-    plan_invocation(["--multi"]) => { mode: Build, provider: "anthropic", task: None, multi: true },
-    plan_invocation(["--litellm", "--review", "check the diff"]) => { mode: Review, provider: "litellm", task: Some("check the diff"), multi: false }
+    plan_invocation([]) => { mode: Build, provider: "anthropic", task: None, multi: false, pipeline: None },
+    plan_invocation(["--bar", "walk this repo"]) => { mode: Bar, provider: "anthropic", task: Some("walk this repo"), multi: false, pipeline: None },
+    plan_invocation(["--ollama", "--plan"]) => { mode: Plan, provider: "ollama", task: None, multi: false, pipeline: None },
+    plan_invocation(["--multi"]) => { mode: Build, provider: "anthropic", task: None, multi: true, pipeline: None },
+    plan_invocation(["--litellm", "--review", "check the diff"]) => { mode: Review, provider: "litellm", task: Some("check the diff"), multi: false, pipeline: None },
+    plan_invocation(["--multi", "--pipeline=impl_then_spec_then_test"]) => { mode: Build, provider: "anthropic", task: None, multi: true, pipeline: Some("impl_then_spec_then_test") }
   }
 {
-  { mode: select_mode(argv), provider: select_provider_tag(argv), task: find_task(argv), multi: has_flag(argv, "--multi") }
+  { mode: select_mode(argv), provider: select_provider_tag(argv), task: find_task(argv), multi: has_flag(argv, "--multi"), pipeline: find_pipeline(argv) }
 }
 
-fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
+fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random, concurrent] Nil {
   let inv := plan_invocation(io.argv())
   let provider_tag := inv.provider
   let mode := inv.mode
@@ -313,11 +362,15 @@ fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, ap
     None => {
       io.print(str.concat("lex-code — Lex-specialized coding assistant", "\n"))
       io.print(str.concat("modes:     --plan | --explore | --refactor | --spec | --test | --review | --bar | --multi", "\n"))
+      io.print(str.join(["pipelines: --pipeline=", str.join(graph.preset_names(), " | --pipeline="), "   (with --multi; default impl_then_test)", "\n"], ""))
       io.print(str.concat("providers: --mistral | --openai | --google | --vertex | --litellm | --ollama | --vllm | --opencode  (default: anthropic)", "\n"))
       io.print(str.concat("one-shot:  lex run src/tui/main.lex -- [flags] \"your task\"", "\n"))
       io.print(str.concat("Ctrl-D to exit", "\n"))
       if inv.multi {
-        multi_repl(provider_tag)
+        match resolve_pipeline(inv.pipeline) {
+          Err(msg) => io.print(str.concat(msg, "\n")),
+          Ok(pipeline) => multi_repl(provider_tag, pipeline),
+        }
       } else {
         match sess.new_session_with_provider("tui", mode, provider_tag) {
           Err(e) => io.print(str.concat(str.concat("startup error: ", e), "\n")),
