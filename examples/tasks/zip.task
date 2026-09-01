@@ -1,0 +1,11 @@
+# lex-code task spec — LEX_TASK_SPEC=examples/tasks/zip.task
+#
+# `goal` is what the agents are told. The rest are the criteria they are
+# judged against when the pipeline finishes.
+
+goal = "Add fn zip[A, B](xs :: List[A], ys :: List[B]) -> List[(A, B)] to src/list.lex"
+
+check      = ["src/list.lex"]
+spec_check = []
+test       = []
+verified   = ["verified.type_check"]
