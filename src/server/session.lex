@@ -44,6 +44,8 @@ import "../memory/consolidate" as consolidate
 
 import "../verification" as verification
 
+import "../observability" as obs
+
 type AgentMode = Build | Plan | Explore | Refactor | Spec | Test | Review | Bar
 
 type Session = { id :: Str, mode :: AgentMode, messages :: List[msg.Message], log :: trail_log.Log, parent :: Option[Str], memory :: Str }
@@ -321,8 +323,10 @@ fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provi
 # cache. A FAILED assistant append is deliberately not patched over — the
 # cache keeps the message anyway, so the next turn's derivation check finds
 # the divergence and refuses loudly. Noisy failure over silent context loss.
-fn finish_turn(session :: Session, derived :: List[msg.Message], steps :: List[d.Step], started_ms :: Int) -> [io, sql, time] TurnResult {
-  let __harvested := verification.append_all(verification.harvest(session.log, started_ms, time.now_ms()))
+fn finish_turn(session :: Session, derived :: List[msg.Message], steps :: List[d.Step], started_ms :: Int) -> [env, net, io, sql, time] TurnResult {
+  let ended := time.now_ms()
+  let __harvested := verification.append_all(verification.harvest(session.log, started_ms, ended))
+  let __exported := obs.export_turn(session.id, session.log, started_ms, ended)
   let new_msgs := match find_done_msg(steps) {
     None => derived,
     Some(m) => {

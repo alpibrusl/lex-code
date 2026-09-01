@@ -17,6 +17,7 @@ lex-orm         = { git = "https://github.com/alpibrusl/lex-orm" }
 lex-mcp         = { git = "https://github.com/alpibrusl/lex-mcp" }
 lex-agent-llm   = { git = "https://github.com/alpibrusl/lex-agent-llm" }
 lex-memory      = { git = "https://github.com/alpibrusl/lex-memory" }
+lex-log         = { git = "https://github.com/alpibrusl/lex-log" }
 
 [bin]
 name = "lex-code"
