@@ -22,6 +22,26 @@ fn any_of(exprs :: List[sp.SpecExpr]) -> sp.SpecExpr {
   }
 }
 
+# ---- MCP tools and this file ---------------------------------------
+#
+# #27 asked for an `mcp_tool(name)` predicate here. There is deliberately
+# none, for two reasons.
+#
+# It is not expressible: lex-spec has `op_eq`, the comparisons and
+# arithmetic, and no string-prefix operator, so "any name beginning
+# mcp__" cannot be written as a Spec. Enumerating the names would be —
+# and is the better shape regardless, since a prefix rule silently
+# extends to whatever a server starts offering next week.
+#
+# It is not yet load-bearing either. Per the header above, enforcement is
+# still Phase 1: what an agent may call is the tool list index.lex hands
+# it, not the Spec. `.lex/mcp.toml`'s `modes` controls exactly that list,
+# so the gate is real today and lives where the enforcement is.
+#
+# When Phase 2 wires these Specs into lex-llm's run_loop, the loaded MCP
+# names have to be added to each mode's allow list at construction — the
+# loading is over the network and these constructors are pure, so that
+# will need the names threaded in rather than fetched here.
 fn allow_tools(rule_name :: Str, allowed :: List[Str]) -> sp.Spec {
   { name: rule_name, quantifiers: [QStr("tool")], predicate: any_of(list.map(allowed, tool_eq)) }
 }

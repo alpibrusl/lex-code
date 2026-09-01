@@ -1,0 +1,9 @@
+# lex-code MCP client config — copy to .lex/mcp.toml
+#
+# allow: which of the server's tools to load. Empty or missing loads NOTHING.
+# modes: which agent modes may use them. Missing means build only.
+
+[[servers]]
+url   = "http://localhost:3000"
+allow = ["search_issues", "create_pr"]
+modes = ["build", "refactor"]

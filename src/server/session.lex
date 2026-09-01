@@ -6,6 +6,8 @@ import "lex-llm/delta" as d
 
 import "lex-llm/provider" as prov
 
+import "lex-llm/tool" as t
+
 import "lex-llm/providers" as providers
 
 import "lex-trail/log" as trail_log
@@ -15,6 +17,8 @@ import "std.list" as list
 import "std.iter" as iter
 
 import "std.str" as str
+
+import "std.io" as io
 
 import "std.time" as time
 
@@ -45,6 +49,8 @@ import "../memory/consolidate" as consolidate
 import "../verification" as verification
 
 import "../observability" as obs
+
+import "../tools/mcp" as mcp
 
 type AgentMode = Build | Plan | Explore | Refactor | Spec | Test | Review | Bar
 
@@ -245,6 +251,54 @@ fn with_memory(agent :: ag.AgentLoop, ctx :: Str) -> ag.AgentLoop {
   { name: agent.name, goal: prefix_goal(agent.goal, ctx), model: agent.model, provider: agent.provider, tools: agent.tools, options: agent.options, permission_spec: agent.permission_spec }
 }
 
+# External tools are attached here rather than in the agent constructors,
+# for the same reason memory is: `tools.all_tools_for_mode` is pure, and
+# loading over the network would put `net` into all eight agent files and
+# everything that builds one. The turn already has `net`; attaching at the
+# last moment keeps the widening to this function.
+fn with_mcp(agent :: ag.AgentLoop, extra :: List[t.Tool]) -> ag.AgentLoop {
+  if list.is_empty(extra) {
+    agent
+  } else {
+    { name: agent.name, goal: agent.goal, model: agent.model, provider: agent.provider, tools: list.concat(agent.tools, extra), options: agent.options, permission_spec: agent.permission_spec }
+  }
+}
+
+# Loaded per turn, and deliberately not cached.
+#
+# A cache would need somewhere to live, and `net.serve_fn` gives a handler
+# no state to keep it in (#73) — but the stronger reason is that a cached
+# tool list goes stale silently: a server that changes what it offers, or
+# goes away, would keep being advertised to the model until the process
+# restarted. One `tools/list` round trip per turn is a small price for the
+# list being true.
+fn mcp_tools_for(mode :: AgentMode) -> [net, io] List[t.Tool] {
+  let loaded := mcp.load_for_mode(mode_name(mode))
+  let __notes := list.map(loaded.notes, fn (n :: Str) -> [io] Unit {
+    io.print(str.concat("[lex-code] ", n))
+  })
+  loaded.tools
+}
+
+fn mode_name(mode :: AgentMode) -> Str
+  examples {
+    mode_name(Build) => "build",
+    mode_name(Explore) => "explore",
+    mode_name(Bar) => "bar"
+  }
+{
+  match mode {
+    Build => "build",
+    Plan => "plan",
+    Explore => "explore",
+    Refactor => "refactor",
+    Spec => "spec",
+    Test => "test",
+    Review => "review",
+    Bar => "bar",
+  }
+}
+
 fn run_turn(session :: Session, user_input :: Str) -> [env, net, llm, io, proc, sql, time, approval] TurnResult {
   run_turn_with_provider(session, user_input, "anthropic")
 }
@@ -264,7 +318,7 @@ fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag ::
       Ok(derived) => {
         let expected := list.concat(session.messages, [msg.user(user_input)])
         if evs.history_eq(derived, expected) {
-          let agent := with_memory(pick_agent(session.mode, provider_tag), session.memory)
+          let agent := with_mcp(with_memory(pick_agent(session.mode, provider_tag), session.memory), mcp_tools_for(session.mode))
           let step_iter := ag.run_loop_traced(agent, derived, session.log, session.parent)
           let steps := iter.to_list(step_iter)
           finish_turn(session, derived, steps, started)
@@ -307,7 +361,7 @@ fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provi
       Ok(derived) => {
         let expected := list.concat(session.messages, [msg.user(user_input)])
         if evs.history_eq(derived, expected) {
-          let agent := with_memory(pick_agent(session.mode, provider_tag), session.memory)
+          let agent := with_mcp(with_memory(pick_agent(session.mode, provider_tag), session.memory), mcp_tools_for(session.mode))
           let budget := ag.unwrap_int(agent.options.max_steps, 20)
           let steps := ag.run_steps_streamed(agent, derived, budget, session.log, session.parent, on_step)
           finish_turn(session, derived, steps, started)

@@ -321,6 +321,56 @@ Models with a chain-of-thought "thinking" phase need two things to work through 
 
 Even with these fixes, thinking models tend to emit tool calls as embedded JSON in `content` (rather than in the `tool_calls` field) when given 10+ function schemas. The `openai.lex` adapter has a `content_tool_call` fallback parser, but the generated code quality degrades significantly under large context. Use `qwen3-coder:30b` for coding tasks.
 
+## External tools (MCP)
+
+lex-code has been an MCP *server* for a while — `src/server/mcp_main.lex`
+exposes its agents to Claude Desktop. It is now also a **client**, so an issue
+tracker, a CI system or a package registry can be a tool the agent calls.
+
+`.lex/mcp.toml` (an example ships at `docs/mcp.toml.example`):
+
+```toml
+[[servers]]
+url   = "http://localhost:3000"
+allow = ["search_issues", "create_pr"]
+modes = ["build", "refactor"]      # optional; defaults to build only
+```
+
+Tools arrive named `mcp__<tool>` — `mcp__search_issues`. The prefix is not
+cosmetic: without it a server offering a tool called `write` or `bash` would
+shadow a local one in the dispatcher's name lookup.
+
+### Two gates, and both are needed
+
+**`allow` is the operator's gate** — which of a server's tools this project
+loads at all. An empty or missing `allow` list loads **nothing**. The opposite
+reading ("no filter configured, so no filtering") is how a server that adds a
+tool next week gets it into the prompt without anyone deciding.
+
+**`modes` is the agent's gate** — which agent modes get them, defaulting to
+`build` alone. Build's permission spec already permits everything, so that is
+the one mode where adding a tool grants no new authority to a restricted
+agent. An explore-mode agent that must not `write` does not reach an MCP tool
+that writes unless you say so.
+
+The issue asked for an `mcp_tool(name)` predicate in `permissions/rules.lex`.
+There deliberately isn't one: lex-spec has no string-prefix operator so it
+cannot be written, and permission enforcement is still tool-list based rather
+than spec-based, so `modes` is the gate that actually runs. `rules.lex`
+records what Phase 2 will need.
+
+### Failure is reported, never silent
+
+A server that is down, a config that will not parse, a name in `allow` the
+server does not offer — each yields no tools and a printed note. The session
+still starts: an unrelated outage should not become a total outage. But a tool
+that quietly vanishes is the failure this codebase keeps finding (#32, #74),
+so the absence is always said out loud.
+
+Tools are loaded once per turn rather than cached. A cached list goes stale
+silently — a server that changes what it offers, or goes away, would keep
+being advertised to the model until the process restarted.
+
 ## Semantic search
 
 `grep` and `glob` match names. `semantic_search` matches intent — "validate an
