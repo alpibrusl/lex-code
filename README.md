@@ -679,6 +679,58 @@ LEX_PROVIDER=litellm \
 | `LEX_PIPELINE` | `impl_then_spec_then_test` | preset name, or a spec |
 | `LEX_PROVIDER` | `anthropic` | provider tag |
 
+### Task specs — checking that it got done
+
+A task is a string, and whether it got done is whatever the agent says at the
+end. That is the one claim in this system with nothing behind it. A task spec
+pairs the goal with criteria a machine evaluates afterwards.
+
+`examples/tasks/zip.task`:
+
+```toml
+goal = "Add fn zip[A, B](xs :: List[A], ys :: List[B]) -> List[(A, B)] to src/list.lex"
+
+check      = ["src/list.lex"]          # lex check must pass
+spec_check = []                        # lex spec check
+test       = []                        # lex run <path> run_all
+verified   = ["verified.type_check"]   # a pass of this kind recorded in the project
+```
+
+```sh
+LEX_TASK_SPEC=examples/tasks/zip.task \
+  lex run --allow-effects … src/bootstrap/run.lex main
+```
+
+The spec's `goal` becomes the task the agents are told, so the words they act
+on and the criteria they are judged against come from one file and cannot
+disagree. When the pipeline finishes:
+
+```
+task "the task_spec module itself type-checks": SATISFIED
+  ok    lex check src/task_spec.lex
+  ok    lex check src/embed.lex
+```
+
+Every criterion runs — no stopping at the first failure, so one round of work
+can address all of them. **A criterion that could not be evaluated counts as
+unmet**: treating an unrunnable check as satisfied would turn a broken
+toolchain into a passing task. And **a spec with no criteria reports
+UNVERIFIED**, not satisfied — "all of nothing succeeded" is vacuously true and
+exactly the wrong answer.
+
+Two fields from the original design are deliberately absent. `allowed_effects`
+would be a third mechanism constraining effects after `os_check` and
+`permissions/rules.lex`, and a declaration nothing enforces still reads as a
+guarantee. `inputs` would be a type hint no code consumes. Both are additive
+later; neither is load-bearing for `is_satisfied`.
+
+`verified` asserts that a pass of that kind was recorded **in this project** —
+not that a particular function is verified. The `verified.*` records name the
+tool, never the function, because lex-llm's dispatch writes them from the
+tool's result and never sees its arguments (the open half of #32). The
+criterion is named `VerifiedKindSeen` rather than `AttestationExists` so it
+cannot be read as the stronger claim.
+
 ### Pipeline specs
 
 A spec is two characters of grammar: `,` runs stages in order, `|` runs them

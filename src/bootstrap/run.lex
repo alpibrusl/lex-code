@@ -10,6 +10,9 @@
 # then test" means. What is left is argument handling.
 #
 #   LEX_TASK      what to build (defaults to the old list.zip demo)
+#   LEX_TASK_SPEC a .lex/tasks/<name>.task file — its goal becomes the
+#                 task, and its criteria are evaluated when the pipeline
+#                 finishes, so "done" is checked rather than asserted
 #   LEX_PIPELINE  a preset name, or a spec like "build,spec,test|review"
 #   LEX_PROVIDER  provider tag (default anthropic)
 #
@@ -18,6 +21,8 @@
 # README and in CI.
 
 import "../server/graph" as graph
+
+import "../task_spec" as spec
 
 import "std.str" as str
 
@@ -70,13 +75,38 @@ fn resolve(name :: Str) -> Result[graph.Node, Str] {
 }
 
 fn main() -> [env, concurrent, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] Unit {
-  let task := env_or("LEX_TASK", demo_task())
-  let spec := env_or("LEX_PIPELINE", demo_pipeline())
+  let pipeline_spec := env_or("LEX_PIPELINE", demo_pipeline())
   let provider_tag := env_or("LEX_PROVIDER", "anthropic")
-  match resolve(spec) {
+  match resolve(pipeline_spec) {
     Err(msg) => io.print(str.join(["[bootstrap] ", msg, "\npresets: ", str.join(graph.preset_names(), ", "), "\nor a spec like build,spec,test|review"], "")),
-    Ok(pipeline) => run(pipeline, task, provider_tag),
+    Ok(pipeline) => with_task(pipeline, provider_tag),
   }
+}
+
+# A task spec supersedes LEX_TASK: its `goal` is what the agents are told,
+# so the words the agents act on and the criteria they are judged against
+# come from one file and cannot disagree.
+fn with_task(pipeline :: graph.Node, provider_tag :: Str) -> [env, concurrent, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] Unit {
+  let spec_name := env_or("LEX_TASK_SPEC", "")
+  if str.is_empty(spec_name) {
+    run(pipeline, env_or("LEX_TASK", demo_task()), provider_tag)
+  } else {
+    match spec.load(spec_name) {
+      Err(msg) => io.print(str.concat("[bootstrap] ", msg)),
+      Ok(ts) => {
+        let __ran := run(pipeline, ts.goal, provider_tag)
+        verify(ts)
+      },
+    }
+  }
+}
+
+# The point of the whole exercise: after the agents say they are done,
+# check. `is_satisfied` runs every criterion rather than stopping at the
+# first failure, so one round of work can address all of them.
+fn verify(ts :: spec.TaskSpec) -> [io, proc] Unit {
+  let __hdr := io.print("\n[bootstrap] verifying the task spec")
+  io.print(spec.render(ts, spec.is_satisfied(ts)))
 }
 
 fn run(pipeline :: graph.Node, task :: Str, provider_tag :: Str) -> [env, concurrent, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] Unit {
