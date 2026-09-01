@@ -56,7 +56,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
                   Err(e.single("", "lint_failed", str.concat(header, str.concat("\n", str.concat(lint.summary, "\nFix the errors above.")))))
                 } else {
                   if str.is_empty(lint.summary) {
-                    Ok(JStr(header))
+                    Ok(JStr(str.concat(header, linter.readback(path))))
                   } else {
                     Ok(JStr(str.concat(header, str.concat("\n", lint.summary))))
                   }
@@ -71,6 +71,6 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
 }
 
 fn tool() -> t.Tool {
-  t.define("edit", "Edit a file by replacing old_str with new_str. old_str must be unique in the file. For .lex files, auto-formats and runs lex check after the edit.", params(), execute)
+  t.define("edit", "Edit a file by replacing old_str with new_str. old_str must be unique in the file. For .lex files, auto-formats and runs lex check after the edit. Returns the file's on-disk content after the edit, so a follow-up edit matches what is actually there.", params(), execute)
 }
 
