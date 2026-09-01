@@ -608,12 +608,46 @@ let test_steps := conc.ask(test_actor, Execute(test_task))
 
 ## Bootstrap Script
 
-`src/bootstrap/run.lex` demonstrates a full 4-phase pipeline:
+`src/bootstrap/run.lex` runs a multi-phase pipeline against a real task. It
+used to hardcode one — implement `list.zip`, in four fixed phases, with its
+own sequential runner — and now drives the same agent graph the TUI does.
 
-1. **impl** — Build agent writes the function
-2. **spec** — Spec agent generates a lex-spec `Spec`
-3. **test** — Test agent writes unit tests
-4. **review** — Review agent checks the whole thing
+```sh
+# the original demo, unchanged
+lex run --allow-effects … src/bootstrap/run.lex main
+
+# a real task, phases of your choosing
+LEX_TASK="add a retry wrapper to src/http.lex" \
+LEX_PIPELINE=build,test \
+LEX_PROVIDER=litellm \
+  lex run --allow-effects … src/bootstrap/run.lex main
+```
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `LEX_TASK` | the `list.zip` demo | what to build |
+| `LEX_PIPELINE` | `impl_then_spec_then_test` | preset name, or a spec |
+| `LEX_PROVIDER` | `anthropic` | provider tag |
+
+### Pipeline specs
+
+A spec is two characters of grammar: `,` runs stages in order, `|` runs them
+at once. Agents are `build` (alias `impl`), `spec`, `test`, `review`.
+
+```
+build,test              impl → test
+build|test              impl ∥ test
+build,spec,test|review  impl → spec → (test ∥ review)
+```
+
+That last one is exactly the `impl_then_spec_then_test` preset — an
+`examples {}` case asserts the two stay equal, so the grammar and the named
+presets cannot drift apart.
+
+The same values work on the TUI's `--pipeline=` flag, which takes a preset
+name or a spec. An unrecognised agent is refused with the list of valid ones
+rather than skipped: a pipeline quietly missing a stage is a run that looks
+successful and did less than it was asked to.
 
 ## Minimum bar mode
 
