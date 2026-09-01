@@ -15,7 +15,18 @@ import "lex-schema/schema" as s
 import "../util" as util
 
 fn params() -> s.ModelSchema {
-  { title: "VcsOpPushArgs", description: "Push local ops to a remote lex-vcs server.", fields: [s.required_str("remote_url", []), s.optional(s.required_str("branch", [])), s.optional(s.required_str("dry_run", []))] }
+  { title: "VcsOpPushArgs", description: "Push local ops to a remote lex-vcs server.", fields: [s.required_str("remote_url", []), s.optional(s.required_str("branch", [])), s.optional(s.required_bool("dry_run"))] }
+}
+
+# execute reads this flag with util.field_bool; if the schema ever calls it
+# a string again the model's `dry_run: true` is silently dropped and the
+# real push runs. See util.declares_bool (#28).
+fn dry_run_is_bool() -> Bool
+  examples {
+    dry_run_is_bool() => true
+  }
+{
+  util.declares_bool(params(), "dry_run")
 }
 
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
