@@ -28,13 +28,24 @@
 #
 # ---- what a criterion can honestly assert -----------------------------
 #
-# `VerifiedKindSeen` is the issue's `AttestationExists(fn_name, kind)`,
-# renamed for what it can actually check. The `verified.*` records carry a
-# kind and the TOOL that produced the pass, never the function — lex-llm's
-# dispatch loop writes them from the tool's result and never sees its
-# arguments (the open half of #32). So this asserts "a check of this kind
-# passed in this project", not "this function is verified", and the name
-# says so rather than implying the stronger claim.
+# The issue asks for `AttestationExists(fn_name, kind)`. Two criteria get
+# close, and neither is quite that.
+#
+# `VerifiedKindSeen(kind)` asserts a pass of that kind happened somewhere
+# in this project. `VerifiedTargetSeen(target, kind)` asserts one happened
+# on a given path.
+#
+# The path is as far as this goes. `verified.*` records name the argument
+# the tool was given — `lex check src/list.lex` — and a file is not a
+# function, so neither criterion can say `zip` in particular was checked.
+#
+# An earlier version of this comment said the records could not name a
+# path at all, because lex-llm's dispatch "never sees the tool's
+# arguments". That was wrong: `call.args_raw` sits two lines above the
+# write, and the fix was one field (alpibrusl/lex-llm#48). Function-level
+# evidence would need the store's attestation graph, which is what
+# `lex blame --with-evidence` reads and what `attestation_query` calls the
+# stronger signal.
 
 import "std.process" as proc
 
@@ -48,7 +59,7 @@ import "std.io" as io
 
 import "./verification" as verification
 
-type SuccessCriterion = CheckPasses(Str) | SpecCheckPasses(Str) | TestPasses(Str) | VerifiedKindSeen(Str)
+type SuccessCriterion = CheckPasses(Str) | SpecCheckPasses(Str) | TestPasses(Str) | VerifiedKindSeen(Str) | VerifiedTargetSeen((Str, Str)) | Malformed(Str)
 
 type TaskSpec = { goal :: Str, success :: List[SuccessCriterion] }
 
@@ -89,22 +100,68 @@ fn spec_path(name :: Str) -> Str
 # record — the same route `.lex/mcp.toml` takes, so a project has one
 # config language rather than two.
 #
-#   goal     = "add zip to src/list.lex"
-#   check    = ["src/list.lex"]
-#   test     = ["tests/test_list.lex"]
-#   verified = ["verified.type_check"]
-type TaskFile = { goal :: Str, check :: List[Str], spec_check :: List[Str], test :: List[Str], verified :: List[Str] }
+#   goal        = "add zip to src/list.lex"
+#   check       = ["src/list.lex"]
+#   test        = ["tests/test_list.lex"]
+#   verified    = ["verified.type_check"]
+#   verified_on = ["src/list.lex:verified.type_check"]
+#
+# `verified_on` entries are "<path>:<kind>" — one string rather than a
+# nested array, because TOML's nested-array shape reads worse than the
+# colon and parses no better.
+type TaskFile = { goal :: Str, check :: List[Str], spec_check :: List[Str], test :: List[Str], verified :: List[Str], verified_on :: List[Str] }
 
-fn criteria_of(tf :: TaskFile) -> List[SuccessCriterion] {
+# Every array in the file becomes criteria. The `verified_on` arm was
+# missing from an earlier draft of this function, and nothing caught it:
+# an unread field in a TOML record is not a type error, so the spec
+# type-checked, loaded, and quietly evaluated three fewer criteria than it
+# declared — reporting SATISFIED. The example below counts them, because
+# "the task passed" is exactly the answer that must not be reachable by
+# dropping the checks.
+fn criteria_of(tf :: TaskFile) -> List[SuccessCriterion]
+  examples {
+    criteria_of({ goal: "g", check: ["a"], spec_check: ["b"], test: ["c"], verified: ["d"], verified_on: ["e:f"] }) => [CheckPasses("a"), SpecCheckPasses("b"), TestPasses("c"), VerifiedKindSeen("d"), VerifiedTargetSeen("e", "f")],
+    criteria_of({ goal: "g", check: [], spec_check: [], test: [], verified: [], verified_on: ["bad"] }) => [Malformed("bad")],
+    criteria_of({ goal: "g", check: [], spec_check: [], test: [], verified: [], verified_on: [] }) => []
+  }
+{
   list.concat(list.map(tf.check, fn (p :: Str) -> SuccessCriterion {
     CheckPasses(p)
   }), list.concat(list.map(tf.spec_check, fn (p :: Str) -> SuccessCriterion {
     SpecCheckPasses(p)
   }), list.concat(list.map(tf.test, fn (p :: Str) -> SuccessCriterion {
     TestPasses(p)
-  }), list.map(tf.verified, fn (k :: Str) -> SuccessCriterion {
+  }), list.concat(list.map(tf.verified, fn (k :: Str) -> SuccessCriterion {
     VerifiedKindSeen(k)
-  }))))
+  }), list.map(tf.verified_on, on_criterion)))))
+}
+
+# "<path>:<kind>". A malformed entry becomes a criterion that can never be
+# met rather than being dropped: a typo in a spec should fail the task
+# loudly, not silently shrink what it checks.
+#
+# It gets its own constructor rather than being squeezed into
+# VerifiedTargetSeen with the complaint in the kind slot — which is what
+# the first version did, and it rendered as "a malformed verified_on entry
+# ... pass recorded on ", a sentence built out of two unrelated halves.
+fn on_criterion(entry :: Str) -> SuccessCriterion
+  examples {
+    on_criterion("src/a.lex:verified.type_check") => VerifiedTargetSeen("src/a.lex", "verified.type_check"),
+    on_criterion(" src/a.lex : verified.type_check ") => VerifiedTargetSeen("src/a.lex", "verified.type_check"),
+    on_criterion("verified.type_check") => Malformed("verified.type_check"),
+    on_criterion("a:b:c") => Malformed("a:b:c"),
+    on_criterion("") => Malformed("")
+  }
+{
+  let parts := str.split(entry, ":")
+  if list.len(parts) == 2 {
+    match (list.head(parts), list.head(list.tail(parts))) {
+      (Some(p), Some(k)) => VerifiedTargetSeen(str.trim(p), str.trim(k)),
+      _ => Malformed(entry),
+    }
+  } else {
+    Malformed(entry)
+  }
 }
 
 fn of_file(tf :: TaskFile) -> TaskSpec {
@@ -135,7 +192,9 @@ fn label_of(c :: SuccessCriterion) -> Str
     label_of(CheckPasses("src/a.lex")) => "lex check src/a.lex",
     label_of(SpecCheckPasses("src/a.lex")) => "lex spec check src/a.lex",
     label_of(TestPasses("tests/t.lex")) => "lex test tests/t.lex",
-    label_of(VerifiedKindSeen("verified.test")) => "a verified.test pass recorded in this project"
+    label_of(VerifiedKindSeen("verified.test")) => "a verified.test pass recorded in this project",
+    label_of(VerifiedTargetSeen("src/a.lex", "verified.test")) => "a verified.test pass recorded on src/a.lex",
+    label_of(Malformed("oops")) => "malformed verified_on entry \"oops\""
   }
 {
   match c {
@@ -143,6 +202,8 @@ fn label_of(c :: SuccessCriterion) -> Str
     SpecCheckPasses(p) => str.concat("lex spec check ", p),
     TestPasses(p) => str.concat("lex test ", p),
     VerifiedKindSeen(k) => str.join(["a ", k, " pass recorded in this project"], ""),
+    VerifiedTargetSeen(t, k) => str.join(["a ", k, " pass recorded on ", t], ""),
+    Malformed(entry) => str.join(["malformed verified_on entry \"", entry, "\""], ""),
   }
 }
 
@@ -186,7 +247,42 @@ fn evaluate(c :: SuccessCriterion) -> [io, proc] Outcome {
     SpecCheckPasses(p) => shell(label_of(c), ["spec", "check", p]),
     TestPasses(p) => shell(label_of(c), ["run", p, "run_all"]),
     VerifiedKindSeen(k) => verified_outcome(label_of(c), k),
+    VerifiedTargetSeen(t, k) => target_outcome(label_of(c), t, k),
+    Malformed(entry) => malformed_outcome(entry),
   }
+}
+
+# Pure, so the "never met" part is pinned by examples rather than living
+# only inside an effectful match arm nothing can check.
+fn malformed_outcome(entry :: Str) -> Outcome
+  examples {
+    malformed_outcome("oops") => { label: "malformed verified_on entry \"oops\"", met: false, detail: "expected <path>:<kind>, e.g. src/list.lex:verified.type_check" },
+    malformed_outcome("") => { label: "malformed verified_on entry \"\"", met: false, detail: "expected <path>:<kind>, e.g. src/list.lex:verified.type_check" }
+  }
+{
+  { label: label_of(Malformed(entry)), met: false, detail: "expected <path>:<kind>, e.g. src/list.lex:verified.type_check" }
+}
+
+fn target_outcome(label :: Str, target :: Str, kind :: Str) -> [io] Outcome {
+  if seen_on(verification.all(), target, kind) {
+    { label: label, met: true, detail: "" }
+  } else {
+    { label: label, met: false, detail: str.join(["no ", kind, " record for ", target, " in ", verification.path()], "") }
+  }
+}
+
+fn seen_on(records :: List[verification.Record], target :: Str, kind :: Str) -> Bool {
+  list.fold(records, false, fn (acc :: Bool, r :: verification.Record) -> Bool {
+    if acc {
+      true
+    } else {
+      if r.kind == kind {
+        r.target == target
+      } else {
+        false
+      }
+    }
+  })
 }
 
 fn verified_outcome(label :: Str, kind :: Str) -> [io] Outcome {
