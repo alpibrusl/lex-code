@@ -71,3 +71,39 @@ fn build_permission() -> sp.Spec {
   { name: "build_all", quantifiers: [QStr("tool")], predicate: EConst(VBool(true)) }
 }
 
+# The agent mode a permission spec belongs to. Kept next to the
+# constructors above so a renamed spec is caught here rather than
+# silently falling through to "build", the mode that forbids nothing.
+# os_check binds its grant from this at construction time.
+fn mode_of_spec(spec :: sp.Spec) -> Str {
+  if spec.name == "explore_tools" {
+    "explore"
+  } else {
+    if spec.name == "plan_tools" {
+      "plan"
+    } else {
+      if spec.name == "review_tools" {
+        "review"
+      } else {
+        if spec.name == "bar_tools" {
+          "bar"
+        } else {
+          if spec.name == "spec_tools" {
+            "spec"
+          } else {
+            if spec.name == "refactor_tools" {
+              "refactor"
+            } else {
+              if spec.name == "test_tools" {
+                "test"
+              } else {
+                "build"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

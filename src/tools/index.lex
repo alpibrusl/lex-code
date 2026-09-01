@@ -106,8 +106,17 @@ fn vcs_tools() -> List[t.Tool] {
   list.concat(vcs_read_tools(), list.concat(vcs_write_tools(), vcs_network_tools()))
 }
 
+# os_check is the one tool whose behaviour depends on which mode is
+# calling it — it compares a file's effects against that mode's grant —
+# so the toolset has to be built per mode rather than shared.
+fn all_tools_for_mode(mode :: Str) -> List[t.Tool] {
+  list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), check_tool.tool(), os_check_tool.tool_for_mode(mode), audit_tool.tool(), run_tool.tool(), test_tool.tool(), spec_check_tool.tool(), spec_smt_tool.tool(), sigid_tool.tool(), attest_tool.tool(), effects_tool.tool(), store_diff_tool.tool(), store_apply_tool.tool(), store_merge_tool.tool(), guidelines_tool.tool(), bar_check_tool.tool()], vcs_tools())
+}
+
+# The build agent's own toolset: build's grant forbids nothing, so this
+# is also the right mode for the unrestricted list.
 fn all_tools() -> List[t.Tool] {
-  list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), check_tool.tool(), os_check_tool.tool(), audit_tool.tool(), run_tool.tool(), test_tool.tool(), spec_check_tool.tool(), spec_smt_tool.tool(), sigid_tool.tool(), attest_tool.tool(), effects_tool.tool(), store_diff_tool.tool(), store_apply_tool.tool(), store_merge_tool.tool(), guidelines_tool.tool(), bar_check_tool.tool()], vcs_tools())
+  all_tools_for_mode("build")
 }
 
 # Curated minimal toolset for local models (LiteLLM/Ollama). Full all_tools()
@@ -177,7 +186,7 @@ fn dynamic_tools() -> List[t.Tool] {
 }
 
 fn tools_for_spec(spec :: sp.Spec) -> List[t.Tool] {
-  list.filter(all_tools(), fn (tool :: t.Tool) -> Bool {
+  list.filter(all_tools_for_mode(rules.mode_of_spec(spec)), fn (tool :: t.Tool) -> Bool {
     let bindings := [("tool", VStr(tool.name))]
     sp.verdict_is_allow(ev.eval(spec, bindings))
   })
