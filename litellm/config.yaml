@@ -64,6 +64,16 @@ model_list:
       model: ollama/qwen3-coder:30b
       api_base: http://host.docker.internal:11434
 
+  # ── Embeddings (semantic_search / src/index_build.lex) ──────────────────
+  # nomic-embed-text is 768-dim, ~270MB, and runs on CPU. Pull it with
+  #   ollama pull nomic-embed-text
+  # lex-code talks OpenAI's /v1/embeddings shape, so it reaches Ollama
+  # through this proxy rather than through Ollama's native /api/embeddings.
+  - model_name: nomic-embed-text
+    litellm_params:
+      model: ollama/nomic-embed-text
+      api_base: http://host.docker.internal:11434
+
   - model_name: devstral-small-2:latest
     litellm_params:
       model: ollama/devstral-small-2:latest

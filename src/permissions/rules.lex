@@ -37,15 +37,15 @@ fn vcs_write_names() -> List[Str] {
 
 # ---- Per-agent rules -----------------------------------------------
 fn explore_permission() -> sp.Spec {
-  allow_tools("explore_tools", list.concat(["read", "grep", "glob", "lex_check", "lex_audit", "sigid_lookup", "effects_of", "attestation_query", "load_guidelines"], vcs_read_names()))
+  allow_tools("explore_tools", list.concat(["read", "grep", "glob", "lex_check", "lex_audit", "sigid_lookup", "effects_of", "attestation_query", "semantic_search", "load_guidelines"], vcs_read_names()))
 }
 
 fn plan_permission() -> sp.Spec {
-  allow_tools("plan_tools", list.concat(["read", "grep", "glob", "lex_check", "lex_audit", "todowrite", "remember", "load_guidelines"], vcs_read_names()))
+  allow_tools("plan_tools", list.concat(["read", "grep", "glob", "lex_check", "lex_audit", "todowrite", "remember", "semantic_search", "load_guidelines"], vcs_read_names()))
 }
 
 fn review_permission() -> sp.Spec {
-  allow_tools("review_tools", list.concat(["read", "grep", "glob", "lex_check", "lex_audit", "sigid_lookup", "effects_of", "attestation_query", "load_guidelines"], vcs_read_names()))
+  allow_tools("review_tools", list.concat(["read", "grep", "glob", "lex_check", "lex_audit", "sigid_lookup", "effects_of", "attestation_query", "semantic_search", "load_guidelines"], vcs_read_names()))
 }
 
 # BAR mode reads and reports; it never edits. The tool list is
