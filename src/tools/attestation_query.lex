@@ -32,7 +32,10 @@ fn params() -> s.ModelSchema {
 #   .lex/verified.jsonl         verification passes harvested from agent
 #                               sessions — project-scoped, cross-session, and
 #                               the only reason a later review agent finds
-#                               anything at all.
+#                               anything at all. Since lex-llm#48 each pass
+#                               names the path the tool was given, so this is
+#                               file-level evidence rather than merely
+#                               "something passed somewhere".
 #
 # This tool used to run `lex store attestations <fn>`. That subcommand does
 # not exist: `lex store` rejects it, the error goes to stderr, stdout comes
@@ -102,7 +105,7 @@ fn session_section(fn_name :: Str) -> [io] Str {
   if list.is_empty(records) {
     "verification passes: none recorded for this project yet"
   } else {
-    str.join(["verification passes recorded in this project:\n", verification.render(records), "\n\nThese are tool-level: they say `lex check` passed while this project was being worked on, not that it passed on ", fn_name, " specifically. Treat them as weaker than store evidence."], "")
+    str.join(["verification passes recorded in this project:\n", verification.render(records), "\n\nThese are FILE-level, not function-level: a pass names the path the tool was given, so it says a check covered the file ", fn_name, " lives in, not that it covered ", fn_name, " itself. A pass on \"the whole project\" is a tool called with no path at all. Store evidence is still the stronger signal, because it is tied to a SigId and dies when the body changes."], "")
   }
 }
 

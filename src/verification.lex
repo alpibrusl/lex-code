@@ -36,7 +36,7 @@ import "std.str" as str
 
 import "std.list" as list
 
-type Record = { kind :: Str, target :: Str, ts_ms :: Int }
+type Record = { kind :: Str, tool :: Str, target :: Str, ts_ms :: Int }
 
 fn path() -> Str
   examples {
@@ -75,17 +75,17 @@ fn is_verified_kind(kind :: Str) -> Bool
 
 fn encode(r :: Record) -> Str
   examples {
-    encode({ kind: "verified.type_check", target: "src/a.lex", ts_ms: 17 }) => "{\"kind\":\"verified.type_check\",\"target\":\"src/a.lex\",\"ts_ms\":17}"
+    encode({ kind: "verified.type_check", tool: "lex_check", target: "src/a.lex", ts_ms: 17 }) => "{\"kind\":\"verified.type_check\",\"tool\":\"lex_check\",\"target\":\"src/a.lex\",\"ts_ms\":17}"
   }
 {
-  jv.stringify(JObj([("kind", JStr(r.kind)), ("target", JStr(r.target)), ("ts_ms", JInt(r.ts_ms))]))
+  jv.stringify(JObj([("kind", JStr(r.kind)), ("tool", JStr(r.tool)), ("target", JStr(r.target)), ("ts_ms", JInt(r.ts_ms))]))
 }
 
 fn decode(line :: Str) -> Option[Record] {
   match jv.parse_into_errors(str.trim(line)) {
     Err(_) => None,
     Ok(j) => match jv.get_field(j, "kind") {
-      Some(JStr(k)) => Some({ kind: k, target: str_field(j, "target"), ts_ms: int_field(j, "ts_ms") }),
+      Some(JStr(k)) => Some({ kind: k, tool: str_field(j, "tool"), target: str_field(j, "target"), ts_ms: int_field(j, "ts_ms") }),
       _ => None,
     },
   }
@@ -105,17 +105,37 @@ fn int_field(j :: jv.Json, name :: Str) -> Int {
   }
 }
 
-# The tool that produced the pass, from the event payload lex-llm writes:
-# {"tool":"lex_check","result":"pass"}. The payload carries no path — the
-# loop does not see the tool's arguments — so `target` is the tool name for
-# now. Naming the file a check covered needs the argument threaded through
-# lex-llm's dispatch, which is a change to make deliberately rather than as
-# a side effect of this one.
-fn record_of(e :: ev.Event) -> Option[Record] {
+# One pass, from the event payload lex-llm writes:
+#
+#   {"tool":"lex_check","target":"src/list.lex","result":"pass"}
+#
+# This used to store the TOOL under `target`, because the payload carried
+# nothing else. The comment here claimed the loop could not see the tool's
+# arguments and that naming the file would need them threaded through
+# lex-llm's dispatch. That was wrong on both counts: `call.args_raw` sits
+# two lines above the write, and the fix was one field
+# (alpibrusl/lex-llm#48).
+#
+# `target` is the tool's `path` argument, so it names a FILE or directory,
+# not a function — `lex check src/list.lex` says nothing about which
+# function in it. Empty means the tool was called with no path and the
+# pass covers the whole project.
+#
+# Records written before lex-llm#48 decode with an empty `tool` and the
+# tool name in `target`. They are historical and simply less precise;
+# nothing rewrites them, because a record is evidence of what was observed
+# at the time.
+fn record_of(e :: ev.Event) -> Option[Record]
+  examples {
+    record_of({ id: "x", kind: "verified.type_check", parent: None, payload_json: "{\"tool\":\"lex_check\",\"target\":\"src/a.lex\",\"result\":\"pass\"}", ts_ms: 7 }) => Some({ kind: "verified.type_check", tool: "lex_check", target: "src/a.lex", ts_ms: 7 }),
+    record_of({ id: "x", kind: "verified.test", parent: None, payload_json: "{\"tool\":\"lex_test\",\"result\":\"pass\"}", ts_ms: 8 }) => Some({ kind: "verified.test", tool: "lex_test", target: "", ts_ms: 8 }),
+    record_of({ id: "x", kind: "cap.completed", parent: None, payload_json: "{}", ts_ms: 9 }) => None
+  }
+{
   if is_verified_kind(e.kind) {
     match jv.parse_into_errors(e.payload_json) {
       Err(_) => None,
-      Ok(j) => Some({ kind: e.kind, target: str_field(j, "tool"), ts_ms: e.ts_ms }),
+      Ok(j) => Some({ kind: e.kind, tool: str_field(j, "tool"), target: str_field(j, "target"), ts_ms: e.ts_ms }),
     }
   } else {
     None
@@ -167,14 +187,36 @@ fn all() -> [io] List[Record] {
   }
 }
 
+# An empty target is rendered as what it means — the whole project — not
+# as a blank, so a reader is never left guessing whether the scope is
+# missing or unbounded.
+fn scope_of(r :: Record) -> Str
+  examples {
+    scope_of({ kind: "k", tool: "lex_check", target: "src/a.lex", ts_ms: 1 }) => "src/a.lex",
+    scope_of({ kind: "k", tool: "lex_check", target: "", ts_ms: 1 }) => "the whole project",
+    scope_of({ kind: "k", tool: "", target: "lex_check", ts_ms: 1 }) => "lex_check"
+  }
+{
+  if str.is_empty(r.target) {
+    "the whole project"
+  } else {
+    r.target
+  }
+}
+
 fn render(records :: List[Record]) -> Str
   examples {
     render([]) => "",
-    render([{ kind: "verified.type_check", target: "lex_check", ts_ms: 17 }]) => "- verified.type_check via lex_check"
+    render([{ kind: "verified.type_check", tool: "lex_check", target: "src/a.lex", ts_ms: 17 }]) => "- verified.type_check on src/a.lex (lex_check)",
+    render([{ kind: "verified.test", tool: "", target: "", ts_ms: 1 }]) => "- verified.test on the whole project"
   }
 {
   str.join(list.map(records, fn (r :: Record) -> Str {
-    str.join(["- ", r.kind, " via ", r.target], "")
+    if str.is_empty(r.tool) {
+      str.join(["- ", r.kind, " on ", scope_of(r)], "")
+    } else {
+      str.join(["- ", r.kind, " on ", scope_of(r), " (", r.tool, ")"], "")
+    }
   }), "\n")
 }
 

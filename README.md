@@ -690,10 +690,11 @@ pairs the goal with criteria a machine evaluates afterwards.
 ```toml
 goal = "Add fn zip[A, B](xs :: List[A], ys :: List[B]) -> List[(A, B)] to src/list.lex"
 
-check      = ["src/list.lex"]          # lex check must pass
-spec_check = []                        # lex spec check
-test       = []                        # lex run <path> run_all
-verified   = ["verified.type_check"]   # a pass of this kind recorded in the project
+check       = ["src/list.lex"]        # lex check must pass
+spec_check  = []                      # lex spec check
+test        = []                      # lex run <path> run_all
+verified    = ["verified.type_check"] # a pass of this kind, anywhere
+verified_on = []                      # "<path>:<kind>" — a pass on that path
 ```
 
 ```sh
@@ -724,12 +725,24 @@ would be a third mechanism constraining effects after `os_check` and
 guarantee. `inputs` would be a type hint no code consumes. Both are additive
 later; neither is load-bearing for `is_satisfied`.
 
-`verified` asserts that a pass of that kind was recorded **in this project** —
-not that a particular function is verified. The `verified.*` records name the
-tool, never the function, because lex-llm's dispatch writes them from the
-tool's result and never sees its arguments (the open half of #32). The
-criterion is named `VerifiedKindSeen` rather than `AttestationExists` so it
-cannot be read as the stronger claim.
+`verified` asserts a pass of that kind happened somewhere in the project;
+`verified_on` narrows it to a path:
+
+```toml
+verified    = ["verified.type_check"]
+verified_on = ["src/list.lex:verified.type_check"]
+```
+
+A malformed `verified_on` entry becomes a criterion that can never be met,
+rather than being dropped — a typo should fail the task loudly, not silently
+shrink what it checks.
+
+The path is as far as this goes. Since [lex-llm#48](https://github.com/alpibrusl/lex-llm/pull/48)
+a `verified.*` record names the argument the tool was given (`lex check
+src/list.lex`), and a file is not a function, so neither criterion can say
+`zip` in particular was checked. Function-level evidence needs the store's
+attestation graph, which is what `lex blame --with-evidence` reads and what
+`attestation_query` calls the stronger signal.
 
 ### Pipeline specs
 

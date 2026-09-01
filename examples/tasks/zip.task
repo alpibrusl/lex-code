@@ -8,4 +8,5 @@ goal = "Add fn zip[A, B](xs :: List[A], ys :: List[B]) -> List[(A, B)] to src/li
 check      = ["src/list.lex"]
 spec_check = []
 test       = []
-verified   = ["verified.type_check"]
+verified    = ["verified.type_check"]
+verified_on = ["src/list.lex:verified.type_check"]
