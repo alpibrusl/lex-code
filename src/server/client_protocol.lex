@@ -189,7 +189,7 @@ fn handle_initialize(id :: jv.Json) -> [io] Unit {
   send(jrpc_result(id, JObj([("protocolVersion", JInt(1)), ("agentCapabilities", JObj([("loadSession", JBool(false)), ("promptCapabilities", JObj([("image", JBool(false)), ("audio", JBool(false))]))]))])))
 }
 
-fn handle_session_new(id :: jv.Json, params :: jv.Json, registry :: Registry, provider_tag :: Str) -> [sql, fs_read, fs_walk, fs_write, crypto, random, io] Registry {
+fn handle_session_new(id :: jv.Json, params :: jv.Json, registry :: Registry, provider_tag :: Str) -> [sql, fs_read, fs_walk, fs_write, crypto, random, io, time] Registry {
   let sid := crypto.random_str_hex(16)
   match sess.new_session_with_provider(sid, Build, provider_tag) {
     Err(e) => {

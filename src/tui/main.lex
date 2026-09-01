@@ -54,7 +54,7 @@ fn repl(session :: sess.Session, provider_tag :: Str) -> [env, io, net, llm, pro
   }
 }
 
-fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream] Nil {
+fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
   match sess.new_session_with_provider("cli", mode, provider_tag) {
     Err(e) => io.print(str.concat(str.concat("error: ", e), "\n")),
     Ok(session) => {
@@ -64,7 +64,7 @@ fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str) -> [env, i
   }
 }
 
-fn multi_repl(provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval] Nil {
+fn multi_repl(provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] Nil {
   io.print("\n[multi] task> ")
   match io.read("-") {
     Err(_) => io.print("\nbye"),
@@ -226,7 +226,7 @@ fn select_provider_tag(argv :: List[Str]) -> Str
 #
 #   [AGENTCMP_RESULT]	{"ok":true,"final":"<escaped>"}
 #
-fn run_headless(task :: Str, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval] Nil {
+fn run_headless(task :: Str, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] Nil {
   match sess.new_session_with_provider("headless", Build, provider_tag) {
     Err(e) => io.print(str.join(["[AGENTCMP_RESULT]\t{\"ok\":false,\"final\":\"", e, "\"}\n"], "")),
     Ok(session) => {
@@ -304,7 +304,7 @@ fn plan_invocation(argv :: List[Str]) -> Invocation
   { mode: select_mode(argv), provider: select_provider_tag(argv), task: find_task(argv), multi: has_flag(argv, "--multi") }
 }
 
-fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream] Nil {
+fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
   let inv := plan_invocation(io.argv())
   let provider_tag := inv.provider
   let mode := inv.mode

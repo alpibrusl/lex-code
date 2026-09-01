@@ -31,6 +31,23 @@
 # The checker is the fixed point. One error surfaces per round per file, so
 # the round count is the depth of the call chain, not its width.
 #
+# ---- what it cannot reach ------------------------------------------
+#
+# Top-level signatures only. `lex check` reports `effect_not_declared` with
+# `at_node: n_0` and `col: 1` — the position is normalised to the ENCLOSING
+# declaration, not the node that needs the effect. So when the row that is
+# actually too narrow belongs to a closure inside the function:
+#
+#     fn run_parallel(...) -> [..., crypto] MultiResult {          # line 21
+#       let results := list.par_map(pairs, fn (p :: P) -> [...] R { # line 23
+#
+# the error points at line 21, whose row already declares the effect. Nothing
+# a line rewriter can do with that. This was found running the tool over this
+# repo: it widened 30 signatures across 6 files and then stopped on three
+# closures, which is why the stall check exists and why it reports rather
+# than looping. Fix those by hand — the message names the file and line, and
+# the closure is a few lines below it.
+#
 # `lex repair --apply --transform` is likewise not usable here: it takes an
 # `op_id` — a failed operation already recorded in lex-store — not a file and
 # a line, and no `add_effect_to_sig` transform is reachable from a plain
@@ -373,7 +390,7 @@ fn run_rounds(files :: List[Str], write :: Bool, budget :: Int, log :: List[Str]
       let applied := apply_all(misses, write)
       let entries := list.map(misses, render_miss)
       if applied == 0 {
-        list.concat(list.concat(log, entries), ["STOPPED: a round reported misses but changed nothing — widen_line does not recognise those signature lines"])
+        list.concat(list.concat(log, entries), ["STOPPED: a round reported misses but changed nothing. The lines above already declare the effect, which means it is a CLOSURE inside them that needs it — lex check reports the enclosing function's line, not the closure's. Widen those by hand; everything else is done."])
       } else {
         run_rounds(files, write, budget - 1, list.concat(log, entries))
       }

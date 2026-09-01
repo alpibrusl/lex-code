@@ -41,7 +41,7 @@ fn explore_permission() -> sp.Spec {
 }
 
 fn plan_permission() -> sp.Spec {
-  allow_tools("plan_tools", list.concat(["read", "grep", "glob", "lex_check", "lex_audit", "todowrite", "load_guidelines"], vcs_read_names()))
+  allow_tools("plan_tools", list.concat(["read", "grep", "glob", "lex_check", "lex_audit", "todowrite", "remember", "load_guidelines"], vcs_read_names()))
 }
 
 fn review_permission() -> sp.Spec {
@@ -60,7 +60,7 @@ fn spec_permission() -> sp.Spec {
 }
 
 fn refactor_permission() -> sp.Spec {
-  allow_tools("refactor_tools", list.concat(["read", "write", "edit", "grep", "glob", "bash", "lex_check", "os_check", "lex_audit", "sigid_lookup", "effects_of", "lex_store_diff", "lex_store_apply", "lex_store_merge", "propagate_effect"], list.concat(vcs_read_names(), vcs_write_names())))
+  allow_tools("refactor_tools", list.concat(["read", "write", "edit", "grep", "glob", "bash", "remember", "lex_check", "os_check", "lex_audit", "sigid_lookup", "effects_of", "lex_store_diff", "lex_store_apply", "lex_store_merge", "propagate_effect"], list.concat(vcs_read_names(), vcs_write_names())))
 }
 
 fn test_permission() -> sp.Spec {

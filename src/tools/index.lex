@@ -38,6 +38,8 @@ import "./effects_of" as effects_tool
 
 import "./propagate_effect" as propagate_tool
 
+import "./remember" as remember_tool
+
 import "./lex_store_diff" as store_diff_tool
 
 import "./lex_store_apply" as store_apply_tool
@@ -112,7 +114,7 @@ fn vcs_tools() -> List[t.Tool] {
 # calling it — it compares a file's effects against that mode's grant —
 # so the toolset has to be built per mode rather than shared.
 fn all_tools_for_mode(mode :: Str) -> List[t.Tool] {
-  list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), check_tool.tool(), os_check_tool.tool_for_mode(mode), audit_tool.tool(), run_tool.tool(), test_tool.tool(), spec_check_tool.tool(), spec_smt_tool.tool(), sigid_tool.tool(), attest_tool.tool(), effects_tool.tool(), store_diff_tool.tool(), store_apply_tool.tool(), store_merge_tool.tool(), propagate_tool.tool(), guidelines_tool.tool(), bar_check_tool.tool()], vcs_tools())
+  list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), remember_tool.tool(), check_tool.tool(), os_check_tool.tool_for_mode(mode), audit_tool.tool(), run_tool.tool(), test_tool.tool(), spec_check_tool.tool(), spec_smt_tool.tool(), sigid_tool.tool(), attest_tool.tool(), effects_tool.tool(), store_diff_tool.tool(), store_apply_tool.tool(), store_merge_tool.tool(), propagate_tool.tool(), guidelines_tool.tool(), bar_check_tool.tool()], vcs_tools())
 }
 
 # The build agent's own toolset: build's grant forbids nothing, so this

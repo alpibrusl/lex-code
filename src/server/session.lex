@@ -38,6 +38,8 @@ import "./session_events" as evs
 
 import "../project_memory" as pmem
 
+import "../memory/consolidate" as consolidate
+
 type AgentMode = Build | Plan | Explore | Refactor | Spec | Test | Review | Bar
 
 type Session = { id :: Str, mode :: AgentMode, messages :: List[msg.Message], log :: trail_log.Log, parent :: Option[Str], memory :: Str }
@@ -139,7 +141,7 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
   }
 }
 
-fn new_session(id :: Str, mode :: AgentMode) -> [sql, fs_read, fs_walk, fs_write] Result[Session, Str] {
+fn new_session(id :: Str, mode :: AgentMode) -> [sql, fs_read, fs_walk, fs_write, crypto, io, random, time] Result[Session, Str] {
   new_session_with_provider(id, mode, "anthropic")
 }
 
@@ -148,29 +150,48 @@ fn new_session(id :: Str, mode :: AgentMode) -> [sql, fs_read, fs_walk, fs_write
 # `run_turn_with_provider`'s effect row unchanged. `recall_context` answers
 # "" for every failure — no store yet, unreadable db — so a session never
 # fails because memory was unavailable.
-fn new_session_with_provider(id :: Str, mode :: AgentMode, provider_tag :: Str) -> [sql, fs_read, fs_walk, fs_write] Result[Session, Str] {
+# Opening a session is where candidates become memory.
+#
+# It runs before the first `recall_context`, so a fact the previous session
+# proposed is either believed or refused by the time this one reads memory —
+# never half-way. And it runs on the session's own log, so the trail records
+# the promotion under the session that acted on it rather than orphaned.
+#
+# Deliberately inline rather than in the background. The rules are mechanical
+# (no model call), so this costs a few SQLite writes; and a consolidation
+# racing the session's own trail writes would trade a bounded cost for an
+# unbounded class of bug. A background pass only becomes worth it if
+# reconciliation ever needs to ask a model, which is a different decision.
+fn new_session_with_provider(id :: Str, mode :: AgentMode, provider_tag :: Str) -> [io, sql, fs_read, fs_walk, fs_write, time, crypto, random] Result[Session, Str] {
   match persist.open_ephemeral() {
     Err(e) => Err(e),
-    Ok(log) => Ok({ id: id, mode: mode, messages: [], log: log, parent: None, memory: pmem.recall_context() }),
+    Ok(log) => {
+      let __consolidated := consolidate.run(id)
+      Ok({ id: id, mode: mode, messages: [], log: log, parent: None, memory: pmem.recall_context() })
+    },
   }
 }
 
-# Prepend recalled project memory to an agent's system prompt. Pure, so the
-# examples below run at `lex check` time and CI covers the one thing that can
-# silently go wrong here: an empty recall must leave the prompt untouched
+# Prepend the recalled memory summary to an agent's system prompt. Pure, so
+# the examples below run at `lex check` time and CI covers the one thing that
+# can silently go wrong here: an empty recall must leave the prompt untouched
 # rather than trailing separators onto it.
+#
+# No header is added. `project_memory.summary_of` writes its own, including
+# how many facts were omitted — adding a second "## PROJECT MEMORY" here
+# would push that count under a duplicate heading.
 fn prefix_goal(goal :: Str, ctx :: Str) -> Str
   examples {
     prefix_goal("SYSTEM", "") => "SYSTEM",
     prefix_goal("SYSTEM", "   ") => "SYSTEM",
-    prefix_goal("SYSTEM", "\n\nMemory:\n- uses std.conc") => "## PROJECT MEMORY\n\nMemory:\n- uses std.conc\n\nSYSTEM"
+    prefix_goal("SYSTEM", "## PROJECT MEMORY (1 fact)\n\nConventions\n- fmt: run lex fmt") => "## PROJECT MEMORY (1 fact)\n\nConventions\n- fmt: run lex fmt\n\nSYSTEM"
   }
 {
   let trimmed := str.trim(ctx)
   if str.is_empty(trimmed) {
     goal
   } else {
-    str.join(["## PROJECT MEMORY\n\n", trimmed, "\n\n", goal], "")
+    str.join([trimmed, "\n\n", goal], "")
   }
 }
 

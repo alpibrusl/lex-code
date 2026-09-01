@@ -215,6 +215,46 @@ ok
 0
 ```
 
+## Project memory
+
+Facts that outlive a session — a convention, a version pin, a gotcha. Three
+stages, and the boundary between them is enforced by the effect system rather
+than by policy.
+
+**The agent proposes.** `remember(kind, content, key?, why?)` appends a
+candidate. It cannot do more than that: lex-llm fixes the tool row at
+`[net, io, proc]`, with no `sql` and no `time`, and record-field rows unify by
+equality — so no tool can widen it to what a durable write needs. An agent
+*cannot* install a belief.
+
+**Consolidation disposes.** At session start, `src/memory/consolidate.lex`
+reconciles each candidate against what the project already knows:
+
+| | |
+|---|---|
+| unknown kind, empty content | rejected |
+| nothing known yet | accepted |
+| identical to what is known | skipped |
+| contradicts what is known | superseded — the trail keeps the previous value |
+| `recent_change` | accepted; it accumulates by design |
+
+Rules are mechanical, not model-judged: a model adjudicating between two
+contradictory beliefs is the failure this mechanism exists to contain.
+
+**The trail records why.** Every outcome, including a rejection, becomes a
+`memory.recorded` event with a chained `memory.reconciled` attestation in
+`.lex/memory_trail.db` — deliberately not the session log, which is in-memory
+and gone at exit. So `attest.chain` answers "why does it believe this" with
+something better than "it said so once".
+
+**A session opens with a summary, not the store.** At most five entries per
+kind, newest first, and the header says how many were left out — a model that
+can see its excerpt is partial can ask for the rest; one shown a silently
+truncated list cannot.
+
+Everything the prompt sees was attested by consolidation. A candidate that
+was refused never leaves `.lex/memory-candidates.jsonl`.
+
 ## Streaming
 
 Turns arrive as they happen. Text appears token by token, tool calls announce
