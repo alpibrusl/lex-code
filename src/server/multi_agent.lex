@@ -1,64 +1,47 @@
+# lex-code — the named multi-agent pipelines
+#
+# These three were the whole multi-agent story: each one an arrangement of
+# "run in order" and "run at once", written out by hand, so a fourth
+# arrangement meant a fourth function. #26 moved those two moves into
+# `graph.lex` as values; what is left here is the three names, each now a
+# thin call over the shared runner.
+#
+# They keep their old signatures on purpose. `run_impl_then_test` is what
+# the TUI calls, and the acceptance criterion for #26 is that the presets
+# behave as before — so this file is the compatibility surface, not a
+# second implementation.
+
 import "lex-llm/delta" as d
 
 import "std.list" as list
 
-import "std.str" as str
+import "./graph" as graph
 
 import "./session" as sess
 
 type MultiResult = { impl_steps :: List[d.Step], test_steps :: List[d.Step] }
 
 fn run_task(task :: Str, mode :: sess.AgentMode, provider_tag :: Str) -> [env, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] List[d.Step] {
-  match sess.new_session_with_provider("worker", mode, provider_tag) {
-    Err(_) => [],
-    Ok(session) => {
-      let result := sess.run_turn_with_provider(session, task, provider_tag)
-      result.steps
-    },
-  }
+  let r := graph.run_agent({ name: "worker", mode: mode, task_prefix: "" }, task, provider_tag)
+  r.steps
 }
 
 fn run_parallel(task :: Str, provider_tag :: Str) -> [env, concurrent, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] MultiResult {
-  let pairs := [(task, Build), (str.concat("Write unit tests for: ", task), Test)]
-  let results := list.par_map(pairs, fn (pair :: (Str, sess.AgentMode)) -> [env, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] List[d.Step] {
-    match pair {
-      (t, mode) => run_task(t, mode, provider_tag),
-    }
-  })
-  let impl_steps := match list.head(results) {
-    Some(s) => s,
-    None => [],
-  }
-  let test_steps := match list.head(list.tail(results)) {
-    Some(s) => s,
-    None => [],
-  }
-  { impl_steps: impl_steps, test_steps: test_steps }
+  as_multi(graph.run_graph(graph.impl_and_test_parallel(), task, provider_tag))
 }
 
-fn run_impl_then_test(task :: Str, provider_tag :: Str) -> [env, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] MultiResult {
-  let impl_steps := run_task(task, Build, provider_tag)
-  let test_steps := run_task(str.concat("Write unit tests for: ", task), Test, provider_tag)
-  { impl_steps: impl_steps, test_steps: test_steps }
+fn run_impl_then_test(task :: Str, provider_tag :: Str) -> [env, concurrent, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] MultiResult {
+  as_multi(graph.run_graph(graph.impl_then_test(), task, provider_tag))
 }
 
 fn run_impl_then_spec_then_test(task :: Str, provider_tag :: Str) -> [env, concurrent, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] List[d.Step] {
-  let impl_steps := run_task(task, Build, provider_tag)
-  let spec_steps := run_task(str.concat("Write lex-spec Spec for: ", task), Spec, provider_tag)
-  let parallel_tasks := [(str.concat("Write unit tests for: ", task), Test), (str.concat("Review implementation: ", task), Review)]
-  let parallel_results := list.par_map(parallel_tasks, fn (pair :: (Str, sess.AgentMode)) -> [env, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] List[d.Step] {
-    match pair {
-      (t, mode) => run_task(t, mode, provider_tag),
-    }
-  })
-  let test_steps := match list.head(parallel_results) {
-    Some(s) => s,
-    None => [],
-  }
-  let rev_steps := match list.head(list.tail(parallel_results)) {
-    Some(s) => s,
-    None => [],
-  }
-  list.concat(impl_steps, list.concat(spec_steps, list.concat(test_steps, rev_steps)))
+  graph.all_steps(graph.run_graph(graph.impl_then_spec_then_test(), task, provider_tag))
+}
+
+# MultiResult names exactly two slots, which is why it could not describe
+# a third pipeline and why GraphResult replaced it. Kept for the callers
+# that still speak in those two.
+fn as_multi(g :: graph.GraphResult) -> MultiResult {
+  { impl_steps: graph.steps_for(g, "impl"), test_steps: graph.steps_for(g, "test") }
 }
 
