@@ -16,6 +16,8 @@ import "std.iter" as iter
 
 import "std.str" as str
 
+import "std.time" as time
+
 import "../agents/build" as build_agent
 
 import "../agents/plan" as plan_agent
@@ -39,6 +41,8 @@ import "./session_events" as evs
 import "../project_memory" as pmem
 
 import "../memory/consolidate" as consolidate
+
+import "../verification" as verification
 
 type AgentMode = Build | Plan | Explore | Refactor | Spec | Test | Review | Bar
 
@@ -250,6 +254,7 @@ fn run_turn(session :: Session, user_input :: Str) -> [env, net, llm, io, proc, 
 # same idiom as run_loop's "[max_steps reached]") instead of letting the
 # model see a conversation the durable record cannot reproduce.
 fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time, approval] TurnResult {
+  let started := time.now_ms()
   match evs.record_user(session.log, user_input) {
     Err(e) => refused_turn(session, str.concat("session log append failed: ", e)),
     Ok(_) => match evs.session_history(session.log) {
@@ -260,7 +265,7 @@ fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag ::
           let agent := with_memory(pick_agent(session.mode, provider_tag), session.memory)
           let step_iter := ag.run_loop_traced(agent, derived, session.log, session.parent)
           let steps := iter.to_list(step_iter)
-          finish_turn(session, derived, steps)
+          finish_turn(session, derived, steps, started)
         } else {
           refused_turn(session, "cached messages diverge from the trail-derived history")
         }
@@ -292,6 +297,7 @@ fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag ::
 # The budget is derived the way run_loop_traced derives it internally, since
 # run_steps_streamed takes it explicitly.
 fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provider_tag :: Str, on_step :: (d.Step) -> [io] Unit) -> [env, net, llm, io, proc, sql, time, approval, stream] TurnResult {
+  let started := time.now_ms()
   match evs.record_user(session.log, user_input) {
     Err(e) => refused_turn(session, str.concat("session log append failed: ", e)),
     Ok(_) => match evs.session_history(session.log) {
@@ -302,7 +308,7 @@ fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provi
           let agent := with_memory(pick_agent(session.mode, provider_tag), session.memory)
           let budget := ag.unwrap_int(agent.options.max_steps, 20)
           let steps := ag.run_steps_streamed(agent, derived, budget, session.log, session.parent, on_step)
-          finish_turn(session, derived, steps)
+          finish_turn(session, derived, steps, started)
         } else {
           refused_turn(session, "cached messages diverge from the trail-derived history")
         }
@@ -315,7 +321,8 @@ fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provi
 # cache. A FAILED assistant append is deliberately not patched over — the
 # cache keeps the message anyway, so the next turn's derivation check finds
 # the divergence and refuses loudly. Noisy failure over silent context loss.
-fn finish_turn(session :: Session, derived :: List[msg.Message], steps :: List[d.Step]) -> [sql, time] TurnResult {
+fn finish_turn(session :: Session, derived :: List[msg.Message], steps :: List[d.Step], started_ms :: Int) -> [io, sql, time] TurnResult {
+  let __harvested := verification.append_all(verification.harvest(session.log, started_ms, time.now_ms()))
   let new_msgs := match find_done_msg(steps) {
     None => derived,
     Some(m) => {
