@@ -239,19 +239,6 @@ Even with these fixes, thinking models tend to emit tool calls as embedded JSON 
 
 ## Server Protocols
 
-### A2A (Agent-to-Agent, JSON-RPC 2.0)
-
-> **Not runnable yet.** `src/server/api.lex` defines the capability and
-> handler but no `main`/`serve` entry point, so `lex run` on it has
-> nothing to call. Its `handle_chat` also only echoes: `Skill.handle`
-> pins an invariant effect row without `llm` (AGENTS.md §1.6), so the
-> handler structurally cannot run a turn until that type changes
-> upstream in lex-agent. The A2A **agent card** is served today by the
-> MCP server below, on `/.well-known/agent.json`.
-
-The intended surface: `tasks/send`, `tasks/get`, `tasks/cancel`,
-`tasks/sendSubscribe` (SSE). Agent card at `/.well-known/agent.json`.
-
 ### MCP (Model Context Protocol)
 
 `src/server/mcp_main.lex` exposes lex-code as a single `code` tool over
@@ -384,8 +371,7 @@ lex-code
 │   │   ├── persist.lex        # lex-trail log helpers
 │   │   ├── web.lex            # HTTP: static src/web + POST /a2a  (runnable)
 │   │   ├── mcp_main.lex       # MCP + A2A agent card on :7778     (runnable)
-│   │   ├── client_protocol.lex # Zed ACP over stdio, Phase 1      (runnable)
-│   │   └── api.lex            # A2A — no entry point yet
+│   │   └── client_protocol.lex # Zed ACP over stdio, Phase 1      (runnable)
 │   ├── tui/main.lex     # CLI REPL + one-shot mode
 │   ├── web/             # Web frontend (vanilla JS)
 │   └── bootstrap/run.lex  # Demo 4-phase pipeline
@@ -398,8 +384,7 @@ lex-code
 
 `src/server/web.lex` is the backend: it serves the static files in
 `src/web/` **and** the `POST /a2a` endpoint the page calls, so one
-process is the whole thing — no separate static server, and not
-`src/server/api.lex`, which has no entry point.
+process is the whole thing — no separate static server needed.
 
 ```sh
 lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
@@ -510,13 +495,21 @@ authorised to use.
 
 ## Roadmap
 
-- [x] v0.1 — agents, tools, TUI REPL, A2A server, lex-trail persistence
+- [x] v0.1 — agents, tools, TUI REPL, A2A server, lex-trail persistence (that server since removed — see below)
 - [x] v0.2 — refactor/spec/test/review agents, store tools, lex-spec permissions, Mistral provider
 - [x] v0.3 — parallel multi-agent (`std.conc`), VSCode extension (since removed, superseded by v0.7's Zed ACP server), web frontend, bootstrap script
 - [x] v0.4 — lex-vcs tools (17), CLI one-shot mode, Ollama + vLLM providers, install target
 - [x] v0.5 — BeeAI ACP server (`src/server/acp.lex`), ACP helpers in lex-agent (server since removed — it never had a listener, and `lex-agent/acp_server` supplies only pure JSON/SSE builders, so finishing it meant writing a second HTTP server for a job `web.lex` and the MCP server already cover; the helpers remain upstream)
 - [x] v0.6 — OpenCode Go provider (native + via the bundled LiteLLM proxy, shared config with lex-loom)
 - [x] v0.7 — Agent Client Protocol (Zed) server, Phase 1: `initialize`/`session/new`/`session/prompt`/`session/close`
+
+`src/server/api.lex` went the same way as the BeeAI ACP server, and for a
+sharper reason. It had no entry point, and its handler could not have run
+a turn even with one: lex-agent fixes `Skill.handle`'s effect row without
+`llm`, so an A2A handler is structurally incapable of calling a model
+until that type changes upstream. The agent card it was meant to publish
+is served today by the MCP server, on the same `/.well-known/agent.json`
+path.
 
 The VSCode extension was dropped once that server existed: one ACP
 implementation reaches Zed, JetBrains, Neovim and Emacs, where the
