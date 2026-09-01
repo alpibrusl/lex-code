@@ -1,3 +1,18 @@
+# Which prompt each provider gets is not a style choice: a prompt must
+# describe the tools its agent actually holds. build.lex names lex_audit,
+# lex_test and load_guidelines, which only all_tools() supplies;
+# build_ollama.lex names the smaller set the curated toolsets carry.
+#
+# So the pairing follows the toolset, and only that:
+#
+#   all_tools()      → bp.system()    anthropic, openai, mistral, google,
+#                                     opencode, vertex, vllm
+#   minimal/dynamic  → bpo.system()   ollama, litellm
+#
+# Seven of these were on bpo while holding all_tools(), which told every
+# cloud model about a tool that does not exist and never mentioned three
+# it did have (#63).
+
 import "lex-llm/agent" as ag
 
 import "lex-llm/provider" as prov
@@ -17,17 +32,17 @@ import "../prompts/build_ollama" as bpo
 import "std.list" as list
 
 fn agent() -> [env] ag.AgentLoop {
-  let base := { name: "build", goal: bpo.system(), model: prov.claude_sonnet(), provider: providers.anthropic(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
+  let base := { name: "build", goal: bp.system(), model: prov.claude_sonnet(), provider: providers.anthropic(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
 fn openai_agent() -> [env] ag.AgentLoop {
-  let base := { name: "build", goal: bpo.system(), model: prov.gpt4o(), provider: providers.openai(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
+  let base := { name: "build", goal: bp.system(), model: prov.gpt4o(), provider: providers.openai(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
 fn mistral_agent() -> [env] ag.AgentLoop {
-  let base := { name: "build", goal: bpo.system(), model: prov.mistral_large(), provider: providers.mistral(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
+  let base := { name: "build", goal: bp.system(), model: prov.mistral_large(), provider: providers.mistral(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
@@ -47,7 +62,7 @@ fn vllm_agent() -> [env] ag.AgentLoop {
 }
 
 fn google_agent() -> [env] ag.AgentLoop {
-  let base := { name: "build", goal: bpo.system(), model: prov.gemini_pro(), provider: providers.google(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
+  let base := { name: "build", goal: bp.system(), model: prov.gemini_pro(), provider: providers.google(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
@@ -57,12 +72,12 @@ fn google_agent() -> [env] ag.AgentLoop {
 # other cloud providers above rather than litellm/ollama's stripped-down
 # treatment. OPENCODE_API_KEY required; OPENCODE_MODEL overrides the default.
 fn opencode_agent() -> [env] ag.AgentLoop {
-  let base := { name: "build", goal: bpo.system(), model: prov.make_model_ref("opencode", tools.opencode_model()), provider: providers.opencode_go(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
+  let base := { name: "build", goal: bp.system(), model: prov.make_model_ref("opencode", tools.opencode_model()), provider: providers.opencode_go(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
 fn vertex_agent() -> [env] ag.AgentLoop {
-  let base := { name: "build", goal: bpo.system(), model: vtx.gemini_35_flash(), provider: providers.vertex(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
+  let base := { name: "build", goal: bp.system(), model: vtx.gemini_35_flash(), provider: providers.vertex(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
