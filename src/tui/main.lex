@@ -89,7 +89,14 @@ fn multi_repl(provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs
   }
 }
 
-fn has_flag(argv :: List[Str], flag :: Str) -> Bool {
+fn has_flag(argv :: List[Str], flag :: Str) -> Bool
+  examples {
+    has_flag(["--plan"], "--plan") => true,
+    has_flag([], "--plan") => false,
+    has_flag(["--plans"], "--plan") => false,
+    has_flag(["task", "--plan"], "--plan") => true
+  }
+{
   match list.head(list.filter(argv, fn (a :: Str) -> Bool {
     a == flag
   })) {
@@ -99,7 +106,14 @@ fn has_flag(argv :: List[Str], flag :: Str) -> Bool {
 }
 
 # First non-flag argument is the task (one-shot CLI mode).
-fn find_task(argv :: List[Str]) -> Option[Str] {
+fn find_task(argv :: List[Str]) -> Option[Str]
+  examples {
+    find_task(["--plan", "implement list.zip"]) => Some("implement list.zip"),
+    find_task(["--plan"]) => None,
+    find_task([]) => None,
+    find_task(["first", "second"]) => Some("first")
+  }
+{
   list.head(list.filter(argv, fn (a :: Str) -> Bool {
     if str.is_empty(a) {
       false
@@ -112,7 +126,18 @@ fn find_task(argv :: List[Str]) -> Option[Str] {
   }))
 }
 
-fn select_mode(argv :: List[Str]) -> sess.AgentMode {
+# Precedence is first-match down the chain below, not command-line order:
+# `--bar --plan` and `--plan --bar` both select Plan. Nothing documented
+# that until these examples did.
+fn select_mode(argv :: List[Str]) -> sess.AgentMode
+  examples {
+    select_mode([]) => Build,
+    select_mode(["--bar"]) => Bar,
+    select_mode(["--review"]) => Review,
+    select_mode(["--bar", "--plan"]) => Plan,
+    select_mode(["a task"]) => Build
+  }
+{
   if has_flag(argv, "--plan") {
     Plan
   } else {
@@ -144,7 +169,17 @@ fn select_mode(argv :: List[Str]) -> sess.AgentMode {
   }
 }
 
-fn select_provider_tag(argv :: List[Str]) -> Str {
+# Same first-match precedence as select_mode: `--ollama --mistral` is
+# mistral, whichever order they appear in.
+fn select_provider_tag(argv :: List[Str]) -> Str
+  examples {
+    select_provider_tag([]) => "anthropic",
+    select_provider_tag(["--ollama"]) => "ollama",
+    select_provider_tag(["--litellm"]) => "litellm",
+    select_provider_tag(["--ollama", "--mistral"]) => "mistral",
+    select_provider_tag(["--bar"]) => "anthropic"
+  }
+{
   if has_flag(argv, "--mistral") {
     "mistral"
   } else {
@@ -243,11 +278,37 @@ fn collect_final_text(steps :: List[d.Step]) -> Str {
   }
 }
 
+type Invocation = { mode :: sess.AgentMode, provider :: Str, task :: Option[Str], multi :: Bool }
+
+# The whole command line, resolved in one pure function.
+#
+# This exists because of the bug it would have caught. `main` used to read
+# `let argv := []` — a workaround for lex 0.9.5 having no `io.argv()` that
+# outlived the toolchain needing it — so every flag and the task argument
+# were dropped, for releases, unnoticed. The parsers below were correct the
+# entire time; nothing tested the wiring between them and `main`, because
+# `main` is effectful and interactive and examples cannot reach it.
+#
+# Resolving the invocation here leaves `main` with one job it cannot get
+# subtly wrong: hand `io.argv()` to this and act on the result. The examples
+# then cover the whole parse path rather than its pieces.
+fn plan_invocation(argv :: List[Str]) -> Invocation
+  examples {
+    plan_invocation([]) => { mode: Build, provider: "anthropic", task: None, multi: false },
+    plan_invocation(["--bar", "walk this repo"]) => { mode: Bar, provider: "anthropic", task: Some("walk this repo"), multi: false },
+    plan_invocation(["--ollama", "--plan"]) => { mode: Plan, provider: "ollama", task: None, multi: false },
+    plan_invocation(["--multi"]) => { mode: Build, provider: "anthropic", task: None, multi: true },
+    plan_invocation(["--litellm", "--review", "check the diff"]) => { mode: Review, provider: "litellm", task: Some("check the diff"), multi: false }
+  }
+{
+  { mode: select_mode(argv), provider: select_provider_tag(argv), task: find_task(argv), multi: has_flag(argv, "--multi") }
+}
+
 fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval] Nil {
-  let argv := io.argv()
-  let provider_tag := select_provider_tag(argv)
-  let mode := select_mode(argv)
-  match find_task(argv) {
+  let inv := plan_invocation(io.argv())
+  let provider_tag := inv.provider
+  let mode := inv.mode
+  match inv.task {
     Some(task) => run_once(task, mode, provider_tag),
     None => {
       io.print(str.concat("lex-code — Lex-specialized coding assistant", "\n"))
@@ -255,7 +316,7 @@ fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, ap
       io.print(str.concat("providers: --mistral | --openai | --google | --vertex | --litellm | --ollama | --vllm | --opencode  (default: anthropic)", "\n"))
       io.print(str.concat("one-shot:  lex run src/tui/main.lex -- [flags] \"your task\"", "\n"))
       io.print(str.concat("Ctrl-D to exit", "\n"))
-      if has_flag(argv, "--multi") {
+      if inv.multi {
         multi_repl(provider_tag)
       } else {
         match sess.new_session_with_provider("tui", mode, provider_tag) {
