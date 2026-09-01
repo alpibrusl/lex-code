@@ -321,6 +321,73 @@ Models with a chain-of-thought "thinking" phase need two things to work through 
 
 Even with these fixes, thinking models tend to emit tool calls as embedded JSON in `content` (rather than in the `tool_calls` field) when given 10+ function schemas. The `openai.lex` adapter has a `content_tool_call` fallback parser, but the generated code quality degrades significantly under large context. Use `qwen3-coder:30b` for coding tasks.
 
+## Semantic search
+
+`grep` and `glob` match names. `semantic_search` matches intent — "validate an
+A2A envelope", "retry a failed HTTP call" — by ranking every function's
+signature, effects and examples against the query.
+
+It needs an index, and the index needs an embeddings endpoint. LiteLLM is the
+one lex-code speaks to, which is how Ollama is reached: the proxy presents
+OpenAI's `/v1/embeddings` over `ollama/nomic-embed-text`, so lex-code never
+learns Ollama's native embeddings shape. `litellm/config.yaml` ships the entry.
+
+```sh
+ollama pull nomic-embed-text        # 768-dim, ~270MB, CPU is fine
+cd litellm && docker compose up -d && cd ..
+
+lex run --max-steps 20000000000 --allow-effects env,io,net,proc \
+  src/index_build.lex main
+```
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `LITELLM_BASE_URL` | `http://localhost:4000` | proxy (shared with the chat path) |
+| `LEX_EMBED_MODEL` | `nomic-embed-text` | must be in the proxy's model list |
+| `LEX_EMBED_DIMS` | `128` | components kept per vector — see below |
+| `LEX_INDEX_PATH` | `src/` | what to index |
+
+**`--max-steps` is not optional.** The default VM budget is 10M opcode
+dispatches and a whole-repo build blows straight through it.
+
+### Why the index stores a prefix
+
+Reading `.lex/index.jsonl` dominates query latency, and the reason is upstream:
+`jv.parse_into_errors` is **quadratic in document size**, because
+`json_value.char_at` walks the input with `str.slice(src, p, p + 1)` and slicing
+is O(p). Doubling a JSON document roughly quadruples parse time — 16K/0.2s,
+33K/0.9s, 66K/3.2s, 132K/13.7s, 264K/55.7s. So the index has to stay small, and
+on this repo's 674 functions it measures:
+
+| dims | index | read |
+|---|---|---|
+| 512 | 932K | 34s |
+| 128 | ~500K | ~6s |
+| 64 | 336K | 3s |
+
+A 34-second search tool is not a search tool, so only the first
+`LEX_EMBED_DIMS` components are kept. The same parser cost bounds indexing:
+`lex docs` output for the whole tree is 310K and takes ~55s to parse before a
+single embedding is requested, which is why `LEX_INDEX_PATH` defaults to a
+subtree-sized scope rather than the repo. That is sound rather than merely cheap
+for a Matryoshka-trained model like `nomic-embed-text`, which is trained so a
+leading slice of the vector is itself a usable embedding; the prefix is
+renormalised, since truncating changes the norm. Raise it for better ranking on
+a small tree, lower it on a large one.
+
+### Rebuilds are incremental
+
+The reuse key is `sig_id`, not mtime: it hashes the function's own content, so
+it answers "did this function change" rather than "was this file touched",
+which is true after a comment edit and false after a `git checkout` that
+rewinds content. Changing the model, endpoint or dims invalidates the whole
+index — vectors are only comparable within one model, and mixing two vector
+spaces in one ranking produces plausible nonsense rather than an error.
+
+`semantic_search` is available to the explore, plan and review agents. It never
+builds the index itself: a build makes one HTTP call per function, and
+`Tool.execute`'s `[net, io, proc]` row cannot read the env it would need.
+
 ## Observability (OpenTelemetry)
 
 Off by default. Point it at a collector and every turn arrives as a trace:
