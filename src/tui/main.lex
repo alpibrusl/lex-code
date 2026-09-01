@@ -161,15 +161,23 @@ fn find_pipeline(argv :: List[Str]) -> Option[Str]
   }
 }
 
-# A `--pipeline=NAME` that names nothing must not quietly become the
+# A `--pipeline=` value that names nothing must not quietly become the
 # default pipeline: the user asked for a specific arrangement of agents,
 # and running a different one is a wrong answer dressed as a working run.
+#
+# A preset name wins over the spec grammar, so `impl_then_test` is not
+# read as a single agent called "impl_then_test" and rejected. Anything
+# that is not a preset is parsed as a spec, which is what makes
+# `--pipeline=build,spec,test` work without a second flag.
 fn resolve_pipeline(name :: Option[Str]) -> Result[graph.Node, Str] {
   match name {
     None => Ok(graph.impl_then_test()),
     Some(n) => match graph.preset(n) {
       Some(node) => Ok(node),
-      None => Err(str.join(["unknown pipeline \"", n, "\" — try one of: ", str.join(graph.preset_names(), ", ")], "")),
+      None => match graph.from_spec(n) {
+        Ok(node) => Ok(node),
+        Err(m) => Err(str.join([m, "\npresets: ", str.join(graph.preset_names(), ", ")], "")),
+      },
     },
   }
 }
@@ -362,7 +370,7 @@ fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, ap
     None => {
       io.print(str.concat("lex-code — Lex-specialized coding assistant", "\n"))
       io.print(str.concat("modes:     --plan | --explore | --refactor | --spec | --test | --review | --bar | --multi", "\n"))
-      io.print(str.join(["pipelines: --pipeline=", str.join(graph.preset_names(), " | --pipeline="), "   (with --multi; default impl_then_test)", "\n"], ""))
+      io.print(str.join(["pipelines: --pipeline=", str.join(graph.preset_names(), " | --pipeline="), "\n           --pipeline=build,spec,test|review   (\",\" in order, \"|\" at once)", "\n"], ""))
       io.print(str.concat("providers: --mistral | --openai | --google | --vertex | --litellm | --ollama | --vllm | --opencode  (default: anthropic)", "\n"))
       io.print(str.concat("one-shot:  lex run src/tui/main.lex -- [flags] \"your task\"", "\n"))
       io.print(str.concat("Ctrl-D to exit", "\n"))

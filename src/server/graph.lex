@@ -149,6 +149,146 @@ fn preset_prompts(task :: Str) -> List[Str]
   [shape(build_def(), task), shape(spec_def(), task), shape(test_def(), task), shape(review_def(), task)]
 }
 
+# ---- ad-hoc pipelines -------------------------------------------------
+#
+# #26 gave three presets by name. #30 wants a pipeline assembled on the
+# command line — `--pipeline=build,spec,test` — so a run is not limited to
+# arrangements someone thought to name.
+#
+# The grammar is two characters: `,` sequences, `|` runs in parallel.
+# `build,spec,test|review` is impl_then_spec_then_test, which is the test
+# that the two halves agree.
+fn agent_for(name :: Str) -> Option[AgentDef] {
+  if name == "build" {
+    Some(build_def())
+  } else {
+    if name == "impl" {
+      Some(build_def())
+    } else {
+      if name == "spec" {
+        Some(spec_def())
+      } else {
+        if name == "test" {
+          Some(test_def())
+        } else {
+          if name == "review" {
+            Some(review_def())
+          } else {
+            None
+          }
+        }
+      }
+    }
+  }
+}
+
+fn agent_names_accepted() -> List[Str]
+  examples {
+    agent_names_accepted() => ["build", "impl", "spec", "test", "review"]
+  }
+{
+  ["build", "impl", "spec", "test", "review"]
+}
+
+# One `|`-separated stage: a single agent, or several run at once.
+fn stage_of(seg :: Str) -> Result[Node, Str] {
+  let parts := list.map(str.split(seg, "|"), fn (x :: Str) -> Str {
+    str.trim(x)
+  })
+  match fold_agents(parts, []) {
+    Err(m) => Err(m),
+    Ok(nodes) => if list.len(nodes) == 1 {
+      match list.head(nodes) {
+        None => Err("empty stage"),
+        Some(n) => Ok(n),
+      }
+    } else {
+      Ok(ParallelNode(nodes))
+    },
+  }
+}
+
+fn fold_agents(names :: List[Str], acc :: List[Node]) -> Result[List[Node], Str] {
+  match list.head(names) {
+    None => Ok(list.reverse(acc)),
+    Some(n) => match agent_for(n) {
+      None => Err(str.join(["unknown agent \"", n, "\" — try one of: ", str.join(agent_names_accepted(), ", ")], "")),
+      Some(def) => fold_agents(list.tail(names), list.cons(AgentNode(def), acc)),
+    },
+  }
+}
+
+fn fold_stages(segs :: List[Str], acc :: List[Node]) -> Result[List[Node], Str] {
+  match list.head(segs) {
+    None => Ok(list.reverse(acc)),
+    Some(seg) => match stage_of(seg) {
+      Err(m) => Err(m),
+      Ok(node) => fold_stages(list.tail(segs), list.cons(node, acc)),
+    },
+  }
+}
+
+# Parse a pipeline spec. An unknown agent name is refused with the list of
+# valid ones rather than skipped: a pipeline silently missing a stage is a
+# run that looks successful and did less than it was asked to.
+fn from_spec(spec :: Str) -> Result[Node, Str] {
+  let segs := list.map(str.split(str.trim(spec), ","), fn (x :: Str) -> Str {
+    str.trim(x)
+  })
+  if str.is_empty(str.trim(spec)) {
+    Err("empty pipeline spec")
+  } else {
+    match fold_stages(segs, []) {
+      Err(m) => Err(m),
+      Ok(nodes) => if list.len(nodes) == 1 {
+        match list.head(nodes) {
+          None => Err("empty pipeline spec"),
+          Some(n) => Ok(n),
+        }
+      } else {
+        Ok(SequenceNode(nodes))
+      },
+    }
+  }
+}
+
+# What a spec parses to, as a shape string — so the grammar is pinned by
+# examples rather than described in a comment. The third case is the one
+# that matters: it must equal the impl_then_spec_then_test preset.
+fn spec_shape(spec :: Str) -> Str
+  examples {
+    spec_shape("build,test") => "impl → test",
+    spec_shape("build|test") => "impl ∥ test",
+    spec_shape("build,spec,test|review") => "impl → spec → (test ∥ review)",
+    spec_shape("impl") => "impl",
+    spec_shape("build, spec") => "impl → spec",
+    spec_shape("nope") => "unknown agent \"nope\" — try one of: build, impl, spec, test, review",
+    spec_shape("") => "empty pipeline spec"
+  }
+{
+  match from_spec(spec) {
+    Err(m) => m,
+    Ok(n) => render_shape(n),
+  }
+}
+
+# A spec and the named preset it reproduces must not drift apart.
+fn spec_matches_preset() -> Bool
+  examples {
+    spec_matches_preset() => true
+  }
+{
+  if spec_shape("build,test") == preset_shape("impl_then_test") {
+    if spec_shape("build|test") == preset_shape("impl_and_test_parallel") {
+      spec_shape("build,spec,test|review") == preset_shape("impl_then_spec_then_test")
+    } else {
+      false
+    }
+  } else {
+    false
+  }
+}
+
 # ---- shape queries (pure, so they can carry examples) ------------------
 fn node_count(n :: Node) -> Int
   examples {
