@@ -14,6 +14,12 @@ import "../server/session" as sess
 
 import "../server/multi_agent" as multi
 
+# The live sink. run_turn_streaming_with_provider hands each Step to this the
+# moment it happens, so a TextChunk here is a token the model has just
+# produced rather than one recovered from a finished transcript.
+#
+# Callers must not also walk the returned steps with this — the turn would
+# print twice. That is why repl and run_once discard the result's steps.
 fn print_step(step :: d.Step) -> [io] Nil {
   match step {
     StepDelta(delta) => match delta {
@@ -32,7 +38,7 @@ fn print_step(step :: d.Step) -> [io] Nil {
   }
 }
 
-fn repl(session :: sess.Session, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval] Nil {
+fn repl(session :: sess.Session, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream] Nil {
   io.print("\n> ")
   match io.read("-") {
     Err(_) => io.print("\nbye"),
@@ -41,24 +47,18 @@ fn repl(session :: sess.Session, provider_tag :: Str) -> [env, io, net, llm, pro
       if str.is_empty(input) {
         repl(session, provider_tag)
       } else {
-        let result := sess.run_turn_with_provider(session, input, provider_tag)
-        let __lex_discard_1 := list.map(result.steps, fn (s :: d.Step) -> [io] Nil {
-          print_step(s)
-        })
+        let result := sess.run_turn_streaming_with_provider(session, input, provider_tag, print_step)
         repl(result.session, provider_tag)
       }
     },
   }
 }
 
-fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval] Nil {
+fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream] Nil {
   match sess.new_session_with_provider("cli", mode, provider_tag) {
     Err(e) => io.print(str.concat(str.concat("error: ", e), "\n")),
     Ok(session) => {
-      let result := sess.run_turn_with_provider(session, task, provider_tag)
-      let __lex_discard_2 := list.map(result.steps, fn (s :: d.Step) -> [io] Nil {
-        print_step(s)
-      })
+      let __printed := sess.run_turn_streaming_with_provider(session, task, provider_tag, print_step)
       io.print(str.concat("", "\n"))
     },
   }
@@ -304,7 +304,7 @@ fn plan_invocation(argv :: List[Str]) -> Invocation
   { mode: select_mode(argv), provider: select_provider_tag(argv), task: find_task(argv), multi: has_flag(argv, "--multi") }
 }
 
-fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval] Nil {
+fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream] Nil {
   let inv := plan_invocation(io.argv())
   let provider_tag := inv.provider
   let mode := inv.mode
