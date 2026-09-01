@@ -352,8 +352,12 @@ dispatches and a whole-repo build blows straight through it.
 
 ### Why the index stores a prefix
 
-Reading `.lex/index.jsonl` dominates query latency — the JSON parser walks one
-number per component per entry — and on this repo's 674 functions it measures:
+Reading `.lex/index.jsonl` dominates query latency, and the reason is upstream:
+`jv.parse_into_errors` is **quadratic in document size**, because
+`json_value.char_at` walks the input with `str.slice(src, p, p + 1)` and slicing
+is O(p). Doubling a JSON document roughly quadruples parse time — 16K/0.2s,
+33K/0.9s, 66K/3.2s, 132K/13.7s, 264K/55.7s. So the index has to stay small, and
+on this repo's 674 functions it measures:
 
 | dims | index | read |
 |---|---|---|
@@ -362,7 +366,10 @@ number per component per entry — and on this repo's 674 functions it measures:
 | 64 | 336K | 3s |
 
 A 34-second search tool is not a search tool, so only the first
-`LEX_EMBED_DIMS` components are kept. That is sound rather than merely cheap
+`LEX_EMBED_DIMS` components are kept. The same parser cost bounds indexing:
+`lex docs` output for the whole tree is 310K and takes ~55s to parse before a
+single embedding is requested, which is why `LEX_INDEX_PATH` defaults to a
+subtree-sized scope rather than the repo. That is sound rather than merely cheap
 for a Matryoshka-trained model like `nomic-embed-text`, which is trained so a
 leading slice of the vector is itself a usable embedding; the prefix is
 renormalised, since truncating changes the norm. Raise it for better ranking on

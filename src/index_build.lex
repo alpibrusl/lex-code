@@ -88,13 +88,30 @@ fn parse_docs(body :: Str) -> List[Doc] {
     Ok(j) => match jv.get_field(j, "data") {
       None => [],
       Some(data) => match jv.get_field(data, "modules") {
-        Some(JList(mods)) => list.fold(mods, [], fn (acc :: List[Doc], m :: jv.Json) -> List[Doc] {
-          list.concat(acc, docs_of_module(m))
-        }),
+        Some(JList(mods)) => list.reverse(list.fold(mods, [], fn (acc :: List[Doc], m :: jv.Json) -> List[Doc] {
+          prepend_all(docs_of_module(m), acc)
+        })),
         _ => [],
       },
     },
   }
+}
+
+# Cons onto the front rather than `list.concat(acc, more)`, which copies the
+# accumulator on every module.
+#
+# This is hygiene, not the fix for the slow whole-tree build — I changed it
+# expecting a speedup and measured none (251 docs 6.3s, 681 docs 57.6s
+# before; 6.5s and 55.3s after). The cost is upstream: `jv.parse_into_errors`
+# is quadratic in document size, because `json_value.char_at` walks with
+# `str.slice(src, p, p + 1)` and slicing is O(p). Doubling a JSON document
+# roughly quadruples parse time — 16K/0.2s, 33K/0.9s, 66K/3.2s, 132K/13.7s,
+# 264K/55.7s — which is what bounds both the docs corpus here and the index
+# read in the query path.
+fn prepend_all(xs :: List[Doc], acc :: List[Doc]) -> List[Doc] {
+  list.fold(xs, acc, fn (a :: List[Doc], x :: Doc) -> List[Doc] {
+    list.cons(x, a)
+  })
 }
 
 fn docs_of_module(m :: jv.Json) -> List[Doc] {
@@ -116,12 +133,12 @@ fn str_field(j :: jv.Json, name :: Str) -> Str {
 
 fn str_list(j :: jv.Json, name :: Str) -> List[Str] {
   match jv.get_field(j, name) {
-    Some(JList(items)) => list.fold(items, [], fn (acc :: List[Str], it :: jv.Json) -> List[Str] {
+    Some(JList(items)) => list.reverse(list.fold(items, [], fn (acc :: List[Str], it :: jv.Json) -> List[Str] {
       match it {
-        JStr(s) => list.concat(acc, [s]),
+        JStr(s) => list.cons(s, acc),
         _ => acc,
       }
-    }),
+    })),
     _ => [],
   }
 }
