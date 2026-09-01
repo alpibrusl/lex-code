@@ -74,7 +74,11 @@ import "./vcs/merge_start" as vcs_merge_start_tool
 
 import "./vcs/merge_status" as vcs_merge_status_tool
 
+import "./vcs/merge_show_conflicts" as vcs_merge_show_conflicts_tool
+
 import "./vcs/merge_resolve" as vcs_merge_resolve_tool
+
+import "./vcs/merge_resolve_one" as vcs_merge_resolve_one_tool
 
 import "./vcs/merge_defer" as vcs_merge_defer_tool
 
@@ -95,11 +99,11 @@ import "../permissions/rules" as rules
 import "std.env" as env
 
 fn vcs_read_tools() -> List[t.Tool] {
-  [vcs_ast_diff_tool.tool(), vcs_op_show_tool.tool(), vcs_op_log_tool.tool(), vcs_branch_list_tool.tool(), vcs_branch_current_tool.tool(), vcs_branch_show_tool.tool(), vcs_branch_peek_tool.tool(), vcs_branch_overlay_tool.tool(), vcs_merge_status_tool.tool()]
+  [vcs_ast_diff_tool.tool(), vcs_op_show_tool.tool(), vcs_op_log_tool.tool(), vcs_branch_list_tool.tool(), vcs_branch_current_tool.tool(), vcs_branch_show_tool.tool(), vcs_branch_peek_tool.tool(), vcs_branch_overlay_tool.tool(), vcs_merge_status_tool.tool(), vcs_merge_show_conflicts_tool.tool()]
 }
 
 fn vcs_write_tools() -> List[t.Tool] {
-  [vcs_branch_create_tool.tool(), vcs_branch_use_tool.tool(), vcs_merge_start_tool.tool(), vcs_merge_resolve_tool.tool(), vcs_merge_defer_tool.tool(), vcs_merge_commit_tool.tool()]
+  [vcs_branch_create_tool.tool(), vcs_branch_use_tool.tool(), vcs_merge_start_tool.tool(), vcs_merge_resolve_tool.tool(), vcs_merge_resolve_one_tool.tool(), vcs_merge_defer_tool.tool(), vcs_merge_commit_tool.tool()]
 }
 
 fn vcs_network_tools() -> List[t.Tool] {
