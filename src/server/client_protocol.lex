@@ -33,13 +33,26 @@
 #   - auth/login / auth/logout: lex-code reads provider keys from the
 #     environment at launch; no interactive auth flow exists to wire.
 #
-# WIRE-FORMAT CAVEAT: the exact field names below (sessionId,
-# protocolVersion, the session/update variant shapes) are this file's
-# best-effort reconstruction of the ACP v2 schema from available
-# documentation — not a byte-for-byte trace against a reference SDK.
-# Validate against a real client (e.g. Zed) before relying on this for
-# production interop; the JSON-RPC 2.0 envelope and NDJSON framing
-# themselves are unambiguous and were verified directly.
+# WIRE FORMAT: validated against the published ACP schema —
+# `schema/schema.json` from @zed-industries/agent-client-protocol 0.4.5 —
+# by driving this server over stdio and checking each frame it emits with a
+# JSON Schema validator. `initialize`, `session/new`, `session/prompt` and
+# every `session/update` variant below pass.
+#
+# That schema is also where three defects came from. There is no ACP v2:
+# `PROTOCOL_VERSION = 1`, and this file used to answer `initialize` with 2.
+# And `tool_call` requires `toolCallId` alongside `title`, `tool_call_update`
+# requires it too — both were dropped here, so a real client had nothing to
+# correlate a result with the call it belonged to. The id was never missing
+# from the data: lex-llm puts it in `StepToolExec(name, id)` and
+# `StepToolResult(id, ok)`, and this file was discarding it with `_`.
+#
+# What remains unvalidated is behaviour rather than shape: a schema says
+# nothing about whether a client is happy with the ORDER of these frames, or
+# with a turn that emits no tool_call_update for a call it announced. Running
+# against Zed itself is still worth doing (#62) — but it is no longer the
+# only way to catch a malformed frame, and the ones it would have caught
+# first are fixed.
 #
 # CRITICAL: once serve() starts, stdout carries ONLY protocol frames.
 # Unlike mcp_main.lex, there is deliberately no startup banner — any
@@ -143,8 +156,8 @@ fn str_field(j :: jv.Json, key :: Str) -> Str {
 fn step_to_update(session_id :: Str, step :: d.Step) -> Option[jv.Json] {
   match step {
     StepDelta(delta) => delta_to_update(session_id, delta),
-    StepToolExec(name, _) => Some(session_update(session_id, "tool_call", [("title", JStr(name)), ("status", JStr("in_progress"))])),
-    StepToolResult(_, ok) => Some(session_update(session_id, "tool_call_update", [("status", JStr(tool_status(ok)))])),
+    StepToolExec(name, call_id) => Some(session_update(session_id, "tool_call", [("toolCallId", JStr(call_id)), ("title", JStr(name)), ("status", JStr("in_progress"))])),
+    StepToolResult(call_id, ok) => Some(session_update(session_id, "tool_call_update", [("toolCallId", JStr(call_id)), ("status", JStr(tool_status(ok)))])),
     StepDone(_) => None,
   }
 }
@@ -173,7 +186,7 @@ fn session_update(session_id :: Str, kind :: Str, fields :: List[(Str, jv.Json)]
 
 # ---- Method handlers ----------------------------------------------------
 fn handle_initialize(id :: jv.Json) -> [io] Unit {
-  send(jrpc_result(id, JObj([("protocolVersion", JInt(2)), ("agentCapabilities", JObj([("loadSession", JBool(false)), ("promptCapabilities", JObj([("image", JBool(false)), ("audio", JBool(false))]))]))])))
+  send(jrpc_result(id, JObj([("protocolVersion", JInt(1)), ("agentCapabilities", JObj([("loadSession", JBool(false)), ("promptCapabilities", JObj([("image", JBool(false)), ("audio", JBool(false))]))]))])))
 }
 
 fn handle_session_new(id :: jv.Json, params :: jv.Json, registry :: Registry, provider_tag :: Str) -> [sql, fs_read, fs_walk, fs_write, crypto, random, io] Registry {

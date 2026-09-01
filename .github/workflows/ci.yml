@@ -108,6 +108,20 @@ jobs:
         run: lex run --allow-effects io,proc src/bar/checks.lex gate '"."' '"src"'
         working-directory: lex-code
 
+      # The ACP wire format was a guess until it was checked: tool_call and
+      # tool_call_update both omitted the required toolCallId, and initialize
+      # answered with a protocol version that does not exist. The schema is
+      # the published one, so a shape change fails here rather than in
+      # someone's editor. Model is mocked — this tests the protocol.
+      - name: ACP wire format against the published schema
+        run: |
+          set -e
+          npm pack @zed-industries/agent-client-protocol@0.4.5 >/dev/null
+          tar -xzf zed-industries-agent-client-protocol-*.tgz
+          python3 -m pip install --quiet jsonschema
+          python3 scripts/validate_acp.py package/schema/schema.json
+        working-directory: lex-code
+
       - name: Manifesto demos
         run: |
           set -e

@@ -4,3 +4,7 @@
 # Per-project agent state the tool writes as it runs: todos, plans, session
 # trails, and the project-memory store. Derived, machine-local, never source.
 .lex/
+
+# Unpacked by the ACP wire-format CI step; fetched, never committed.
+package/
+zed-industries-agent-client-protocol-*.tgz
