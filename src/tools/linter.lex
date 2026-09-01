@@ -26,7 +26,32 @@ fn count_lines(content :: Str) -> Int {
 }
 
 # Translate raw lex check JSON output into a human-readable fix hint.
-fn translate_lex_error(raw :: Str) -> Str {
+#
+# The examples are the branch table. Every case below is a failure mode
+# this function exists to translate, and each was captured by running the
+# function rather than predicted — an example that asserts what the author
+# hoped the output was is worse than none, because it locks in the hope.
+#
+# Two of them are load-bearing beyond regression: the last pair prove the
+# non-JSON path both translates what it recognises and passes through
+# (trimmed) what it does not, so a future pattern added to that chain
+# cannot silently swallow an error it fails to match.
+fn translate_lex_error(raw :: Str) -> Str
+  examples {
+    translate_lex_error("{\"kind\":\"unknown_identifier\",\"name\":\"list\"}") => "fix: add `import \"std.list\" as list` at the top of the file.",
+    translate_lex_error("{\"kind\":\"unknown_identifier\",\"name\":\"foo\"}") => "unknown identifier 'foo' — check for typos or missing import.",
+    translate_lex_error("{\"kind\":\"unknown_field\",\"field\":\"join\"}") => "fix: use `str.join(parts, sep)` from `std.str`, not `list.join`.",
+    translate_lex_error("{\"kind\":\"unknown_field\",\"field\":\"frobnicate\"}") => "unknown field 'frobnicate' — check the type definition or stdlib docs.",
+    translate_lex_error("{\"kind\":\"type_mismatch\",\"expected\":\"Option[Int]\",\"got\":\"Int\"}") => "type_mismatch: `list.head(xs)` returns `Option[T]`, not `T`. Unwrap it first: `match list.head(xs) { Some(v) => ..., None => ... }`. Never compare directly with `==`.",
+    translate_lex_error("{\"kind\":\"type_mismatch\",\"expected\":\"Str\",\"got\":\"Option[Str]\"}") => "type_mismatch: got `Option[T]` where `Str` is expected — unwrap with `match ... { Some(v) => v, None => default }`.",
+    translate_lex_error("{\"kind\":\"type_mismatch\",\"expected\":\"Int\",\"got\":\"Str\"}") => "[type-mismatch] expected `Int`, got `Str` — check the types at the indicated position.",
+    translate_lex_error("{\"kind\":\"unknown_variant\",\"constructor\":\"True\"}") => "fix: use `true` (lowercase) — Lex booleans are lowercase.",
+    translate_lex_error("{\"kind\":\"effect_not_declared\",\"rule_tag\":\"effect-not-declared\",\"rule_explanation\":\"A function body invokes an effect the signature does not declare.\"}") => "[effect-not-declared] A function body invokes an effect the signature does not declare.",
+    translate_lex_error("  parse error: unrecognized token `&` at line 3  ") => "parse error: `&&` is not valid Lex. Use `a and b` (Lex keyword). Example: `acc and (x == y)`.",
+    translate_lex_error("expected LBrace before block, got If") => "parse error: `else if` is not valid in Lex. Write `else { if cond { ... } else { ... } }` instead.",
+    translate_lex_error("  something nobody has a hint for  ") => "something nobody has a hint for"
+  }
+{
   match jv.parse_into_errors(str.trim(raw)) {
     Ok(j) => {
       let kind := match jv.get_field(j, "kind") {
