@@ -217,17 +217,29 @@ fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag ::
   }
 }
 
-# Same turn-handling as run_turn_with_provider, but invokes on_step for each
-# Step as it's pulled off the loop's Iter instead of collecting the whole
-# thing first — so a caller (the ACP server) can emit a protocol notification
-# per step. Note this is NOT token-level real-time streaming: run_loop_traced
-# already runs the full LLM/tool loop to completion internally before
-# returning its Iter (see lex-llm/src/agent.lex's run_loop_traced, which
-# wraps an already-materialized list via iter.from_list) — on_step fires in a
-# tight burst right after the blocking call returns, in step order, not
-# interleaved with live token generation. True interleaved streaming would
-# need a callback threaded into lex-llm's own loop, a larger change.
-fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provider_tag :: Str, on_step :: (d.Step) -> [io] Unit) -> [env, net, llm, io, proc, sql, time, approval] TurnResult {
+# Same turn-handling as run_turn_with_provider, but on_step fires as each
+# Step happens rather than after the turn is over.
+#
+# This used to walk run_loop_traced's Iter with a callback, which only looked
+# like streaming: run_loop_traced runs the whole LLM/tool loop to completion
+# before it returns, wrapping an already-materialized list, so on_step fired
+# in a tight burst once the blocking call came back. The comment here used to
+# say so and note that real streaming "would need a callback threaded into
+# lex-llm's own loop, a larger change". That change landed — ag.run_steps_streamed
+# is that loop, and this now calls it.
+#
+# What arrives live is every Step, not only text: each Delta as it comes off
+# the socket, each tool dispatch as it is made, the final message. A provider
+# with no streaming half (google, vertex) still works and still emits through
+# the same callback — just all at once, as before — so nothing here branches
+# on whether the provider streams.
+#
+# run_steps_streamed returns the same List[Step] it emitted, so this must NOT
+# also walk the result with on_step; finish_turn only reads it.
+#
+# The budget is derived the way run_loop_traced derives it internally, since
+# run_steps_streamed takes it explicitly.
+fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provider_tag :: Str, on_step :: (d.Step) -> [io] Unit) -> [env, net, llm, io, proc, sql, time, approval, stream] TurnResult {
   match evs.record_user(session.log, user_input) {
     Err(e) => refused_turn(session, str.concat("session log append failed: ", e)),
     Ok(_) => match evs.session_history(session.log) {
@@ -236,8 +248,8 @@ fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provi
         let expected := list.concat(session.messages, [msg.user(user_input)])
         if evs.history_eq(derived, expected) {
           let agent := with_memory(pick_agent(session.mode, provider_tag), session.memory)
-          let step_iter := ag.run_loop_traced(agent, derived, session.log, session.parent)
-          let steps := drain_with_callback(step_iter, on_step)
+          let budget := ag.unwrap_int(agent.options.max_steps, 20)
+          let steps := ag.run_steps_streamed(agent, derived, budget, session.log, session.parent, on_step)
           finish_turn(session, derived, steps)
         } else {
           refused_turn(session, "cached messages diverge from the trail-derived history")
@@ -267,18 +279,6 @@ fn finish_turn(session :: Session, derived :: List[msg.Message], steps :: List[d
 # and the session is returned unchanged so the caller can inspect or reset.
 fn refused_turn(session :: Session, reason :: Str) -> TurnResult {
   { steps: [StepDone(AssistantMsg(str.join(["[refused: ", reason, "]"], ""), []))], session: session }
-}
-
-fn drain_with_callback(it :: Iter[d.Step], on_step :: (d.Step) -> [io] Unit) -> [io] List[d.Step] {
-  match iter.next(it) {
-    None => [],
-    Some(p) => match p {
-      (step, rest) => {
-        let __emitted := on_step(step)
-        list.concat([step], drain_with_callback(rest, on_step))
-      },
-    },
-  }
 }
 
 fn find_done_msg(steps :: List[d.Step]) -> Option[msg.Message] {

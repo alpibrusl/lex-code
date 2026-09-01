@@ -43,7 +43,7 @@ export ANTHROPIC_API_KEY=sk-...
 lex run src/bootstrap/run.lex
 
 # web UI + HTTP API on :7700 (see Web Frontend)
-lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
+lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/server/web.lex serve_web
 ```
 
@@ -128,17 +128,17 @@ VLLM_MODEL=deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct \
 ```sh
 # native (direct to the Go endpoint, no proxy)
 export OPENCODE_API_KEY=$(cat ~/.credentials/opencode/key | tr -d '\n')
-lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
+lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/tui/main.lex main -- --opencode "implement list.zip"
 
 # override the default model (kimi-k2.7-code)
 OPENCODE_MODEL=qwen3.7-max \
-  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/tui/main.lex main -- --opencode "implement list.zip"
 
 # via the LiteLLM proxy instead (shares one proxy + model list with lex-loom — see below)
 LITELLM_MODEL=deepseek-v4-flash \
-  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/tui/main.lex main -- --litellm "implement list.zip"
 ```
 
@@ -158,23 +158,23 @@ cd ..
 
 # run lex-code against qwen3-coder:30b (recommended local model)
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/tui/main.lex main
 
 # one-shot via the --litellm flag
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/tui/main.lex main -- --litellm "implement list.zip"
 
 # OpenCode Go through the proxy instead of native --opencode
 LITELLM_MODEL=kimi-k2.7-code \
-  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/tui/main.lex main -- --litellm "implement list.zip"
 
 # override the proxy URL (default: http://localhost:4000)
 LITELLM_BASE_URL=http://gpu-box:4000 \
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
+  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/tui/main.lex main -- --litellm
 ```
 
@@ -215,6 +215,26 @@ ok
 0
 ```
 
+## Streaming
+
+Turns arrive as they happen. Text appears token by token, tool calls announce
+themselves as they are dispatched, and the reply lands when the model is done —
+rather than the whole turn appearing at once when it finishes.
+
+This reaches every surface that shows steps: the TUI (`repl` and one-shot),
+the ACP server's `session/update` notifications, and the web backend.
+
+It depends on the provider offering a streaming half. `anthropic`, `ollama`, and
+everything routed through the OpenAI adapter (LiteLLM, vLLM, lex-moe, MLX,
+opencode-go, Mistral) do. `google` and `vertex` do not — Gemini answers with a
+JSON array rather than SSE — so a turn on those still arrives in one burst.
+Nothing else changes: the same steps reach the same renderer either way, so
+there is no separate code path to fall out of date.
+
+The pull loop lives in lex-llm's `run_steps_streamed`; `run_turn_streaming_with_provider`
+in `src/server/session.lex` is the seam. Consuming a live socket carries the
+`[stream]` effect, so every entry point's `--allow-effects` list includes it.
+
 **Step count explained:** `steps` counts all `d.Step` records emitted by the agent loop — `StepDelta` (per LLM token event), `StepToolExec`, `StepToolResult`, and `StepDone`. One LLM round + one tool call ≈ 5 step records. 71 steps ≈ 14 LLM rounds (`max_steps: 20` counts rounds, not records).
 
 **Avoiding the 0-delta stall:** If Ollama receives many large-context requests in rapid succession it can enter a state where it returns `{"done": false, "response": ""}`. The agent loop sees 0 deltas, emits a silent empty `StepDone`, and the run appears to complete in 1 step with no output. Fix: restart Ollama (`pkill -f "ollama serve" && open -a Ollama`) and avoid batching many large-context calls without pauses.
@@ -248,7 +268,7 @@ server-launch choice, not a per-call argument.
 
 ```sh
 LEX_CODE_PROVIDER=anthropic ANTHROPIC_API_KEY=… \
-lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
+lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/server/mcp_main.lex main &
 
 curl -s http://localhost:7778/.well-known/agent.json
@@ -273,12 +293,13 @@ carries a server for it.
 
 ```sh
 LEX_CODE_PROVIDER=anthropic ANTHROPIC_API_KEY=… \
-  lex run --allow-effects approval,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
+  lex run --allow-effects approval,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/server/client_protocol.lex main
 ```
 
-Phase 1 covers `initialize`, `session/new`, `session/prompt` (streaming `session/update`
-notifications per step), and `session/close` — enough to work from an ACP-aware editor. Not yet
+Phase 1 covers `initialize`, `session/new`, `session/prompt` (`session/update`
+notifications per step, emitted as each step happens rather than replayed after the
+turn — see Streaming), and `session/close` — enough to work from an ACP-aware editor. Not yet
 implemented: `session/request_permission`, `$/cancel_request`, client-mediated `fs/*`/`terminal/*`,
 and `auth/login` — see the header comment in `src/server/client_protocol.lex` for why each is
 deferred rather than silently missing. The exact `session/update` field shapes are a best-effort
@@ -387,7 +408,7 @@ lex-code
 process is the whole thing — no separate static server needed.
 
 ```sh
-lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
+lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/server/web.lex serve_web
 
 # then open http://localhost:7700
