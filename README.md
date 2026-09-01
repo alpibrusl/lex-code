@@ -321,6 +321,45 @@ Models with a chain-of-thought "thinking" phase need two things to work through 
 
 Even with these fixes, thinking models tend to emit tool calls as embedded JSON in `content` (rather than in the `tool_calls` field) when given 10+ function schemas. The `openai.lex` adapter has a `content_tool_call` fallback parser, but the generated code quality degrades significantly under large context. Use `qwen3-coder:30b` for coding tasks.
 
+## Observability (OpenTelemetry)
+
+Off by default. Point it at a collector and every turn arrives as a trace:
+
+```sh
+LEX_OTLP_ENDPOINT=http://localhost:4318 lex-code
+```
+
+| Variable | Effect |
+|---|---|
+| `LEX_OTLP_ENDPOINT` | POST OTLP/JSON to `/v1/traces` and `/v1/metrics` |
+| `LEX_OTEL_STDOUT=1` | print the same envelopes to stdout instead |
+
+An endpoint wins over the stdout flag, and with neither set nothing is
+emitted — `io.print` is the TUI's own output stream, so a default-on stdout
+exporter would dump OTel envelopes into your session on every turn.
+
+**The trace is projected from the trail, not instrumented separately.**
+lex-llm already writes `cap.invoked` before every tool call and
+`cap.completed` / `cap.failed` after it, parented to the invoke, and every
+trail event carries `ts_ms`. A start, an end, a parent link and a name is a
+span — the trail was already a trace, just never spoken in OTel's wire
+format. `src/observability.lex` reads the turn's slice of the log and
+translates. Running a second span stream inside the same dispatch loop would
+put two recorders on one set of facts, which is precisely how the
+attestation chain broke (#32): the loop wrote one place, the reader read
+another.
+
+You get an `agent.turn` root span per turn, one `tool.<name>` child per
+completed tool call, a `tool.calls` counter tagged by tool and success, and a
+`turn.duration_ms` histogram. An invoke with no outcome — a turn cut short
+mid-tool — is dropped rather than exported with a fabricated end time.
+
+**Span ids are derived, not drawn.** Trail event ids are sha256 hashes of the
+event's own content, so a span id taken from one is stable: re-exporting a
+session reproduces the same trace instead of forging a rival. That also keeps
+`random` out of the turn's effect row entirely. An unreachable collector
+costs telemetry, never the turn.
+
 ## Server Protocols
 
 ### MCP (Model Context Protocol)
