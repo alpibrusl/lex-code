@@ -1,6 +1,16 @@
+# lex_run — run a Lex function
+#
+# A program that exits non-zero is an answer, not a failure: the run
+# happened and it went badly, which is exactly what the caller wanted to
+# know. So this keeps returning the output — but a CLI that *refused the
+# invocation* never ran anything, and returning its complaint as program
+# output would be the #83 failure in miniature.
+
 import "std.process" as proc
 
 import "std.str" as str
+
+import "std.int" as int
 
 import "lex-llm/tool" as t
 
@@ -28,10 +38,20 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
         }
         match proc.run("lex", cmd_args) {
           Err(msg) => Err(e.single("", "proc_error", msg)),
-          Ok(out) => Ok(JStr(str.concat(out.stdout, out.stderr))),
+          Ok(out) => outcome(out),
         }
       },
     },
+  }
+}
+
+# The exit code is reported rather than dropped, because "it printed
+# nothing" and "it printed nothing and exited 1" are different runs.
+fn outcome(out :: { stdout :: Str, stderr :: Str, exit_code :: Int }) -> Result[jv.Json, e.Errors] {
+  if util.is_usage_error(util.combined(out)) {
+    Err(e.single("", "run_refused", util.unavailable("lex run", util.combined(out))))
+  } else {
+    Ok(JStr(str.join(["exit ", int.to_str(out.exit_code), "\n", util.combined(out)], "")))
   }
 }
 

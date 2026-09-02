@@ -22,7 +22,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "other_branch") {
     None => Err(e.single("", "missing_field", "other_branch is required")),
     Some(other) => {
-      let base := ["branch", "overlay", other, "--output", "json"]
+      let base := util.json_cmd(["branch", "overlay", other])
       let on_args := match util.field_str(args, "on_branch") {
         None => [],
         Some(b) => ["--on", b],
@@ -30,7 +30,10 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
       let cmd := list.concat(base, on_args)
       match proc.run("lex", cmd) {
         Err(msg) => Err(e.single("", "proc_error", msg)),
-        Ok(out) => Ok(JStr(str.concat(out.stdout, out.stderr))),
+        Ok(out) => match util.cli_result(out) {
+          Err(detail) => Err(e.single("", "cli_failed", detail)),
+          Ok(body) => Ok(JStr(body)),
+        },
       }
     },
   }

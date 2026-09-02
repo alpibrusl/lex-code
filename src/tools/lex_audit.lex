@@ -1,6 +1,21 @@
+# lex_audit — structural search over the codebase
+#
+# The tool took a free-text `query` and passed it to `lex audit` as a
+# positional argument, where it landed in the `paths` list: asking for
+# effects named `net` produced `stat net: No such file or directory`. Its
+# description advertised `--calls`, `--effects`, `--impure` and
+# `--unattested`; none of the four has ever existed (#83).
+#
+# `lex audit` takes a named filter and a value. Exposing the dimension and
+# the value as separate arguments makes the four real filters legible to
+# the model, and makes an unknown one a refusal here rather than a
+# mis-parse three layers down.
+
 import "std.process" as proc
 
 import "std.str" as str
+
+import "std.list" as list
 
 import "lex-llm/tool" as t
 
@@ -12,24 +27,78 @@ import "lex-schema/schema" as s
 
 import "./util" as util
 
+fn dimensions() -> List[Str]
+  examples {
+    dimensions() => ["effect", "call", "host", "kind"]
+  }
+{
+  ["effect", "call", "host", "kind"]
+}
+
+fn is_dimension(name :: Str) -> Bool
+  examples {
+    is_dimension("effect") => true,
+    is_dimension("kind") => true,
+    is_dimension("effects") => false,
+    is_dimension("impure") => false,
+    is_dimension("") => false
+  }
+{
+  list.fold(dimensions(), false, fn (acc :: Bool, d :: Str) -> Bool {
+    if acc {
+      true
+    } else {
+      d == name
+    }
+  })
+}
+
 fn params() -> s.ModelSchema {
-  { title: "LexAuditArgs", description: "Semantic audit queries on the codebase", fields: [s.required_str("query", []), s.optional(s.required_str("path", []))] }
+  { title: "LexAuditArgs", description: "Structural search by effect, call, hostname or AST kind", fields: [s.required_str("dimension", []), s.required_str("value", []), s.optional(s.required_str("path", []))] }
+}
+
+# An unrecognised dimension is refused, not forwarded. `lex audit` would
+# read `--impure` as a path and report a missing file, which reads to the
+# model as "that directory is not there" rather than "that filter does
+# not exist".
+fn cmd_for(dimension :: Str, value :: Str, target :: Str) -> Result[List[Str], Str]
+  examples {
+    cmd_for("effect", "net", "src") => Ok(["audit", "--json", "--effect", "net", "src"]),
+    cmd_for("host", "api.example.com", ".") => Ok(["audit", "--json", "--host", "api.example.com", "."]),
+    cmd_for("impure", "x", "src") => Err("unknown audit dimension 'impure'. Use one of: effect, call, host, kind")
+  }
+{
+  if is_dimension(dimension) {
+    Ok(["audit", "--json", str.concat("--", dimension), value, target])
+  } else {
+    Err(str.join(["unknown audit dimension '", dimension, "'. Use one of: ", str.join(dimensions(), ", ")], ""))
+  }
 }
 
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
-  match util.field_str(args, "query") {
-    None => Err(e.single("", "missing_field", "query is required")),
-    Some(query) => {
-      let target := util.field_str_or(args, "path", ".")
-      match proc.run("lex", ["audit", query, target]) {
-        Err(msg) => Err(e.single("", "proc_error", msg)),
-        Ok(out) => Ok(JStr(str.concat(out.stdout, out.stderr))),
-      }
+  match util.field_str(args, "dimension") {
+    None => Err(e.single("", "missing_field", "dimension is required")),
+    Some(dimension) => match util.field_str(args, "value") {
+      None => Err(e.single("", "missing_field", "value is required")),
+      Some(value) => run(dimension, value, util.field_str_or(args, "path", ".")),
+    },
+  }
+}
+
+fn run(dimension :: Str, value :: Str, target :: Str) -> [io, proc] Result[jv.Json, e.Errors] {
+  match cmd_for(dimension, value, target) {
+    Err(msg) => Err(e.single("", "unknown_dimension", msg)),
+    Ok(cmd) => match proc.run("lex", cmd) {
+      Err(msg) => Err(e.single("", "proc_error", msg)),
+      Ok(out) => match util.cli_result(out) {
+        Err(detail) => Err(e.single("", "audit_failed", detail)),
+        Ok(body) => Ok(JStr(body)),
+      },
     },
   }
 }
 
 fn tool() -> t.Tool {
-  t.define("lex_audit", "Run `lex audit` semantic queries. query is a flag like '--calls', '--effects', '--impure', '--unattested'.", params(), execute)
+  t.define("lex_audit", "Structural search over Lex source with `lex audit`. dimension is one of effect, call, host, kind; value is the thing to look for (e.g. dimension=effect value=net). Returns JSON hits with file, name, effects and signature.", params(), execute)
 }
 

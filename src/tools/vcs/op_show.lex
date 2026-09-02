@@ -19,9 +19,12 @@ fn params() -> s.ModelSchema {
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "op_id") {
     None => Err(e.single("", "missing_field", "op_id is required")),
-    Some(id) => match proc.run("lex", ["op", "show", id, "--output", "json"]) {
+    Some(id) => match proc.run("lex", util.json_cmd(["op", "show", id])) {
       Err(msg) => Err(e.single("", "proc_error", msg)),
-      Ok(out) => Ok(JStr(str.concat(out.stdout, out.stderr))),
+      Ok(out) => match util.cli_result(out) {
+        Err(detail) => Err(e.single("", "cli_failed", detail)),
+        Ok(body) => Ok(JStr(body)),
+      },
     },
   }
 }

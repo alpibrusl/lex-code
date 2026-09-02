@@ -21,7 +21,10 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
     None => Err(e.single("", "missing_field", "merge_id is required")),
     Some(id) => match proc.run("lex", ["merge", "commit", id]) {
       Err(msg) => Err(e.single("", "proc_error", msg)),
-      Ok(out) => Ok(JStr(str.concat(out.stdout, out.stderr))),
+      Ok(out) => match util.cli_result(out) {
+        Err(detail) => Err(e.single("", "cli_failed", detail)),
+        Ok(body) => Ok(JStr(body)),
+      },
     },
   }
 }

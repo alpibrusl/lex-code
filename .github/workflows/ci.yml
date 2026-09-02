@@ -93,6 +93,26 @@ jobs:
         run: lex doc-sync --check
         working-directory: lex-code
 
+      # Every tool's subprocess line, run once against the real CLI (#83).
+      # `examples {}` blocks cover pure logic and nothing covered this, so
+      # #23 shipped three merge tools that had never run and #83 found
+      # seventeen more — a `--json` flag `lex check` does not have, four
+      # `lex store` subcommands that do not exist, `--output json` in a
+      # position the CLI rejects or silently drops.
+      #
+      # The assertion is only that the CLI accepted the invocation: no
+      # store, no network, no fixtures. A tool that finds nothing passes;
+      # one that misspells its subcommand cannot.
+      - name: Tools invoke real commands (smoke)
+        run: |
+          set -o pipefail
+          lex run \
+            --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,time \
+            --max-steps 400000000 \
+            src/tools/smoke.lex main | tee /tmp/smoke.out
+          grep -q '^SMOKE OK' /tmp/smoke.out
+        working-directory: lex-code
+
       # Offline unit tests (#54 introduced tests/): per-test file DBs under
       # /tmp, no provider keys, no network.
       - name: Test

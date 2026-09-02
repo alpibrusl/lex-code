@@ -10,14 +10,19 @@ import "lex-schema/error" as e
 
 import "lex-schema/schema" as s
 
+import "../util" as util
+
 fn params() -> s.ModelSchema {
   { title: "VcsBranchListArgs", description: "List all lex-vcs branches.", fields: [] }
 }
 
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
-  match proc.run("lex", ["branch", "list", "--output", "json"]) {
+  match proc.run("lex", util.json_cmd(["branch", "list"])) {
     Err(msg) => Err(e.single("", "proc_error", msg)),
-    Ok(out) => Ok(JStr(str.concat(out.stdout, out.stderr))),
+    Ok(out) => match util.cli_result(out) {
+      Err(detail) => Err(e.single("", "cli_failed", detail)),
+      Ok(body) => Ok(JStr(body)),
+    },
   }
 }
 

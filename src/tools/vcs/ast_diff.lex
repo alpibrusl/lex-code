@@ -1,3 +1,10 @@
+# vcs_ast_diff — structural diff between two Lex source files
+#
+# The tool ran `lex diff a b --json`. `lex diff` reports the first NodeId
+# where two *execution traces* diverge and takes two run ids; handed two
+# source paths it failed with `io error: No such file or directory`. The
+# command this tool has always meant is `lex ast-diff` (#83).
+
 import "std.process" as proc
 
 import "std.str" as str
@@ -21,9 +28,12 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
     None => Err(e.single("", "missing_field", "file_a is required")),
     Some(a) => match util.field_str(args, "file_b") {
       None => Err(e.single("", "missing_field", "file_b is required")),
-      Some(b) => match proc.run("lex", ["diff", a, b, "--json"]) {
+      Some(b) => match proc.run("lex", ["ast-diff", "--json", a, b]) {
         Err(msg) => Err(e.single("", "proc_error", msg)),
-        Ok(out) => Ok(JStr(str.concat(out.stdout, out.stderr))),
+        Ok(out) => match util.cli_result(out) {
+          Err(detail) => Err(e.single("", "ast_diff_failed", detail)),
+          Ok(body) => Ok(JStr(body)),
+        },
       },
     },
   }
