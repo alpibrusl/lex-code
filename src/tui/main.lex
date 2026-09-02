@@ -29,6 +29,7 @@ fn print_step(step :: d.Step) -> [io] Nil {
       ToolCallBegin(_, name) => io.print(str.concat("\n[tool: ", str.concat(name, "]"))),
       ToolArgChunk(_, _) => (),
       FinishDelta(_) => (),
+      UsageDelta(_) => (),
     },
     StepToolExec(name, _) => io.print(str.concat("[running: ", str.concat(name, "]"))),
     StepToolResult(_, ok) => if ok {
@@ -296,6 +297,7 @@ fn run_headless(task :: Str, provider_tag :: Str) -> [env, io, net, llm, proc, s
             ToolCallBegin(_, n) => str.join(["[dbg:toolbegin:", n, "]\n"], ""),
             ToolArgChunk(_, _) => "",
             FinishDelta(r) => str.join(["[dbg:finish:", r, "]\n"], ""),
+            UsageDelta(_) => "",
           },
           StepToolExec(n, _) => str.join(["[dbg:exec:", n, "]\n"], ""),
           StepToolResult(_, ok) => if ok {
