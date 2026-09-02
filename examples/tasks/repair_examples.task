@@ -1,0 +1,12 @@
+# lex-code task spec — LEX_TASK_SPEC=examples/tasks/repair_examples.task
+#
+# Tests reading a `lex check` error and repairing it, not writing new code.
+# The fixture file already exists and already fails `lex check`.
+
+goal = "lex check examples/tasks/fixtures/broken_examples.lex is failing. Read the error and fix the wrong examples{} case for clamp so the file passes lex check, without changing clamp's behavior."
+
+check      = ["examples/tasks/fixtures/broken_examples.lex"]
+spec_check = []
+test       = []
+verified    = ["verified.type_check"]
+verified_on = ["examples/tasks/fixtures/broken_examples.lex:verified.type_check"]

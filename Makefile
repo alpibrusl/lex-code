@@ -1,4 +1,4 @@
-.PHONY: install uninstall hooks
+.PHONY: install uninstall hooks eval
 
 PREFIX ?= /usr/local
 BINDIR  := $(PREFIX)/bin
@@ -25,3 +25,11 @@ hooks:
 	cp .githooks/pre-commit .git/hooks/pre-commit
 	chmod +x .git/hooks/pre-commit
 	@echo "pre-commit hook installed — run 'make hooks' in each clone"
+
+# Eval harness (#86): a fixed set of task specs run against a fixed set of
+# providers, each in its own throwaway git worktree so a stale pass from
+# one (task, provider) pair can never satisfy the next (see
+# scripts/eval.sh's header — #91). Needs a provider configured (a key, or
+# a local litellm/ollama/vllm daemon), so this is not run in CI.
+eval:
+	@scripts/eval.sh

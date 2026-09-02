@@ -1,0 +1,27 @@
+# lex-code task spec — LEX_TASK_SPEC=examples/tasks/effect_narrow.task
+#
+# Tests effect discipline: the target file does not exist yet (same shape
+# as zip.task). std.env.get is a genuinely narrow, single-purpose effect
+# ([env]) — confirmed against the real stdlib rather than the prompt's own
+# quick-reference table, which turned out to be wrong on this point: it
+# lists std.fs as having `read`/`write` members, but std.fs only has
+# exists/is_file/is_dir/stat/list_dir/walk/glob/mkdir_p/remove/copy (all
+# [fs_walk]/[fs_write], none of them content I/O). File content read/write
+# in this stdlib is std.io.read/write, and both cost the full [io] effect,
+# not a narrow fs_read/fs_write — so a "narrow effect" task built around
+# file reading isn't actually possible here. std.env.get is a real
+# example of the thing this task is meant to test.
+#
+# Caveat (see README's eval-harness section): `lex check` passing does not
+# by itself prove the row is minimal — a fn that already needs env may
+# still declare a wider row and still pass. This task's criteria prove
+# "type-checks and was checked," not "declared the narrowest row." Read
+# the run's trail to see whether the row stayed narrow.
+
+goal = "Add fn required_env(key :: Str) -> [env] Result[Str, Str] to src/env_helpers.lex: look up the environment variable named `key` with std.env.get; return Ok of its value if present, or Err with a message naming the missing key if not. Declare only the env effect."
+
+check      = ["src/env_helpers.lex"]
+spec_check = []
+test       = []
+verified    = ["verified.type_check"]
+verified_on = ["src/env_helpers.lex:verified.type_check"]

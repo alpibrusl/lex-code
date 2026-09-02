@@ -764,6 +764,64 @@ name or a spec. An unrecognised agent is refused with the list of valid ones
 rather than skipped: a pipeline quietly missing a stage is a run that looks
 successful and did less than it was asked to.
 
+## Eval harness
+
+Nothing else in this repo measures whether lex-code writes good Lex — CI
+checks types, formatting, doc-sync, unit tests, and that tools invoke real
+commands, all upstream of that question. `make eval` runs a small, fixed set
+of task specs against a fixed set of providers and reports a pass/fail table.
+
+```sh
+make eval
+EVAL_PROVIDERS="litellm anthropic" EVAL_TASKS="examples/tasks/zip.task" scripts/eval.sh
+```
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `EVAL_TASKS` | the 4 tasks below | space-separated task-spec paths |
+| `EVAL_PROVIDERS` | `litellm` | space-separated provider tags |
+| `EVAL_PIPELINE` | `build` | pipeline preset or spec (see "Pipeline specs" above) |
+| `EVAL_STRICT` | unset | `1` to hard-fail on an unconfigured provider instead of skipping it |
+| `EVAL_RESULTS_DIR` | `.lex/eval-runs/<timestamp>` | per-run logs + preserved `.lex/` trail |
+
+Scoring is exactly what `src/task_spec.lex`'s `is_satisfied` already computes
+per task — `lex check` on the touched files, the task spec's `examples {}`
+blocks, and its `verified`/`verified_on` criteria. No LLM judge: a criterion
+that could not be run counts as unmet, the same reasoning `task_spec.lex`'s
+own header already uses to keep it honest. `scripts/eval.sh` doesn't
+reimplement any of that — it runs `bootstrap/run.lex` once per (task,
+provider) pair and greps the verdict and step-count lines it already prints.
+
+Four of the five task shapes from
+[#86](https://github.com/alpibrusl/lex-code/issues/86) are covered:
+
+| task | what it tests |
+|---|---|
+| `examples/tasks/zip.task` | pure fn, generics, `examples {}` |
+| `examples/tasks/effect_narrow.task` | effect discipline — a narrow `[env]` row |
+| `examples/tasks/repair_examples.task` | reading a `lex check` error and repairing it |
+| `examples/tasks/widen_effect.task` | `propagate_effect` — widen a leaf's row, propagate to 2 callers |
+
+The fifth ("answer a question without editing") is **not** built here:
+`SuccessCriterion` has no way to express "no files changed," and adding a new
+criterion kind is out of scope for a first version whose point is to ship the
+case that's already fully supported. Additive later.
+
+Each (task, provider) pair runs in its own `git worktree` checked out from
+`HEAD`, torn down after. This is why: `.lex/verified.jsonl` is append-only and
+project-scoped with no content hash binding a record to what it was a pass of
+([#91](https://github.com/alpibrusl/lex-code/issues/91)) — a stale record from
+an earlier run can satisfy a later, unrelated run's criteria in the same
+working tree. A worktree sidesteps this rather than working around it:
+`.lex/` is gitignored, so a fresh worktree has no `.lex/verified.jsonl` to
+inherit from at all. One consequence: `make eval` only ever evaluates the
+last **committed** state — uncommitted edits to a task spec or fixture are
+invisible to it until committed.
+
+Not run in CI: it needs a provider — a key, or a local `litellm`/`ollama`/
+`vllm` daemon — and a full matrix against a local model can take many
+minutes. A CI job gated on a secret can come later.
+
 ## Minimum bar mode
 
 `--bar` walks a project against a checklist and reports where it stands.

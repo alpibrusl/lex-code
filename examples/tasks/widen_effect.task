@@ -1,0 +1,14 @@
+# lex-code task spec — LEX_TASK_SPEC=examples/tasks/widen_effect.task
+#
+# Tests propagate_effect: widen a leaf function's row, then widen every
+# caller transitively across 3 files. Unlike repair_examples.task, these
+# fixtures start VALID — the task is a behavioral change that forces the
+# widening, not a pre-existing failure.
+
+goal = "In examples/tasks/fixtures/propagate/logger.lex, change record_event(msg) to also print msg to stdout with std.io.print before returning it. This widens its effect row to [io] and means its examples {} block must be removed (effectful fns can't carry examples). Widen examples/tasks/fixtures/propagate/audit.lex's record_all and examples/tasks/fixtures/propagate/report.lex's build_report to [io] as well, since both call record_event transitively. Use lex check's effect-not-declared errors to find every signature that still needs widening."
+
+check      = ["examples/tasks/fixtures/propagate/logger.lex", "examples/tasks/fixtures/propagate/audit.lex", "examples/tasks/fixtures/propagate/report.lex"]
+spec_check = []
+test       = []
+verified    = ["verified.type_check"]
+verified_on = ["examples/tasks/fixtures/propagate/logger.lex:verified.type_check", "examples/tasks/fixtures/propagate/audit.lex:verified.type_check", "examples/tasks/fixtures/propagate/report.lex:verified.type_check"]
