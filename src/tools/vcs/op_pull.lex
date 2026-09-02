@@ -31,7 +31,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "remote_url") {
     None => Err(e.single("", "missing_field", "remote_url is required")),
     Some(url) => {
-      let base := ["op", "pull", url, "--output", "json"]
+      let base := util.json_cmd(["op", "pull", url])
       let branch_args := match util.field_str(args, "branch") {
         None => [],
         Some(b) => ["--branch", b],
@@ -47,7 +47,10 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
       let cmd := list.concat(base, list.concat(branch_args, list.concat(limit_args, dry_args)))
       match proc.run("lex", cmd) {
         Err(msg) => Err(e.single("", "proc_error", msg)),
-        Ok(out) => Ok(JStr(str.concat(out.stdout, out.stderr))),
+        Ok(out) => match util.cli_result(out) {
+          Err(detail) => Err(e.single("", "cli_failed", detail)),
+          Ok(body) => Ok(JStr(body)),
+        },
       }
     },
   }
