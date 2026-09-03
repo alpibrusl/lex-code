@@ -26,6 +26,8 @@ import "../task_spec" as spec
 
 import "lex-llm/delta" as d
 
+import "lex-llm/message" as msg
+
 import "std.str" as str
 
 import "std.io" as io
@@ -131,7 +133,28 @@ fn print_step(step :: d.Step) -> [io] Unit {
     } else {
       io.print("[error]")
     },
-    StepDone(_) => io.print(""),
+    StepDone(msg) => print_final(msg),
+  }
+}
+
+# StepDone's message is the turn's final answer — "[max_steps reached]" when
+# the budget ran out, or the model's own closing text otherwise. It was
+# previously discarded (`io.print("")`), which is why a run that hit
+# max_steps printed no explanation at all: the per-step TextChunk dump above
+# already shows a normal completion's text as it streams, but a max_steps
+# turn skips straight to StepDone with no preceding TextChunk deltas — with
+# nothing printed here, it looked identical to a turn that produced no
+# output whatsoever.
+fn print_final(m :: msg.Message) -> [io] Unit {
+  match m {
+    AssistantMsg(text, _calls) => if str.is_empty(text) {
+      ()
+    } else {
+      io.print(str.concat("\n[final] ", text))
+    },
+    UserMsg(text) => io.print(str.concat("\n[final] ", text)),
+    SystemMsg(text) => io.print(str.concat("\n[final] ", text)),
+    ToolMsg(_id, content) => io.print(str.concat("\n[final] ", content)),
   }
 }
 
