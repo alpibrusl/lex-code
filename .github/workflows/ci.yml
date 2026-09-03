@@ -45,7 +45,7 @@ jobs:
       - name: Install Lex toolchain
         run: |
           set -euxo pipefail
-          LEX_VERSION="0.10.13"
+          LEX_VERSION="0.10.14"
           # Backed off and limited: the release CDN returns a 504 often
           # enough to redden a build on its own, and re-running the job
           # by hand is not a fix. Retries are safe here — the request is
