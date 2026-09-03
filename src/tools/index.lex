@@ -202,6 +202,18 @@ fn dynamic_tools() -> List[t.Tool] {
   list.concat(minimal_tools(), list.concat([load_toolset_tool.tool()], list.concat(gate_all(vcs_tools(), gate_vcs()), list.concat(gate_all(spec_group_tools(), gate_spec()), gate_all(store_group_tools(), gate_store())))))
 }
 
+# review.lex's own prompt is built entirely around these four tools —
+# "Attestation is the trust anchor here, not your own reading" — so unlike
+# vcs/spec/store (genuinely optional extras other modes reach for
+# occasionally), review's local variant needs attestation_query/effects_of/
+# lex_audit/sigid_lookup unconditionally to do its actual job, not gated
+# behind a load_toolset call. Found missing (#89) when a local review run
+# hit "unknown tool: effects_of" five times in a row and had to fall back
+# to lex_check + grep instead.
+fn review_dynamic_tools() -> List[t.Tool] {
+  list.concat(dynamic_tools(), [attest_tool.tool(), effects_tool.tool(), audit_tool.tool(), sigid_tool.tool()])
+}
+
 fn tools_for_spec(spec :: sp.Spec) -> List[t.Tool] {
   list.filter(all_tools_for_mode(rules.mode_of_spec(spec)), fn (tool :: t.Tool) -> Bool {
     let bindings := [("tool", VStr(tool.name))]
