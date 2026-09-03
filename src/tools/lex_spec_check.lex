@@ -28,23 +28,47 @@ fn params() -> s.ModelSchema {
   { title: "LexSpecCheckArgs", description: "Random property-check a lex-spec Spec against its source", fields: [s.required_str("spec", []), s.required_str("source", [])] }
 }
 
-# The two outcomes a run can have, and the third that is not an outcome.
+# A `.spec` file that doesn't parse is a broken invocation, not a
+# falsification — the checker never ran the property against anything.
+# `lex-cli` wraps every parse failure the same way regardless of what's
+# actually wrong with the file (crates/lex-cli/src/main.rs:
+# `anyhow!("spec parse: {e}")` around spec-checker's own
+# `"spec parse error at byte {pos}: {msg}"`), so "spec parse:" is a
+# stable substring across the whole error class — checked ahead of
+# is_usage_error, which only recognises CLI-argv-shaped mistakes (a bad
+# flag, a bad subcommand) and doesn't know about spec-file-content ones.
+fn is_spec_parse_error(text :: Str) -> Bool
+  examples {
+    is_spec_parse_error("error: spec parse: spec parse error at byte 121: expected primary expression, got Some(LBracket)") => true,
+    is_spec_parse_error("counterexample: x = 0") => false
+  }
+{
+  str.contains(text, "spec parse:")
+}
+
+# The three outcomes a run can have, and the fourth that is not an outcome.
 # `falsified` is a claim about the code and is only ever printed when the
-# checker actually reached a verdict.
+# checker actually reached a verdict — a spec that never parsed never
+# reached one, however its exit code looks.
 fn verdict(out :: { stdout :: Str, stderr :: Str, exit_code :: Int }) -> Result[Str, Str]
   examples {
     verdict({ stdout: "100 samples", stderr: "", exit_code: 0 }) => Ok("spec passed\n100 samples"),
     verdict({ stdout: "counterexample: x = 0", stderr: "", exit_code: 1 }) => Ok("spec falsified\ncounterexample: x = 0"),
-    verdict({ stdout: "", stderr: "error: unexpected arg `5`", exit_code: 2 }) => Err("error: unexpected arg `5`")
+    verdict({ stdout: "", stderr: "error: unexpected arg `5`", exit_code: 2 }) => Err("error: unexpected arg `5`"),
+    verdict({ stdout: "", stderr: "error: spec parse: spec parse error at byte 121: expected primary expression, got Some(LBracket)", exit_code: 1 }) => Err("error: spec parse: spec parse error at byte 121: expected primary expression, got Some(LBracket)")
   }
 {
   if out.exit_code == 0 {
     Ok(str.concat("spec passed\n", util.combined(out)))
   } else {
-    if util.is_usage_error(util.combined(out)) {
+    if is_spec_parse_error(util.combined(out)) {
       Err(util.combined(out))
     } else {
-      Ok(str.concat("spec falsified\n", util.combined(out)))
+      if util.is_usage_error(util.combined(out)) {
+        Err(util.combined(out))
+      } else {
+        Ok(str.concat("spec falsified\n", util.combined(out)))
+      }
     }
   }
 }
