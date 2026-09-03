@@ -175,7 +175,22 @@ fn new_session(id :: Str, mode :: AgentMode) -> [sql, fs_read, fs_walk, fs_write
 # unbounded class of bug. A background pass only becomes worth it if
 # reconciliation ever needs to ask a model, which is a different decision.
 fn new_session_with_provider(id :: Str, mode :: AgentMode, provider_tag :: Str) -> [io, sql, fs_read, fs_walk, fs_write, time, crypto, random] Result[Session, Str] {
-  match persist.open_ephemeral() {
+  new_session_from_log(id, mode, persist.open_ephemeral())
+}
+
+# Same session construction, but the trail lands at `.lex/sessions/<id>.db`
+# (persist.open_persistent) instead of the ephemeral in-memory log
+# new_session_with_provider uses. For a graph pipeline (graph.lex), where a
+# node's name is a fixed, predictable id ("impl", "spec", "test", "review"),
+# this is what makes every agent's full turn-by-turn trace — every tool
+# dispatch, every verified.* attestation — inspectable after the run ends,
+# not just while the process holding the in-memory log is still alive.
+fn new_session_persistent_with_provider(id :: Str, mode :: AgentMode, provider_tag :: Str) -> [io, sql, fs_read, fs_walk, fs_write, time, crypto, random] Result[Session, Str] {
+  new_session_from_log(id, mode, persist.open_persistent(id))
+}
+
+fn new_session_from_log(id :: Str, mode :: AgentMode, log_result :: Result[trail_log.Log, Str]) -> [io, sql, fs_read, fs_walk, fs_write, time, crypto, random] Result[Session, Str] {
+  match log_result {
     Err(e) => Err(e),
     Ok(log) => {
       let __consolidated := consolidate.run(id)
