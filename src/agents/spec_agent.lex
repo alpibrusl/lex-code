@@ -21,12 +21,12 @@ fn mistral_agent() -> [env] ag.AgentLoop {
 }
 
 fn ollama_agent() -> [env] ag.AgentLoop {
-  let base := { name: "spec", goal: sp.system(), model: prov.ollama(providers.ollama_model()), provider: providers.ollama_local(), tools: [], options: { temperature: None, top_p: None, max_steps: Some(3), max_tokens: None }, permission_spec: None }
+  let base := { name: "spec", goal: sp.system(), model: prov.ollama(providers.ollama_model()), provider: providers.ollama_local(), tools: tools.dynamic_tools(), options: { temperature: None, top_p: None, max_steps: Some(20), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.spec_permission())
 }
 
 fn litellm_agent() -> [env] ag.AgentLoop {
-  let base := { name: "spec", goal: sp.system(), model: prov.make_model_ref("litellm", tools.litellm_model()), provider: providers.litellm(), tools: [], options: { temperature: None, top_p: None, max_steps: Some(3), max_tokens: None }, permission_spec: None }
+  let base := { name: "spec", goal: sp.system(), model: prov.make_model_ref("litellm", tools.litellm_model()), provider: providers.litellm(), tools: tools.dynamic_tools(), options: { temperature: None, top_p: None, max_steps: Some(20), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.spec_permission())
 }
 
