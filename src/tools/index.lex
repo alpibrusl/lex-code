@@ -128,8 +128,19 @@ fn all_tools() -> List[t.Tool] {
 # Curated minimal toolset for local models (LiteLLM/Ollama). Full all_tools()
 # ships 38 tool schemas, which overwhelms small local models. This is the
 # read/write/inspect core needed for most build tasks.
+#
+# test_tool (lex_test) belongs here, not just in the cloud-only lex_tools()
+# group: test_agent.lex's own prompt names it as the way to verify a test
+# suite ("lex_test: run `lex run tests/... run_all`"), but dynamic_tools()
+# (what every local-model agent variant actually calls) never included it —
+# a local-model test run had no way to call the tool its own instructions
+# told it to use, so it fell back to lex_run(fn_name: "run_all") instead.
+# That works, but lex_run isn't recognised as a verification call the way
+# lex_check/lex_spec_check/lex_test are (see lex-llm#51's
+# is_verification_tool), so the run never got credit for actually finishing
+# and burned its full step budget regardless.
 fn minimal_tools() -> List[t.Tool] {
-  [read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), check_tool.tool(), run_tool.tool()]
+  [read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), check_tool.tool(), run_tool.tool(), test_tool.tool()]
 }
 
 # Model name advertised to the LiteLLM proxy (must match a model_name in
