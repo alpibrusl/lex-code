@@ -24,6 +24,8 @@ import "../server/graph" as graph
 
 import "../task_spec" as spec
 
+import "lex-llm/delta" as d
+
 import "std.str" as str
 
 import "std.io" as io
@@ -109,12 +111,43 @@ fn verify(ts :: spec.TaskSpec) -> [io, proc] Unit {
   io.print(spec.render(ts, spec.is_satisfied(ts)))
 }
 
+# Each agent's own turns — text, tool calls, tool results — printed as
+# they appear in `r.steps`. `bootstrap/run.lex` used to report only a
+# step count per agent, which hides *why* a low-step agent did or did
+# not produce anything: a fast no-op and a fast, real answer both
+# looked like "done — 4 steps" (#94 was found this way).
+fn print_step(step :: d.Step) -> [io] Unit {
+  match step {
+    StepDelta(delta) => match delta {
+      TextChunk(text) => io.print(text),
+      ToolCallBegin(_, name) => io.print(str.concat("\n[tool: ", str.concat(name, "]"))),
+      ToolArgChunk(_, _) => (),
+      FinishDelta(_) => (),
+      UsageDelta(_) => (),
+    },
+    StepToolExec(name, _) => io.print(str.concat("[running: ", str.concat(name, "]"))),
+    StepToolResult(_, ok) => if ok {
+      io.print("[ok]")
+    } else {
+      io.print("[error]")
+    },
+    StepDone(_) => io.print(""),
+  }
+}
+
+# The "done — N steps" line stays verbatim — scripts/eval.sh greps for
+# exactly that phrase to sum step counts across a run. The per-step dump
+# is additional detail, not a replacement.
+fn print_node(r :: graph.NodeResult) -> [io] Unit {
+  let __hdr := io.print(str.join(["\n[bootstrap] --- ", r.name, " done — ", int.to_str(list.len(r.steps)), " steps ---"], ""))
+  let __steps := list.map(r.steps, print_step)
+  ()
+}
+
 fn run(pipeline :: graph.Node, task :: Str, provider_tag :: Str) -> [env, concurrent, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] Unit {
   let __start := io.print(str.join(["[bootstrap] ", graph.render_shape(pipeline), "  via ", provider_tag, "\n[bootstrap] task: ", task], ""))
   let result := graph.run_graph(pipeline, task, provider_tag)
-  let __each := list.map(result.results, fn (r :: graph.NodeResult) -> [io] Unit {
-    io.print(str.join(["[bootstrap] ", r.name, " done — ", int.to_str(list.len(r.steps)), " steps"], ""))
-  })
+  let __each := list.map(result.results, print_node)
   ()
 }
 
