@@ -144,9 +144,20 @@ fn print_node(r :: graph.NodeResult) -> [io] Unit {
   ()
 }
 
+# LEX_PERSIST_TRACE=1 swaps in graph.run_graph_persistent: each node's full
+# trail (every tool dispatch, every verified.* attestation) lands at
+# `.lex/sessions/<node-name>.db` and survives this process exiting, instead
+# of the ephemeral in-memory log run_graph's nodes normally use. The
+# per-step dump below already shows the run live; this is for auditing it
+# again afterward.
 fn run(pipeline :: graph.Node, task :: Str, provider_tag :: Str) -> [env, concurrent, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] Unit {
   let __start := io.print(str.join(["[bootstrap] ", graph.render_shape(pipeline), "  via ", provider_tag, "\n[bootstrap] task: ", task], ""))
-  let result := graph.run_graph(pipeline, task, provider_tag)
+  let persist_trace := env_or("LEX_PERSIST_TRACE", "") == "1"
+  let result := if persist_trace {
+    graph.run_graph_persistent(pipeline, task, provider_tag)
+  } else {
+    graph.run_graph(pipeline, task, provider_tag)
+  }
   let __each := list.map(result.results, print_node)
   ()
 }

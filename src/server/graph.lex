@@ -417,6 +417,42 @@ fn run_agent(def :: AgentDef, task :: Str, provider_tag :: Str) -> [env, net, ll
   }
 }
 
+# ---- the auditable runner ----------------------------------------------
+#
+# Identical to run_graph/run_node/run_agent above except each node's session
+# is persistent (sess.new_session_persistent_with_provider): the trail lands
+# at `.lex/sessions/<node-name>.db` — "impl", "spec", "test", "review" for
+# the standard presets — and survives the process exiting, so every tool
+# dispatch and verified.* attestation across the whole pipeline can be
+# audited afterward with lex-trail/log's range/head, not just observed live.
+fn run_graph_persistent(root :: Node, task :: Str, provider_tag :: Str) -> [env, concurrent, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] GraphResult {
+  { results: run_node_persistent(root, task, provider_tag) }
+}
+
+fn run_node_persistent(n :: Node, task :: Str, provider_tag :: Str) -> [env, concurrent, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] List[NodeResult] {
+  match n {
+    AgentNode(def) => [run_agent_persistent(def, task, provider_tag)],
+    SequenceNode(kids) => list.fold(kids, [], fn (acc :: List[NodeResult], k :: Node) -> [env, concurrent, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] List[NodeResult] {
+      list.concat(acc, run_node_persistent(k, task, provider_tag))
+    }),
+    ParallelNode(kids) => list.fold(list.par_map(kids, fn (k :: Node) -> [env, concurrent, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] List[NodeResult] {
+      run_node_persistent(k, task, provider_tag)
+    }), [], fn (acc :: List[NodeResult], rs :: List[NodeResult]) -> List[NodeResult] {
+      list.concat(acc, rs)
+    }),
+  }
+}
+
+fn run_agent_persistent(def :: AgentDef, task :: Str, provider_tag :: Str) -> [env, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] NodeResult {
+  match sess.new_session_persistent_with_provider(def.name, def.mode, provider_tag) {
+    Err(_) => { name: def.name, steps: [] },
+    Ok(session) => {
+      let result := sess.run_turn_with_provider(session, shape(def, task), provider_tag)
+      { name: def.name, steps: result.steps }
+    },
+  }
+}
+
 # ---- reading a result -------------------------------------------------
 fn steps_for(g :: GraphResult, name :: Str) -> List[d.Step] {
   match list.head(list.filter(g.results, fn (r :: NodeResult) -> Bool {
