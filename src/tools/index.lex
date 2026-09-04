@@ -139,8 +139,17 @@ fn all_tools() -> List[t.Tool] {
 # lex_check/lex_spec_check/lex_test are (see lex-llm#51's
 # is_verification_tool), so the run never got credit for actually finishing
 # and burned its full step budget regardless.
+#
+# remember belongs here for the same reason: build_permission() allows it
+# unconditionally, but it was missing from dynamic_tools() (#110), so a
+# local-model build agent had no way to propose a memory candidate at
+# all — confirmed live, the model correctly reported it had no such tool
+# and declined to fabricate a call. A single [net, io, proc] tool that
+# appends one JSONL line (see remember.lex/candidates.lex) is cheap
+# enough for the curated core; it doesn't need load_toolset gating the
+# way the heavier vcs/spec/store groups do.
 fn minimal_tools() -> List[t.Tool] {
-  [read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), check_tool.tool(), run_tool.tool(), test_tool.tool()]
+  [read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), remember_tool.tool(), check_tool.tool(), run_tool.tool(), test_tool.tool()]
 }
 
 # Model name advertised to the LiteLLM proxy (must match a model_name in
@@ -250,8 +259,13 @@ fn plan_dynamic_tools() -> List[t.Tool] {
 # lex_store_merge (they're already in dynamic_tools()'s gated store
 # group) — a real bug in an earlier version of this function, caught by
 # inspecting the actual tool list rather than trusting a live run.
+#
+# remember_tool belongs here too: refactor_permission() already lists
+# "remember" in its allowlist, but this hand-built list omitted the
+# actual tool (#110) — a local refactor agent was permitted to propose a
+# memory candidate and had no way to.
 fn refactor_dynamic_tools() -> List[t.Tool] {
-  list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), check_tool.tool(), audit_tool.tool(), sigid_tool.tool(), effects_tool.tool(), store_merge_tool.tool(), propagate_tool.tool(), guidelines_tool.tool()], list.concat(vcs_read_tools(), vcs_write_tools()))
+  list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), remember_tool.tool(), check_tool.tool(), audit_tool.tool(), sigid_tool.tool(), effects_tool.tool(), store_merge_tool.tool(), propagate_tool.tool(), guidelines_tool.tool()], list.concat(vcs_read_tools(), vcs_write_tools()))
 }
 
 fn tools_for_spec(spec :: sp.Spec) -> List[t.Tool] {
