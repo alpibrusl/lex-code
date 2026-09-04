@@ -214,6 +214,46 @@ fn review_dynamic_tools() -> List[t.Tool] {
   list.concat(dynamic_tools(), [attest_tool.tool(), effects_tool.tool(), audit_tool.tool(), sigid_tool.tool()])
 }
 
+# explore/plan/refactor's local variants had `tools: []` and
+# `max_steps: Some(3)` — not curated-minimal, just entirely unwired,
+# unlike every other local mode. Confirmed live: an explore-mode call
+# said "Let me locate the `shout` function in `widget.lex`" and then
+# stopped, having no tool to do it with.
+#
+# Each mode below is built to match its own permissions/rules.lex spec
+# exactly (explore_permission/plan_permission/refactor_permission) —
+# not dynamic_tools(), and not shared with each other, because the
+# three permission specs genuinely differ (explore gets
+# sigid_lookup/effects_of/attestation_query, plan gets
+# todowrite/remember instead, refactor gets the full edit+vcs surface).
+# A tool outside the mode's own permission allowlist would just be
+# silently dropped again by with_permission_gate, so listing it here
+# would be dead weight in the schema a small model still pays for.
+fn explore_dynamic_tools() -> List[t.Tool] {
+  [read_tool.tool(), grep_tool.tool(), glob_tool.tool(), check_tool.tool(), audit_tool.tool(), sigid_tool.tool(), effects_tool.tool(), attest_tool.tool(), guidelines_tool.tool()]
+}
+
+fn plan_dynamic_tools() -> List[t.Tool] {
+  [read_tool.tool(), grep_tool.tool(), glob_tool.tool(), check_tool.tool(), audit_tool.tool(), todo_tool.tool(), remember_tool.tool(), guidelines_tool.tool()]
+}
+
+# refactor's own prompt makes lex_audit a MANDATORY first step (find
+# every caller before editing) and separately lists sigid_lookup,
+# effects_of, lex_store_merge, and propagate_effect as core to its
+# workflow, plus the vcs_merge_* tools for its own "RESOLVING A MERGE"
+# section — none of which dynamic_tools() carries un-gated. Built
+# directly from vcs_read_tools()/vcs_write_tools() (matching
+# refactor_permission()'s vcs_read_names()+vcs_write_names(), which
+# excludes vcs_network_names() — refactor doesn't push/pull, syncing is
+# a build-mode/explicit-user-action concern) rather than extending
+# dynamic_tools(), which would have duplicated propagate_effect and
+# lex_store_merge (they're already in dynamic_tools()'s gated store
+# group) — a real bug in an earlier version of this function, caught by
+# inspecting the actual tool list rather than trusting a live run.
+fn refactor_dynamic_tools() -> List[t.Tool] {
+  list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), check_tool.tool(), audit_tool.tool(), sigid_tool.tool(), effects_tool.tool(), store_merge_tool.tool(), propagate_tool.tool(), guidelines_tool.tool()], list.concat(vcs_read_tools(), vcs_write_tools()))
+}
+
 fn tools_for_spec(spec :: sp.Spec) -> List[t.Tool] {
   list.filter(all_tools_for_mode(rules.mode_of_spec(spec)), fn (tool :: t.Tool) -> Bool {
     let bindings := [("tool", VStr(tool.name))]
