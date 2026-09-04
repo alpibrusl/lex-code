@@ -56,6 +56,12 @@ import "lex-mcp/src/compose" as compose
 
 import "./session" as sess
 
+import "../project_memory" as pmem
+
+import "../memory/consolidate" as consolidate
+
+import "std.crypto" as crypto
+
 # ---- capability: one `code` tool, mode is a knob -------------------
 fn code_capability() -> cap.Capability {
   cap.inbound("code", "Run a coding task with lex-code. `mode` selects the agent strategy (build|plan|explore|refactor|spec|test|review|bar; default build).", { title: "CodeArgs", description: "A coding task for lex-code.", fields: [s.required_str("task", [StrNonEmpty]), s.optional(s.required_str("mode", []))] })
@@ -130,11 +136,38 @@ fn extract(parts :: List[amsg.Part]) -> Args {
   })
 }
 
+# `pmem.recall_context()` needs `fs_walk` (its `fs.exists` guard), which
+# `Skill.handle`'s row below (fixed by lex-agent's server.lex) does not
+# carry. `open()` already creates the db lazily on a missing file — it
+# needs fs_write regardless, which this row already has — so recalling
+# through it directly skips the guard instead of widening the row.
+fn recall_ctx() -> [sql, fs_read, fs_write] Str {
+  match pmem.open() {
+    Err(_) => "",
+    Ok(pm) => {
+      let ctx := pmem.recall_for_prompt(pm)
+      let __closed := pmem.close(pm)
+      ctx
+    },
+  }
+}
+
 # ---- handler: select a brain by mode, run the loop, map via bridge --
+#
+# Brains are built once in main() (see build_brains), before any candidate
+# a `remember` tool call proposes even exists — so, unlike session.lex's
+# Session (which consolidates and recalls once per session/new), a
+# per-request refresh is the only place MCP can pick up memory at all.
+# Each call consolidates whatever candidates are pending under a fresh
+# synthetic id (MCP has no client-tracked session to attribute them to)
+# and re-recalls before running the loop, so a fact remembered on one
+# call is real memory — attested in the trail — by the next one.
 fn make_handler(brains :: Brains) -> (amsg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] srv.HandlerOutcome {
   fn (m :: amsg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] srv.HandlerOutcome {
     let a := extract(m.parts)
-    let brain := brain_for(brains, a.mode)
+    let request_id := crypto.random_str_hex(16)
+    let __consolidated := consolidate.run(request_id)
+    let brain := sess.with_memory(brain_for(brains, a.mode), recall_ctx())
     bridge.outcome_of_steps(iter.to_list(ag.run_loop(brain, [lmsg.user(a.task)])))
   }
 }
