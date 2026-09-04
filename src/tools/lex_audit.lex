@@ -61,15 +61,42 @@ fn params() -> s.ModelSchema {
 # read `--impure` as a path and report a missing file, which reads to the
 # model as "that directory is not there" rather than "that filter does
 # not exist".
+#
+# "call" and "host" are not `--call`/`--host` on the real CLI (`lex audit`
+# usage: `[paths...] [--effect KIND] [--calls FN] [--uses-host HOST]
+# [--kind NODE] ...`) — a second flag-name mismatch #83's own fix didn't
+# catch, since `--effect`/`--kind` happened to already match dimension()'s
+# names and nothing exercised `call`/`host` against the real binary.
+# Found live: a refactor-mode call with dimension=call failed with
+# `stat --call: No such file or directory`, `lex audit` reading its own
+# unrecognised `--call` flag as a path to stat. The model correctly
+# self-diagnosed it and fell back to grep — but the tool should not need
+# a model to route around it.
+fn flag_for(dimension :: Str) -> Str
+  examples {
+    flag_for("effect") => "--effect",
+    flag_for("call") => "--calls",
+    flag_for("host") => "--uses-host",
+    flag_for("kind") => "--kind"
+  }
+{
+  match dimension {
+    "call" => "--calls",
+    "host" => "--uses-host",
+    _ => str.concat("--", dimension),
+  }
+}
+
 fn cmd_for(dimension :: Str, value :: Str, target :: Str) -> Result[List[Str], Str]
   examples {
     cmd_for("effect", "net", "src") => Ok(["audit", "--json", "--effect", "net", "src"]),
-    cmd_for("host", "api.example.com", ".") => Ok(["audit", "--json", "--host", "api.example.com", "."]),
+    cmd_for("call", "shout", "src") => Ok(["audit", "--json", "--calls", "shout", "src"]),
+    cmd_for("host", "api.example.com", ".") => Ok(["audit", "--json", "--uses-host", "api.example.com", "."]),
     cmd_for("impure", "x", "src") => Err("unknown audit dimension 'impure'. Use one of: effect, call, host, kind")
   }
 {
   if is_dimension(dimension) {
-    Ok(["audit", "--json", str.concat("--", dimension), value, target])
+    Ok(["audit", "--json", flag_for(dimension), value, target])
   } else {
     Err(str.join(["unknown audit dimension '", dimension, "'. Use one of: ", str.join(dimensions(), ", ")], ""))
   }
