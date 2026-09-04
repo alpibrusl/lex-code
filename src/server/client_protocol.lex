@@ -153,12 +153,149 @@ fn str_field(j :: jv.Json, key :: Str) -> Str {
 # editor's chat panel) actually needs to see live: assistant text and tool
 # call lifecycle. ToolArgChunk/UsageDelta/StepDone produce no visible update
 # (StepDone's content lands in the final session/prompt response instead).
-fn step_to_update(session_id :: Str, step :: d.Step) -> Option[jv.Json] {
+# ---- #107: route <think>...</think> to agent_thought_chunk -------------
+#
+# The real ACP schema (@zed-industries/agent-client-protocol 0.4.5,
+# SessionUpdate) has a dedicated "agent_thought_chunk" kind, the same
+# shape as "agent_message_chunk", for exactly this. Without routing, a
+# reasoning model's raw <think>...</think> text streamed straight through
+# as agent_message_chunk, so a real client had no way to tell an agent's
+# internal reasoning from its actual answer — it would render the literal
+# tags in the chat.
+#
+# The open/close tags can land in different TextChunks (confirmed live:
+# one chunk was exactly "<think>Simple", the matching close arrived later
+# merged into "</think>Done"), so routing needs state that survives
+# across chunks within one turn — "am I currently inside a think block".
+# Lex has no mutable locals, and the streaming callback's type is fixed at
+# `(d.Step) -> [io] Unit` by session.lex's run_turn_streaming_with_provider
+# (shared with mcp_main.lex, the TUI, and session.lex itself, so widening
+# it here isn't an option) — no `sql` or `fs_write` reaches this closure,
+# only `io`. So the state lives in a scratch file under /tmp, read and
+# written with plain `io.read`/`io.write`, both already `[io]`.
+type Segment = Thought(Str) | Msg(Str)
+
+fn think_state_path(session_id :: Str) -> Str {
+  str.concat("/tmp/lex-acp-think-", session_id)
+}
+
+fn think_get(session_id :: Str) -> [io] Bool {
+  match io.read(think_state_path(session_id)) {
+    Err(_) => false,
+    Ok(content) => content == "1",
+  }
+}
+
+fn think_set(session_id :: Str, v :: Bool) -> [io] Unit {
+  let content := if v {
+    "1"
+  } else {
+    "0"
+  }
+  let __r := io.write(think_state_path(session_id), content)
+  ()
+}
+
+fn think_open_tag() -> Str {
+  "<think>"
+}
+
+fn think_close_tag() -> Str {
+  "</think>"
+}
+
+# Some providers (e.g. a chat template that already opens the reasoning
+# block, plus the model itself emitting its own opening marker) double up
+# <think> right at the start of a think block. Strip every such redundant
+# leading marker so it never leaks into a thought chunk's text.
+fn strip_leading_think_open(text :: Str) -> Str {
+  match str.find(text, think_open_tag(), 0) {
+    Some(0) => strip_leading_think_open(str.slice(text, str.len(think_open_tag()), str.len(text))),
+    _ => text,
+  }
+}
+
+# Splits text on <think>/</think> markers given whether the stream STARTS
+# inside a think block, returning the ordered segments and whether it ENDS
+# inside one (fed back in as the next chunk's starting state). Empty
+# segments (a tag at the very start, or two tags back to back) are
+# dropped rather than emitted as blank chunks.
+fn split_think(text :: Str, in_think :: Bool) -> (List[Segment], Bool) {
+  if str.is_empty(text) {
+    ([], in_think)
+  } else {
+    if in_think {
+      let stripped := strip_leading_think_open(text)
+      if str.is_empty(stripped) {
+        ([], true)
+      } else {
+        match str.find(stripped, think_close_tag(), 0) {
+          None => ([Thought(stripped)], true),
+          Some(idx) => {
+            let before := str.slice(stripped, 0, idx)
+            let after := str.slice(stripped, idx + str.len(think_close_tag()), str.len(stripped))
+            match split_think(after, false) {
+              (rest, final_state) => (list.concat(as_thought(before), rest), final_state),
+            }
+          },
+        }
+      }
+    } else {
+      match str.find(text, think_open_tag(), 0) {
+        None => ([Msg(text)], false),
+        Some(idx) => {
+          let before := str.slice(text, 0, idx)
+          let after := str.slice(text, idx + str.len(think_open_tag()), str.len(text))
+          match split_think(after, true) {
+            (rest, final_state) => (list.concat(as_msg(before), rest), final_state),
+          }
+        },
+      }
+    }
+  }
+}
+
+fn as_thought(text :: Str) -> List[Segment] {
+  if str.is_empty(text) {
+    []
+  } else {
+    [Thought(text)]
+  }
+}
+
+fn as_msg(text :: Str) -> List[Segment] {
+  if str.is_empty(text) {
+    []
+  } else {
+    [Msg(text)]
+  }
+}
+
+fn segment_update(session_id :: Str, seg :: Segment) -> jv.Json {
+  match seg {
+    Thought(t) => session_update(session_id, "agent_thought_chunk", [("content", JObj([("type", JStr("text")), ("text", JStr(t))]))]),
+    Msg(t) => session_update(session_id, "agent_message_chunk", [("content", JObj([("type", JStr("text")), ("text", JStr(t))]))]),
+  }
+}
+
+fn emit_text(session_id :: Str, text :: Str) -> [io] Unit {
+  match split_think(text, think_get(session_id)) {
+    (segments, final_state) => {
+      let __set := think_set(session_id, final_state)
+      let __sent := list.map(segments, fn (seg :: Segment) -> [io] Unit {
+        send(segment_update(session_id, seg))
+      })
+      ()
+    },
+  }
+}
+
+fn handle_step(session_id :: Str, step :: d.Step) -> [io] Unit {
   match step {
-    StepDelta(delta) => delta_to_update(session_id, delta),
-    StepToolExec(name, call_id) => Some(session_update(session_id, "tool_call", [("toolCallId", JStr(call_id)), ("title", JStr(name)), ("status", JStr("in_progress"))])),
-    StepToolResult(call_id, ok) => Some(session_update(session_id, "tool_call_update", [("toolCallId", JStr(call_id)), ("status", JStr(tool_status(ok)))])),
-    StepDone(_) => None,
+    StepDelta(delta) => handle_delta(session_id, delta),
+    StepToolExec(name, call_id) => send(session_update(session_id, "tool_call", [("toolCallId", JStr(call_id)), ("title", JStr(name)), ("status", JStr("in_progress"))])),
+    StepToolResult(call_id, ok) => send(session_update(session_id, "tool_call_update", [("toolCallId", JStr(call_id)), ("status", JStr(tool_status(ok)))])),
+    StepDone(_) => (),
   }
 }
 
@@ -170,13 +307,13 @@ fn tool_status(ok :: Bool) -> Str {
   }
 }
 
-fn delta_to_update(session_id :: Str, delta :: d.Delta) -> Option[jv.Json] {
+fn handle_delta(session_id :: Str, delta :: d.Delta) -> [io] Unit {
   match delta {
-    TextChunk(text) => Some(session_update(session_id, "agent_message_chunk", [("content", JObj([("type", JStr("text")), ("text", JStr(text))]))])),
-    ToolCallBegin(id, name) => Some(session_update(session_id, "tool_call", [("toolCallId", JStr(id)), ("title", JStr(name)), ("status", JStr("pending"))])),
-    ToolArgChunk(_, _) => None,
-    FinishDelta(_) => None,
-    UsageDelta(_, _, _) => None,
+    TextChunk(text) => emit_text(session_id, text),
+    ToolCallBegin(id, name) => send(session_update(session_id, "tool_call", [("toolCallId", JStr(id)), ("title", JStr(name)), ("status", JStr("pending"))])),
+    ToolArgChunk(_, _) => (),
+    FinishDelta(_) => (),
+    UsageDelta(_, _, _) => (),
   }
 }
 
@@ -212,11 +349,9 @@ fn handle_session_prompt(id :: jv.Json, params :: jv.Json, registry :: Registry,
       registry
     },
     Some(session) => {
+      let __reset := think_set(sid, false)
       let result := sess.run_turn_streaming_with_provider(session, prompt, provider_tag, fn (step :: d.Step) -> [io] Unit {
-        match step_to_update(sid, step) {
-          None => (),
-          Some(update) => send(update),
-        }
+        handle_step(sid, step)
       })
       let __sent := send(jrpc_result(id, JObj([("stopReason", JStr("end_turn"))])))
       map.set(registry, sid, result.session)
