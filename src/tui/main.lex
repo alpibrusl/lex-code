@@ -230,11 +230,11 @@ fn select_mode(argv :: List[Str]) -> sess.AgentMode
 # mistral, whichever order they appear in.
 fn select_provider_tag(argv :: List[Str]) -> Str
   examples {
-    select_provider_tag([]) => "anthropic",
+    select_provider_tag([]) => "litellm",
     select_provider_tag(["--ollama"]) => "ollama",
     select_provider_tag(["--litellm"]) => "litellm",
     select_provider_tag(["--ollama", "--mistral"]) => "mistral",
-    select_provider_tag(["--bar"]) => "anthropic"
+    select_provider_tag(["--bar"]) => "litellm"
   }
 {
   if has_flag(argv, "--mistral") {
@@ -261,7 +261,7 @@ fn select_provider_tag(argv :: List[Str]) -> Str
                 if has_flag(argv, "--opencode") {
                   "opencode"
                 } else {
-                  "anthropic"
+                  "litellm"
                 }
               }
             }
@@ -352,12 +352,12 @@ type Invocation = { mode :: sess.AgentMode, provider :: Str, task :: Option[Str]
 # then cover the whole parse path rather than its pieces.
 fn plan_invocation(argv :: List[Str]) -> Invocation
   examples {
-    plan_invocation([]) => { mode: Build, provider: "anthropic", task: None, multi: false, pipeline: None },
-    plan_invocation(["--bar", "walk this repo"]) => { mode: Bar, provider: "anthropic", task: Some("walk this repo"), multi: false, pipeline: None },
+    plan_invocation([]) => { mode: Build, provider: "litellm", task: None, multi: false, pipeline: None },
+    plan_invocation(["--bar", "walk this repo"]) => { mode: Bar, provider: "litellm", task: Some("walk this repo"), multi: false, pipeline: None },
     plan_invocation(["--ollama", "--plan"]) => { mode: Plan, provider: "ollama", task: None, multi: false, pipeline: None },
-    plan_invocation(["--multi"]) => { mode: Build, provider: "anthropic", task: None, multi: true, pipeline: None },
+    plan_invocation(["--multi"]) => { mode: Build, provider: "litellm", task: None, multi: true, pipeline: None },
     plan_invocation(["--litellm", "--review", "check the diff"]) => { mode: Review, provider: "litellm", task: Some("check the diff"), multi: false, pipeline: None },
-    plan_invocation(["--multi", "--pipeline=impl_then_spec_then_test"]) => { mode: Build, provider: "anthropic", task: None, multi: true, pipeline: Some("impl_then_spec_then_test") }
+    plan_invocation(["--multi", "--pipeline=impl_then_spec_then_test"]) => { mode: Build, provider: "litellm", task: None, multi: true, pipeline: Some("impl_then_spec_then_test") }
   }
 {
   { mode: select_mode(argv), provider: select_provider_tag(argv), task: find_task(argv), multi: has_flag(argv, "--multi"), pipeline: find_pipeline(argv) }
