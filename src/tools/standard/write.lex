@@ -73,6 +73,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
           Err(msg) => Err(e.single("", "io_error", msg)),
           Ok(_) => {
             let lint := linter.run(path)
+            let __verified := linter.record_verified("write", path, lint)
             let header := str.concat("wrote ", path)
             if lint.failed {
               Err(e.single("", "lint_failed", str.concat(header, str.concat("\n", str.concat(lint.summary, "\nFix the errors above and rewrite.")))))
