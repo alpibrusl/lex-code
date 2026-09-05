@@ -187,10 +187,15 @@ fn make_handler(brains :: Brains) -> (amsg.Message) -> [io, time, crypto, random
 }
 
 # ---- provider/model: a launch choice, not a tool argument ----------
+# Defaults to litellm rather than a cloud provider: build/plan/explore
+# tolerate a local model fine, and litellm needs no API key to start a
+# server with. review/bar (where a wrong answer is expensive) can be
+# routed to a frontier model per-mode instead — see
+# provider_tag_for_mode in mcp_main.lex (#116) / LEX_CODE_PROVIDER_<MODE>.
 fn provider_tag_from_env() -> [env] Str {
   match env.get("LEX_CODE_PROVIDER") {
-    Some(t) => pick(t, "anthropic"),
-    None => "anthropic",
+    Some(t) => pick(t, "litellm"),
+    None => "litellm",
   }
 }
 
