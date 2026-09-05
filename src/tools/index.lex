@@ -246,6 +246,18 @@ fn plan_dynamic_tools() -> List[t.Tool] {
   [read_tool.tool(), grep_tool.tool(), glob_tool.tool(), check_tool.tool(), audit_tool.tool(), todo_tool.tool(), remember_tool.tool(), guidelines_tool.tool()]
 }
 
+# spec mode's own prompt tells a local model lex_spec_check/lex_spec_smt
+# are directly callable ("Call the lex_spec_check tool yourself, right
+# now") — but the shared dynamic_tools() only carries them behind
+# gate_spec()'s load_toolset precondition, which spec_permission()'s
+# with_permission_gate then strips load_toolset itself out of (its
+# allowlist has no "load_toolset" entry), leaving no way to ever set
+# loaded_spec. Built directly from spec_permission()'s own allowlist
+# (#113) instead of sharing build's toolset.
+fn spec_dynamic_tools() -> List[t.Tool] {
+  [read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), check_tool.tool(), spec_check_tool.tool(), spec_smt_tool.tool(), guidelines_tool.tool()]
+}
+
 # refactor's own prompt makes lex_audit a MANDATORY first step (find
 # every caller before editing) and separately lists sigid_lookup,
 # effects_of, lex_store_merge, and propagate_effect as core to its
@@ -316,7 +328,13 @@ fn bar_tools() -> List[t.Tool] {
 # minimal_tools() exists to avoid. A walk needs the probe runner and enough
 # to confirm what it reports; everything else is noise a 7B model pays for
 # on every turn.
+# bar.lex's own prompt lists lex_audit, lex_check, attestation_query and
+# sigid_lookup as available tools ("Ledger evidence" the walk depends on)
+# alongside bar_check/read/grep/glob — but only the latter four were ever
+# in this list (#113). All four names are already in bar_permission()'s
+# allowlist so with_permission_gate doesn't strip them; 8 tools total
+# still stays well under the ~10-schema reliability line #87 documents.
 fn bar_minimal_tools() -> List[t.Tool] {
-  [bar_check_tool.tool(), read_tool.tool(), grep_tool.tool(), glob_tool.tool()]
+  [bar_check_tool.tool(), read_tool.tool(), grep_tool.tool(), glob_tool.tool(), audit_tool.tool(), check_tool.tool(), attest_tool.tool(), sigid_tool.tool()]
 }
 

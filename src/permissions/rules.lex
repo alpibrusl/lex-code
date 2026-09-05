@@ -76,7 +76,7 @@ fn bar_permission() -> sp.Spec {
 }
 
 fn spec_permission() -> sp.Spec {
-  allow_tools("spec_tools", ["read", "write", "edit", "grep", "glob", "lex_check", "lex_spec_check", "lex_spec_smt"])
+  allow_tools("spec_tools", ["read", "write", "edit", "grep", "glob", "lex_check", "lex_spec_check", "lex_spec_smt", "load_guidelines"])
 }
 
 fn refactor_permission() -> sp.Spec {
