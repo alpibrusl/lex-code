@@ -379,10 +379,10 @@ fn run(path :: Str) -> [io, proc] RunResult {
 # project-level file itself, not the session log dispatch_one_traced
 # writes to and session.lex later harvests from. Tool.execute's row is
 # fixed at [net, io, proc] (no `time`), so `ts_ms` is 0 rather than a
-# real clock reading; nothing that reads the file checks it for
-# freshness (task_spec.lex's `seen`/`seen_on` only check kind + target
-# exist at all), so this doesn't misrepresent anything a reader
-# actually relies on. `tool` still says "write" or "edit" rather than
+# real clock reading; `sig` (#91) is what a reader actually checks for
+# freshness, and it is real here — the file was just written and just
+# passed `lex check`, so hashing it now is hashing exactly the content
+# the pass covers. `tool` still says "write" or "edit" rather than
 # "lex_check", so the record's own provenance remains honest about
 # which of the two ways this project's file came to be verified.
 #
@@ -399,7 +399,8 @@ fn run(path :: Str) -> [io, proc] RunResult {
 fn record_verified(tool :: Str, path :: Str, result :: RunResult) -> [proc, io] Unit {
   if result.checked and not result.failed {
     let __dir := proc.run("mkdir", ["-p", ".lex"])
-    let __appended := verification.append_all([{ kind: "verified.type_check", tool: tool, target: path, ts_ms: 0 }])
+    let sig := verification.sig_for(path)
+    let __appended := verification.append_all([{ kind: "verified.type_check", tool: tool, target: path, sig: sig, ts_ms: 0 }])
     ()
   } else {
     ()

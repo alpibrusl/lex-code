@@ -263,44 +263,84 @@ fn malformed_outcome(entry :: Str) -> Outcome
   { label: label_of(Malformed(entry)), met: false, detail: "expected <path>:<kind>, e.g. src/list.lex:verified.type_check" }
 }
 
-fn target_outcome(label :: Str, target :: Str, kind :: Str) -> [io] Outcome {
-  if seen_on(verification.all(), target, kind) {
-    { label: label, met: true, detail: "" }
+# A record's `sig` binds it to the content it was a pass of (#91). A record
+# naming a specific target with no `sig`, or with a `sig` that no longer
+# matches the target's current bytes, is not evidence the current code is
+# right — it is evidence that *some* revision once was. Whole-project-scope
+# records (`target == ""`) have no single file to hash against, so they are
+# never stale by this check; that is the same limitation `sig_for` already
+# documents, not a new one.
+fn is_fresh(r :: verification.Record) -> [io] Bool {
+  if str.is_empty(r.target) {
+    true
   } else {
-    { label: label, met: false, detail: str.join(["no ", kind, " record for ", target, " in ", verification.path()], "") }
+    if str.is_empty(r.sig) {
+      false
+    } else {
+      r.sig == verification.sig_for(r.target)
+    }
   }
 }
 
-fn seen_on(records :: List[verification.Record], target :: Str, kind :: Str) -> Bool {
-  list.fold(records, false, fn (acc :: Bool, r :: verification.Record) -> Bool {
-    if acc {
-      true
-    } else {
-      if r.kind == kind {
-        r.target == target
+# Three states, not two, because "no record" and "a record, but it's stale"
+# call for different messages — a reader fixing a stale-record failure needs
+# to know a check ran before and just needs re-running, not that nothing was
+# ever checked. `Fresh` wins over `Stale` if both occur (an old stale record
+# and a newer fresh one for the same target/kind can coexist in an
+# append-only log); `Stale` wins over `Absent` otherwise.
+type Presence = Absent | Fresh | Stale
+
+fn upgrade(acc :: Presence, hit :: Bool, fresh :: Bool) -> [io] Presence {
+  match acc {
+    Fresh => Fresh,
+    _ => if hit {
+      if fresh {
+        Fresh
       } else {
-        false
+        Stale
       }
-    }
+    } else {
+      acc
+    },
+  }
+}
+
+fn presence_on(records :: List[verification.Record], target :: Str, kind :: Str) -> [io] Presence {
+  list.fold(records, Absent, fn (acc :: Presence, r :: verification.Record) -> [io] Presence {
+    let hit := r.kind == kind and r.target == target
+    upgrade(acc, hit, if hit {
+      is_fresh(r)
+    } else {
+      false
+    })
   })
+}
+
+fn presence(records :: List[verification.Record], kind :: Str) -> [io] Presence {
+  list.fold(records, Absent, fn (acc :: Presence, r :: verification.Record) -> [io] Presence {
+    let hit := r.kind == kind
+    upgrade(acc, hit, if hit {
+      is_fresh(r)
+    } else {
+      false
+    })
+  })
+}
+
+fn target_outcome(label :: Str, target :: Str, kind :: Str) -> [io] Outcome {
+  match presence_on(verification.all(), target, kind) {
+    Fresh => { label: label, met: true, detail: "" },
+    Stale => { label: label, met: false, detail: str.join(["a ", kind, " record exists for ", target, " but it no longer matches the file's current content — re-run the check"], "") },
+    Absent => { label: label, met: false, detail: str.join(["no ", kind, " record for ", target, " in ", verification.path()], "") },
+  }
 }
 
 fn verified_outcome(label :: Str, kind :: Str) -> [io] Outcome {
-  if seen(verification.all(), kind) {
-    { label: label, met: true, detail: "" }
-  } else {
-    { label: label, met: false, detail: str.join(["no ", kind, " record in ", verification.path()], "") }
+  match presence(verification.all(), kind) {
+    Fresh => { label: label, met: true, detail: "" },
+    Stale => { label: label, met: false, detail: str.join(["a ", kind, " record exists in this project but no longer matches its target's current content — re-run the check"], "") },
+    Absent => { label: label, met: false, detail: str.join(["no ", kind, " record in ", verification.path()], "") },
   }
-}
-
-fn seen(records :: List[verification.Record], kind :: Str) -> Bool {
-  list.fold(records, false, fn (acc :: Bool, r :: verification.Record) -> Bool {
-    if acc {
-      true
-    } else {
-      r.kind == kind
-    }
-  })
 }
 
 # Every criterion is evaluated, not just up to the first failure. A task
