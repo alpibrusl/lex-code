@@ -70,8 +70,22 @@ fn code_capability() -> cap.Capability {
 # ---- the 8 brains, built once under env ----------------------------
 type Brains = { build :: ag.AgentLoop, plan :: ag.AgentLoop, explore :: ag.AgentLoop, refactor :: ag.AgentLoop, spec :: ag.AgentLoop, test :: ag.AgentLoop, review :: ag.AgentLoop, bar :: ag.AgentLoop }
 
-fn build_brains(tag :: Str) -> [env] Brains {
-  { build: sess.pick_agent(Build, tag), plan: sess.pick_agent(Plan, tag), explore: sess.pick_agent(Explore, tag), refactor: sess.pick_agent(Refactor, tag), spec: sess.pick_agent(Spec, tag), test: sess.pick_agent(Test, tag), review: sess.pick_agent(Review, tag), bar: sess.pick_agent(Bar, tag) }
+# A mode can override the process-wide provider via LEX_CODE_PROVIDER_<MODE>
+# (e.g. LEX_CODE_PROVIDER_REVIEW=anthropic) — #116. Local models are fine
+# for build/explore/plan's cheap iteration, but review and bar's local
+# runs hit real failures this session (a parser crash surfaced through
+# attestation_query, a model returning pure self-narration with no tool
+# calls) that a frontier model wouldn't. This turns that gap into a
+# config choice per mode instead of an all-or-nothing provider pick.
+fn provider_tag_for_mode(mode_name :: Str, default_tag :: Str) -> [env] Str {
+  match env.get(str.concat("LEX_CODE_PROVIDER_", str.to_upper(mode_name))) {
+    Some(t) => t,
+    None => default_tag,
+  }
+}
+
+fn build_brains(default_tag :: Str) -> [env] Brains {
+  { build: sess.pick_agent(Build, provider_tag_for_mode("build", default_tag)), plan: sess.pick_agent(Plan, provider_tag_for_mode("plan", default_tag)), explore: sess.pick_agent(Explore, provider_tag_for_mode("explore", default_tag)), refactor: sess.pick_agent(Refactor, provider_tag_for_mode("refactor", default_tag)), spec: sess.pick_agent(Spec, provider_tag_for_mode("spec", default_tag)), test: sess.pick_agent(Test, provider_tag_for_mode("test", default_tag)), review: sess.pick_agent(Review, provider_tag_for_mode("review", default_tag)), bar: sess.pick_agent(Bar, provider_tag_for_mode("bar", default_tag)) }
 }
 
 fn brain_for(b :: Brains, mode :: Str) -> ag.AgentLoop {
