@@ -113,7 +113,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   }
 }
 
-fn get_stage(stage_id :: Str) -> [io, proc] Result[jv.Json, e.Errors] {
+fn get_stage(stage_id :: Str) -> [proc] Result[jv.Json, e.Errors] {
   match proc.run("lex", util.json_cmd(["store", "get", stage_id])) {
     Err(msg) => Err(e.single("", "proc_error", msg)),
     Ok(out) => match util.cli_result(out) {

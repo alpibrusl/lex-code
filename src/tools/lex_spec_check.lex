@@ -83,7 +83,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   }
 }
 
-fn run(spec_file :: Str, source :: Str) -> [io, proc] Result[jv.Json, e.Errors] {
+fn run(spec_file :: Str, source :: Str) -> [proc] Result[jv.Json, e.Errors] {
   match proc.run("lex", ["spec", "check", spec_file, "--source", source]) {
     Err(msg) => Err(e.single("", "proc_error", msg)),
     Ok(out) => match verdict(out) {

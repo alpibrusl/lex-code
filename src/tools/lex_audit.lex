@@ -112,7 +112,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   }
 }
 
-fn run(dimension :: Str, value :: Str, target :: Str) -> [io, proc] Result[jv.Json, e.Errors] {
+fn run(dimension :: Str, value :: Str, target :: Str) -> [proc] Result[jv.Json, e.Errors] {
   match cmd_for(dimension, value, target) {
     Err(msg) => Err(e.single("", "unknown_dimension", msg)),
     Ok(cmd) => match proc.run("lex", cmd) {
