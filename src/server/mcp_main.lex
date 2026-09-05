@@ -28,6 +28,8 @@ import "std.list" as list
 
 import "std.str" as str
 
+import "std.int" as int
+
 import "std.io" as io
 
 import "std.env" as env
@@ -38,9 +40,13 @@ import "lex-llm/src/agent" as ag
 
 import "lex-llm/src/message" as lmsg
 
+import "lex-llm/src/delta" as d
+
 import "lex-agent/src/server" as srv
 
 import "lex-agent/src/message" as amsg
+
+import "lex-agent/src/task" as tk
 
 import "lex-agent/src/agent_card" as card
 
@@ -176,13 +182,73 @@ fn recall_ctx() -> [sql, fs_read, fs_write] Str {
 # synthetic id (MCP has no client-tracked session to attribute them to)
 # and re-recalls before running the loop, so a fact remembered on one
 # call is real memory — attested in the trail — by the next one.
+# #114: a live run today (bar mode via a "thinking" model) burned its
+# whole step budget on a ~36,000-character reply that was pure
+# self-narration — "OK. Let's go. Now. Done. I'll output now..." — and
+# zero real tool calls. bridge.outcome_of_steps returned that text as a
+# normal, completed reply; a caller (human or automated) had no signal
+# the run had degenerated rather than succeeded.
+#
+# True mid-generation cancellation would need lex-llm to expose an
+# abort — out of scope here, and moot for MCP specifically anyway,
+# since make_handler already calls iter.to_list on the whole run_loop
+# before this function ever sees a Step, so the full (wasted) generation
+# already happened by the time detection could run. What IS in scope,
+# entirely on lex-code's side: never hand the raw ramble back as if it
+# were a real answer. 8,000 characters is picked well below today's
+# 36,000-character failure and comfortably above a normal verbose-but-
+# real final answer (the longest genuine replies seen live this session
+# were a few thousand characters).
+fn degenerate_char_threshold() -> Int {
+  8000
+}
+
+fn has_tool_call(steps :: List[d.Step]) -> Bool {
+  match list.head(list.filter(steps, fn (s :: d.Step) -> Bool {
+    match s {
+      StepToolExec(_, _) => true,
+      _ => false,
+    }
+  })) {
+    Some(_) => true,
+    None => false,
+  }
+}
+
+fn final_text_of(steps :: List[d.Step]) -> Str {
+  list.fold(steps, "", fn (acc :: Str, s :: d.Step) -> Str {
+    match s {
+      StepDone(msg) => lmsg.content(msg),
+      _ => acc,
+    }
+  })
+}
+
+fn is_degenerate_ramble(steps :: List[d.Step]) -> Bool {
+  if has_tool_call(steps) {
+    false
+  } else {
+    str.len(final_text_of(steps)) > degenerate_char_threshold()
+  }
+}
+
+fn degenerate_outcome(steps :: List[d.Step]) -> srv.HandlerOutcome {
+  let n := str.len(final_text_of(steps))
+  { next_state: TSCompleted, reply: Some(amsg.agent_text(str.join(["[degenerate response detected: ", int.to_str(n), " characters with zero tool calls — this looks like a reasoning loop, not a real answer. The raw text is being withheld rather than returned as if it were a completed reply. Retry, or try a different model/provider for this mode (see LEX_CODE_PROVIDER_<MODE>)."], ""))), artifacts: [] }
+}
+
 fn make_handler(brains :: Brains) -> (amsg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] srv.HandlerOutcome {
   fn (m :: amsg.Message) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] srv.HandlerOutcome {
     let a := extract(m.parts)
     let request_id := crypto.random_str_hex(16)
     let __consolidated := consolidate.run(request_id)
     let brain := sess.with_memory(brain_for(brains, a.mode), recall_ctx())
-    bridge.outcome_of_steps(iter.to_list(ag.run_loop(brain, [lmsg.user(a.task)])))
+    let steps := iter.to_list(ag.run_loop(brain, [lmsg.user(a.task)]))
+    if is_degenerate_ramble(steps) {
+      degenerate_outcome(steps)
+    } else {
+      bridge.outcome_of_steps(steps)
+    }
   }
 }
 
