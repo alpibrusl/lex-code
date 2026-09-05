@@ -355,12 +355,34 @@ fn handle_session_prompt(id :: jv.Json, params :: jv.Json, registry :: Registry,
     },
     Some(session) => {
       let __reset := think_set(sid, false)
+      let __memory_shown := maybe_show_memory(sid, session)
       let result := sess.run_turn_streaming_with_provider(session, prompt, provider_tag, fn (step :: d.Step) -> [io] Unit {
         handle_step(sid, step)
       })
       let __sent := send(jrpc_result(id, JObj([("stopReason", JStr("end_turn"))])))
       map.set(registry, sid, result.session)
     },
+  }
+}
+
+# Recalled memory (Session.memory, computed once at session/new — #109/#110)
+# was invisible to a client: it shaped the system prompt but nothing in the
+# protocol output ever showed it, so a user had no way to see or correct
+# what the assistant was silently treating as ground truth. Surfaced as an
+# agent_thought_chunk (an already-valid ACP update kind, so this needs no
+# schema change) on the session's first prompt only — session.messages is
+# still empty before any turn has run, which is the natural "first prompt"
+# signal without needing extra state like think_set's file does.
+fn maybe_show_memory(sid :: Str, session :: sess.Session) -> [io] Unit {
+  if list.is_empty(session.messages) {
+    let trimmed := str.trim(session.memory)
+    if str.is_empty(trimmed) {
+      ()
+    } else {
+      send(session_update(sid, "agent_thought_chunk", [("content", JObj([("type", JStr("text")), ("text", JStr(str.concat("[Recalled project memory]\n", trimmed)))]))]))
+    }
+  } else {
+    ()
   }
 }
 
