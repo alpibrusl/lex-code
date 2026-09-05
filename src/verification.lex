@@ -36,7 +36,18 @@ import "std.str" as str
 
 import "std.list" as list
 
-type Record = { kind :: Str, tool :: Str, target :: Str, ts_ms :: Int }
+import "std.crypto" as crypto
+
+# `sig` is a sha256 of `target`'s content at the moment the check that
+# produced this record passed. Empty means either `target` is itself empty
+# (a whole-project-scope pass has no single file to hash) or the record
+# predates this field — #91: without it, a pass recorded against one
+# revision of a file silently kept satisfying checks against a later,
+# broken revision, because nothing tied the record to the bytes it was a
+# pass *of*. `task_spec.lex`'s presence checks are what actually enforce
+# this — a record with a `sig` that no longer matches `target`'s current
+# content does not count as seen.
+type Record = { kind :: Str, tool :: Str, target :: Str, sig :: Str, ts_ms :: Int }
 
 fn path() -> Str
   examples {
@@ -75,17 +86,21 @@ fn is_verified_kind(kind :: Str) -> Bool
 
 fn encode(r :: Record) -> Str
   examples {
-    encode({ kind: "verified.type_check", tool: "lex_check", target: "src/a.lex", ts_ms: 17 }) => "{\"kind\":\"verified.type_check\",\"tool\":\"lex_check\",\"target\":\"src/a.lex\",\"ts_ms\":17}"
+    encode({ kind: "verified.type_check", tool: "lex_check", target: "src/a.lex", sig: "abc123", ts_ms: 17 }) => "{\"kind\":\"verified.type_check\",\"tool\":\"lex_check\",\"target\":\"src/a.lex\",\"sig\":\"abc123\",\"ts_ms\":17}"
   }
 {
-  jv.stringify(JObj([("kind", JStr(r.kind)), ("tool", JStr(r.tool)), ("target", JStr(r.target)), ("ts_ms", JInt(r.ts_ms))]))
+  jv.stringify(JObj([("kind", JStr(r.kind)), ("tool", JStr(r.tool)), ("target", JStr(r.target)), ("sig", JStr(r.sig)), ("ts_ms", JInt(r.ts_ms))]))
 }
 
+# A line written before `sig` existed decodes with `sig: ""` via
+# `str_field`'s missing-field default — treated as never-fresh by
+# `task_spec.lex` (a record that cannot vouch for the content it covers
+# is exactly the gap #91 closes), not as an error.
 fn decode(line :: Str) -> Option[Record] {
   match jv.parse_into_errors(str.trim(line)) {
     Err(_) => None,
     Ok(j) => match jv.get_field(j, "kind") {
-      Some(JStr(k)) => Some({ kind: k, tool: str_field(j, "tool"), target: str_field(j, "target"), ts_ms: int_field(j, "ts_ms") }),
+      Some(JStr(k)) => Some({ kind: k, tool: str_field(j, "tool"), target: str_field(j, "target"), sig: str_field(j, "sig"), ts_ms: int_field(j, "ts_ms") }),
       _ => None,
     },
   }
@@ -125,20 +140,41 @@ fn int_field(j :: jv.Json, name :: Str) -> Int {
 # tool name in `target`. They are historical and simply less precise;
 # nothing rewrites them, because a record is evidence of what was observed
 # at the time.
+#
+# `sig` is always "" here — the session log's event payload never carried
+# the target's content, only that the tool passed. `harvest` is what stamps
+# a real `sig` on afterward, by reading `target` off disk once at harvest
+# time (right after the turn, before anything else can edit it further).
 fn record_of(e :: ev.Event) -> Option[Record]
   examples {
-    record_of({ id: "x", kind: "verified.type_check", parent: None, payload_json: "{\"tool\":\"lex_check\",\"target\":\"src/a.lex\",\"result\":\"pass\"}", ts_ms: 7 }) => Some({ kind: "verified.type_check", tool: "lex_check", target: "src/a.lex", ts_ms: 7 }),
-    record_of({ id: "x", kind: "verified.test", parent: None, payload_json: "{\"tool\":\"lex_test\",\"result\":\"pass\"}", ts_ms: 8 }) => Some({ kind: "verified.test", tool: "lex_test", target: "", ts_ms: 8 }),
+    record_of({ id: "x", kind: "verified.type_check", parent: None, payload_json: "{\"tool\":\"lex_check\",\"target\":\"src/a.lex\",\"result\":\"pass\"}", ts_ms: 7 }) => Some({ kind: "verified.type_check", tool: "lex_check", target: "src/a.lex", sig: "", ts_ms: 7 }),
+    record_of({ id: "x", kind: "verified.test", parent: None, payload_json: "{\"tool\":\"lex_test\",\"result\":\"pass\"}", ts_ms: 8 }) => Some({ kind: "verified.test", tool: "lex_test", target: "", sig: "", ts_ms: 8 }),
     record_of({ id: "x", kind: "cap.completed", parent: None, payload_json: "{}", ts_ms: 9 }) => None
   }
 {
   if is_verified_kind(e.kind) {
     match jv.parse_into_errors(e.payload_json) {
       Err(_) => None,
-      Ok(j) => Some({ kind: e.kind, tool: str_field(j, "tool"), target: str_field(j, "target"), ts_ms: e.ts_ms }),
+      Ok(j) => Some({ kind: e.kind, tool: str_field(j, "tool"), target: str_field(j, "target"), sig: "", ts_ms: e.ts_ms }),
     }
   } else {
     None
+  }
+}
+
+# `target`'s content hash right now, or "" when there is nothing to hash —
+# an empty target (a whole-project-scope pass) or a target this process
+# can't read. "" is also what an unhashable record decodes to, so the two
+# cases are indistinguishable on purpose: both mean "cannot vouch for this
+# as fresh," which is the conservative side to fail on.
+fn sig_for(target :: Str) -> [io] Str {
+  if str.is_empty(target) {
+    ""
+  } else {
+    match io.read(target) {
+      Err(_) => "",
+      Ok(content) => crypto.sha256_str(content),
+    }
   }
 }
 
@@ -147,13 +183,20 @@ fn record_of(e :: ev.Event) -> Option[Record]
 # `since_ms` bounds it to the turn that just ran, so a long session does not
 # re-append every earlier pass on every turn. A duplicate would not be wrong
 # — the same check really did pass twice — but it would bury the file.
-fn harvest(log :: trail_log.Log, since_ms :: Int, now_ms :: Int) -> [sql] List[Record] {
+#
+# `sig_for(r.target)` is stamped on here rather than in `record_of` because
+# only here is there anything to read: the session-log event that produced
+# `r` never carried the file's content, only that the tool passed. Reading
+# `target` now, right after the turn that produced this record, is as close
+# to "the content this pass actually covered" as the session log leaves
+# reachable.
+fn harvest(log :: trail_log.Log, since_ms :: Int, now_ms :: Int) -> [io, sql] List[Record] {
   match trail_log.range(log, since_ms, now_ms) {
     Err(_) => [],
-    Ok(events) => list.fold(events, [], fn (acc :: List[Record], e :: ev.Event) -> List[Record] {
+    Ok(events) => list.fold(events, [], fn (acc :: List[Record], e :: ev.Event) -> [io] List[Record] {
       match record_of(e) {
         None => acc,
-        Some(r) => list.concat(acc, [r]),
+        Some(r) => list.concat(acc, [{ kind: r.kind, tool: r.tool, target: r.target, sig: sig_for(r.target), ts_ms: r.ts_ms }]),
       }
     }),
   }
@@ -192,9 +235,9 @@ fn all() -> [io] List[Record] {
 # missing or unbounded.
 fn scope_of(r :: Record) -> Str
   examples {
-    scope_of({ kind: "k", tool: "lex_check", target: "src/a.lex", ts_ms: 1 }) => "src/a.lex",
-    scope_of({ kind: "k", tool: "lex_check", target: "", ts_ms: 1 }) => "the whole project",
-    scope_of({ kind: "k", tool: "", target: "lex_check", ts_ms: 1 }) => "lex_check"
+    scope_of({ kind: "k", tool: "lex_check", target: "src/a.lex", sig: "", ts_ms: 1 }) => "src/a.lex",
+    scope_of({ kind: "k", tool: "lex_check", target: "", sig: "", ts_ms: 1 }) => "the whole project",
+    scope_of({ kind: "k", tool: "", target: "lex_check", sig: "", ts_ms: 1 }) => "lex_check"
   }
 {
   if str.is_empty(r.target) {
@@ -207,8 +250,8 @@ fn scope_of(r :: Record) -> Str
 fn render(records :: List[Record]) -> Str
   examples {
     render([]) => "",
-    render([{ kind: "verified.type_check", tool: "lex_check", target: "src/a.lex", ts_ms: 17 }]) => "- verified.type_check on src/a.lex (lex_check)",
-    render([{ kind: "verified.test", tool: "", target: "", ts_ms: 1 }]) => "- verified.test on the whole project"
+    render([{ kind: "verified.type_check", tool: "lex_check", target: "src/a.lex", sig: "", ts_ms: 17 }]) => "- verified.type_check on src/a.lex (lex_check)",
+    render([{ kind: "verified.test", tool: "", target: "", sig: "", ts_ms: 1 }]) => "- verified.test on the whole project"
   }
 {
   str.join(list.map(records, fn (r :: Record) -> Str {
