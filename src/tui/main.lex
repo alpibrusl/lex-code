@@ -4,6 +4,12 @@ import "std.str" as str
 
 import "std.list" as list
 
+import "std.time" as time
+
+import "std.crypto" as crypto
+
+import "std.int" as int
+
 import "lex-llm/delta" as d
 
 import "lex-llm/message" as msg
@@ -57,12 +63,33 @@ fn repl(session :: sess.Session, provider_tag :: Str) -> [env, io, net, llm, pro
   }
 }
 
+# A unique id per invocation, not the fixed "cli" new_session_with_provider
+# used to key on. `new_session_from_log` (session.lex) always starts a
+# session's in-memory cache at `messages: []`, regardless of what a log
+# under that id already holds — the right behavior for a graph pipeline
+# node, whose id is reused deliberately across runs of the SAME pipeline,
+# but wrong for a one-shot CLI task: a second `bin/lex-code "task"` in the
+# same project would find "cli"'s log already holding the first run's
+# events, immediately fail the fresh session's event_count check, and
+# refuse before ever reaching the model. A fresh id per invocation gives
+# each run its own file with no such collision.
+fn cli_session_id() -> [time, crypto, random] Str {
+  str.join(["cli-", int.to_str(time.now_ms()), "-", crypto.random_str_hex(4)], "")
+}
+
+# One-shot sessions persist their trail (session.new_session_persistent_with_provider,
+# `.lex/sessions/<id>.db`) rather than the ephemeral in-memory log the REPL
+# uses. A REPL user watches every step live; a one-shot run that stops
+# without producing anything — hits its step budget, say — otherwise
+# leaves no record of what it actually did once the process exits, which
+# is exactly the case that needs a post-mortem the most.
 fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
-  match sess.new_session_with_provider("cli", mode, provider_tag) {
+  let session_id := cli_session_id()
+  match sess.new_session_persistent_with_provider(session_id, mode, provider_tag) {
     Err(e) => io.print(str.concat(str.concat("error: ", e), "\n")),
     Ok(session) => {
       let __printed := sess.run_turn_streaming_with_provider(session, task, provider_tag, print_step)
-      io.print(str.concat("", "\n"))
+      io.print(str.join(["\n(trail: .lex/sessions/", session_id, ".db)\n"], ""))
     },
   }
 }
