@@ -10,9 +10,11 @@ import "std.int" as int
 
 import "lex-schema/json_value" as jv
 
+import "../verification" as verification
+
 type LintOutcome = LintOk(Str) | LintChanged(Str) | LintWarn((Str, Str)) | LintFail((Str, Str))
 
-type RunResult = { summary :: Str, failed :: Bool }
+type RunResult = { summary :: Str, failed :: Bool, checked :: Bool }
 
 # Files at or below this many lines have their full on-disk content echoed back
 # even when `lex fmt` made no change. Larger files are only echoed when
@@ -348,7 +350,7 @@ fn run_for_lex(path :: Str) -> [io, proc] RunResult {
   let outcomes := [fmt, check]
   let base := join_lines(list.map(outcomes, format_outcome))
   let summary := str.concat(base, readback_block(path, has_change(outcomes)))
-  { summary: summary, failed: has_failure(outcomes) }
+  { summary: summary, failed: has_failure(outcomes), checked: true }
 }
 
 # Run all linters appropriate for the given file path, keyed by extension.
@@ -357,7 +359,50 @@ fn run_for_lex(path :: Str) -> [io, proc] RunResult {
 fn run(path :: Str) -> [io, proc] RunResult {
   match str.strip_suffix(path, ".lex") {
     Some(_) => run_for_lex(path),
-    None => { summary: "", failed: false },
+    None => { summary: "", failed: false, checked: false },
+  }
+}
+
+# #90: dispatch_one_traced (lex-llm) only writes a verified.type_check
+# event when a SEPARATE, dispatched tool call reports a pass — this
+# internal check is a plain proc.run inside write/edit's own tool body,
+# invisible to that mechanism no matter how many times it passes. A
+# model that leans entirely on this implicit check-and-repair loop
+# (common under load — a smaller model, a truncated response, a
+# tool-count squeeze per #87) produces objectively correct, type-checked
+# code that a task spec's `verified.type_check` criterion still reports
+# unmet, for a reason that has nothing to do with whether the code is
+# right. Reproduced live today (#115's eval run) across three different
+# providers on the same two tasks.
+#
+# Writes directly to .lex/verified.jsonl instead — the append-only
+# project-level file itself, not the session log dispatch_one_traced
+# writes to and session.lex later harvests from. Tool.execute's row is
+# fixed at [net, io, proc] (no `time`), so `ts_ms` is 0 rather than a
+# real clock reading; nothing that reads the file checks it for
+# freshness (task_spec.lex's `seen`/`seen_on` only check kind + target
+# exist at all), so this doesn't misrepresent anything a reader
+# actually relies on. `tool` still says "write" or "edit" rather than
+# "lex_check", so the record's own provenance remains honest about
+# which of the two ways this project's file came to be verified.
+#
+# In a project session .lex/ is usually already there (memory
+# consolidation creates it), but a fresh checkout — exactly what the
+# eval harness's per-run git worktrees are — has no .lex/ yet, and
+# verification.append_all's plain io.write into a missing directory
+# fails silently once its Result is discarded here. mkdir first so the
+# very first write/edit in a brand-new project still lands. `proc`, not
+# `fs_write`, because Tool.execute's row is fixed at [net, io, proc]
+# (AGENTS.md, record-field effect rows unify by equality) and this runs
+# from inside write/edit's execute — same reason write.lex's own
+# ensure_parent_dir shells out to mkdir instead of using std.fs.
+fn record_verified(tool :: Str, path :: Str, result :: RunResult) -> [proc, io] Unit {
+  if result.checked and not result.failed {
+    let __dir := proc.run("mkdir", ["-p", ".lex"])
+    let __appended := verification.append_all([{ kind: "verified.type_check", tool: tool, target: path, ts_ms: 0 }])
+    ()
+  } else {
+    ()
   }
 }
 
