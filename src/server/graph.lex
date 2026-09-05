@@ -76,12 +76,21 @@ fn impl_then_spec_then_test() -> Node {
   SequenceNode([AgentNode(build_def()), AgentNode(spec_def()), ParallelNode([AgentNode(test_def()), AgentNode(review_def())])])
 }
 
+# #120's "one-command full verify": build, then spec, then test, then
+# review — each stage strictly after the last, unlike
+# impl_then_spec_then_test's parallel test/review tail. review here
+# reviews what test already checked, not the same untested output test
+# is concurrently checking.
+fn full_verify() -> Node {
+  SequenceNode([AgentNode(build_def()), AgentNode(spec_def()), AgentNode(test_def()), AgentNode(review_def())])
+}
+
 fn preset_names() -> List[Str]
   examples {
-    preset_names() => ["impl_then_test", "impl_and_test_parallel", "impl_then_spec_then_test"]
+    preset_names() => ["impl_then_test", "impl_and_test_parallel", "impl_then_spec_then_test", "full_verify"]
   }
 {
-  ["impl_then_test", "impl_and_test_parallel", "impl_then_spec_then_test"]
+  ["impl_then_test", "impl_and_test_parallel", "impl_then_spec_then_test", "full_verify"]
 }
 
 # Resolve a pipeline name from the command line. Unknown names are None
@@ -97,7 +106,11 @@ fn preset(name :: Str) -> Option[Node] {
       if name == "impl_then_spec_then_test" {
         Some(impl_then_spec_then_test())
       } else {
-        None
+        if name == "full_verify" {
+          Some(full_verify())
+        } else {
+          None
+        }
       }
     }
   }
@@ -112,6 +125,7 @@ fn preset_shape(name :: Str) -> Str
     preset_shape("impl_then_test") => "impl → test",
     preset_shape("impl_and_test_parallel") => "impl ∥ test",
     preset_shape("impl_then_spec_then_test") => "impl → spec → (test ∥ review)",
+    preset_shape("full_verify") => "impl → spec → test → review",
     preset_shape("nope") => ""
   }
 {
@@ -126,6 +140,7 @@ fn is_preset(name :: Str) -> Bool
     is_preset("impl_then_test") => true,
     is_preset("impl_and_test_parallel") => true,
     is_preset("impl_then_spec_then_test") => true,
+    is_preset("full_verify") => true,
     is_preset("build") => false,
     is_preset("") => false
   }
@@ -280,7 +295,11 @@ fn spec_matches_preset() -> Bool
 {
   if spec_shape("build,test") == preset_shape("impl_then_test") {
     if spec_shape("build|test") == preset_shape("impl_and_test_parallel") {
-      spec_shape("build,spec,test|review") == preset_shape("impl_then_spec_then_test")
+      if spec_shape("build,spec,test|review") == preset_shape("impl_then_spec_then_test") {
+        spec_shape("build,spec,test,review") == preset_shape("full_verify")
+      } else {
+        false
+      }
     } else {
       false
     }
