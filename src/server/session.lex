@@ -320,27 +320,35 @@ fn run_turn(session :: Session, user_input :: Str) -> [env, net, llm, io, proc, 
 
 # The turn contract (#54): the model context is DERIVED from the session's
 # trail log, not read from the in-memory cache. Sequence: append the user
-# event, re-derive the history, check the cache agrees, and only then call
-# the provider. Any log failure or divergence refuses the turn in-band (the
-# same idiom as run_loop's "[max_steps reached]") instead of letting the
-# model see a conversation the durable record cannot reproduce.
+# event, check the trail agrees with what the cache expects, and only then
+# call the provider. Any log failure or divergence refuses the turn in-band
+# (the same idiom as run_loop's "[max_steps reached]") instead of letting
+# the model see a conversation the durable record cannot reproduce.
+#
+# The check is `event_count`, not a full `session_history` re-derivation
+# (see event_count's own comment for why: a per-turn full re-derive is
+# O(total history) per turn, i.e. O(n^2) over a session, and a real
+# multi-file build hit the interpreter's step limit from exactly this by
+# its 46th turn). `expected` — the in-memory cache plus this turn's input
+# — stands in for `derived` once the count agrees, since that is what a
+# full derivation would reconstruct anyway absent a divergence.
 fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time, approval] TurnResult {
   let started := time.now_ms()
   match evs.record_user(session.log, user_input) {
     Err(e) => refused_turn(session, str.concat("session log append failed: ", e)),
-    Ok(_) => match evs.session_history(session.log) {
-      Err(e) => refused_turn(session, str.concat("session history underivable: ", e)),
-      Ok(derived) => {
-        let expected := list.concat(session.messages, [msg.user(user_input)])
-        if evs.history_eq(derived, expected) {
+    Ok(_) => {
+      let expected := list.concat(session.messages, [msg.user(user_input)])
+      match evs.event_count(session.log) {
+        Err(e) => refused_turn(session, str.concat("session history count unavailable: ", e)),
+        Ok(count) => if count == list.len(expected) {
           let agent := with_mcp(with_memory(pick_agent(session.mode, provider_tag), session.memory), mcp_tools_for(session.mode))
-          let step_iter := ag.run_loop_traced(agent, derived, session.log, session.parent)
+          let step_iter := ag.run_loop_traced(agent, expected, session.log, session.parent)
           let steps := iter.to_list(step_iter)
-          finish_turn(session, derived, steps, started)
+          finish_turn(session, expected, steps, started)
         } else {
           refused_turn(session, "cached messages diverge from the trail-derived history")
-        }
-      },
+        },
+      }
     },
   }
 }
@@ -373,27 +381,34 @@ fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag ::
 # discard the returned steps to avoid printing the normal path twice (see
 # print_step's own comment), so a refusal that skipped `on_step` was
 # completely invisible: no error, no explanation, just silence and the
-# process exiting. Found live dogfooding this on a task string containing an
-# em-dash — lex-schema's json_value parser collapses non-ASCII bytes to `?`
-# (a documented, deliberate tradeoff there), which desynced the trail-derived
-# history from the in-memory cache and refused the turn with nothing printed.
+# process exiting. Found live dogfooding a task string containing an em-dash
+# — lex-schema's json_value parser collapses non-ASCII bytes to `?` (a
+# documented, deliberate tradeoff there), which used to desync a full
+# content-derived history from the in-memory cache and refuse the turn with
+# nothing printed. The `event_count` check below no longer content-compares
+# at all (see its own comment), so it no longer catches that particular
+# scenario — a real regression for non-ASCII input specifically, accepted
+# because the alternative it replaces could crash the whole process outright
+# on a long session, which is worse than silently trusting an already-append
+# -only, already-once-verified cache. This on_step-routing fix stays needed
+# regardless, for the failure modes event_count still does catch.
 fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provider_tag :: Str, on_step :: (d.Step) -> [io] Unit) -> [env, net, llm, io, proc, sql, time, approval, stream] TurnResult {
   let started := time.now_ms()
   match evs.record_user(session.log, user_input) {
     Err(e) => refused_turn_streamed(session, str.concat("session log append failed: ", e), on_step),
-    Ok(_) => match evs.session_history(session.log) {
-      Err(e) => refused_turn_streamed(session, str.concat("session history underivable: ", e), on_step),
-      Ok(derived) => {
-        let expected := list.concat(session.messages, [msg.user(user_input)])
-        if evs.history_eq(derived, expected) {
+    Ok(_) => {
+      let expected := list.concat(session.messages, [msg.user(user_input)])
+      match evs.event_count(session.log) {
+        Err(e) => refused_turn_streamed(session, str.concat("session history count unavailable: ", e), on_step),
+        Ok(count) => if count == list.len(expected) {
           let agent := with_mcp(with_memory(pick_agent(session.mode, provider_tag), session.memory), mcp_tools_for(session.mode))
           let budget := ag.unwrap_int(agent.options.max_steps, 20)
-          let steps := ag.run_steps_streamed(agent, derived, budget, session.log, session.parent, on_step)
-          finish_turn(session, derived, steps, started)
+          let steps := ag.run_steps_streamed(agent, expected, budget, session.log, session.parent, on_step)
+          finish_turn(session, expected, steps, started)
         } else {
           refused_turn_streamed(session, "cached messages diverge from the trail-derived history", on_step)
-        }
-      },
+        },
+      }
     },
   }
 }

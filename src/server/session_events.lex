@@ -176,6 +176,39 @@ fn session_history(log :: trail_log.Log) -> [sql] Result[List[msg.Message], Str]
   }
 }
 
+# A cheap alternative to session_history for the one thing session.lex's
+# per-turn check actually needs to catch: finish_turn's own comment notes
+# that a FAILED evs.record_assistant append is deliberately not patched
+# over, so the in-memory cache and the trail silently disagree until the
+# next turn's check refuses. That disagreement always shows up as a row
+# count behind what the cache expects -- decoding every prior message's
+# JSON to compare its *text* catches the same divergence but costs O(total
+# history) per turn, which makes a long session O(n^2) overall. Reproduced
+# live: a real multi-file package build hit the interpreter's step limit
+# by turn ~46 purely from re-deriving an ever-growing history on every
+# turn, independent of any one message being unusually large.
+#
+# This does not re-verify that already-recorded content hasn't silently
+# changed underneath (the trail is append-only and nothing in this
+# codebase ever updates or deletes an event row, so that risk is already
+# assumed away elsewhere) -- only that nothing has gone missing.
+# session_history itself is unchanged and still used where its full,
+# content-verifying cost is paid once rather than per turn (session
+# resumption, and its own tests).
+fn event_count(log :: trail_log.Log) -> [sql] Result[Int, Str] {
+  let q := str.join(["SELECT COUNT(*) AS n FROM events WHERE kind IN ('", user_kind(), "', '", assistant_kind(), "')"], "")
+  match trail_log.xquery(log.db, q, []) {
+    Err(e) => Err(e.message),
+    Ok(rows) => match list.head(rows) {
+      None => Ok(0),
+      Some(r) => match sql.get_int(r, "n") {
+        None => Ok(0),
+        Some(n) => Ok(n),
+      },
+    },
+  }
+}
+
 # ── Equality ────────────────────────────────────────────────────────────────
 # Two histories are equal iff their canonical encodings are equal — the same
 # encoder writes the events, so this is exact, not heuristic.
