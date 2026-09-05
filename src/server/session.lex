@@ -367,12 +367,22 @@ fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag ::
 #
 # The budget is derived the way run_loop_traced derives it internally, since
 # run_steps_streamed takes it explicitly.
+#
+# A refused turn must reach `on_step` too, not just the returned TurnResult —
+# `run_once`/`repl` (tui/main.lex) print only what `on_step` delivers live and
+# discard the returned steps to avoid printing the normal path twice (see
+# print_step's own comment), so a refusal that skipped `on_step` was
+# completely invisible: no error, no explanation, just silence and the
+# process exiting. Found live dogfooding this on a task string containing an
+# em-dash — lex-schema's json_value parser collapses non-ASCII bytes to `?`
+# (a documented, deliberate tradeoff there), which desynced the trail-derived
+# history from the in-memory cache and refused the turn with nothing printed.
 fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provider_tag :: Str, on_step :: (d.Step) -> [io] Unit) -> [env, net, llm, io, proc, sql, time, approval, stream] TurnResult {
   let started := time.now_ms()
   match evs.record_user(session.log, user_input) {
-    Err(e) => refused_turn(session, str.concat("session log append failed: ", e)),
+    Err(e) => refused_turn_streamed(session, str.concat("session log append failed: ", e), on_step),
     Ok(_) => match evs.session_history(session.log) {
-      Err(e) => refused_turn(session, str.concat("session history underivable: ", e)),
+      Err(e) => refused_turn_streamed(session, str.concat("session history underivable: ", e), on_step),
       Ok(derived) => {
         let expected := list.concat(session.messages, [msg.user(user_input)])
         if evs.history_eq(derived, expected) {
@@ -381,11 +391,35 @@ fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provi
           let steps := ag.run_steps_streamed(agent, derived, budget, session.log, session.parent, on_step)
           finish_turn(session, derived, steps, started)
         } else {
-          refused_turn(session, "cached messages diverge from the trail-derived history")
+          refused_turn_streamed(session, "cached messages diverge from the trail-derived history", on_step)
         }
       },
     },
   }
+}
+
+# Same refusal `refused_turn` already builds, but also pushed through
+# `on_step` — the streaming callers' only channel to the user.
+#
+# A normal turn's answer reaches the terminal as TextChunk deltas WHILE it
+# streams; by the time its StepDone arrives the text is already on screen,
+# which is why tui/main.lex's print_step deliberately prints nothing for
+# StepDone (see its own comment — printing the text again there would
+# duplicate it). A refusal has no such preceding stream: it never reaches
+# the model at all. So this emits the reason as a TextChunk FIRST — the one
+# channel print_step actually renders — and only then the StepDone that
+# closes the turn, rather than relying on a StepDone payload nothing prints.
+fn refused_turn_streamed(session :: Session, reason :: Str, on_step :: (d.Step) -> [io] Unit) -> [io] TurnResult {
+  let result := refused_turn(session, reason)
+  let __echoed := match find_done_msg(result.steps) {
+    None => (),
+    Some(m) => match m {
+      AssistantMsg(text, _) => on_step(StepDelta(TextChunk(text))),
+      _ => (),
+    },
+  }
+  let __streamed := list.map(result.steps, on_step)
+  result
 }
 
 # Close a turn: record the assistant reply as a durable event and extend the
