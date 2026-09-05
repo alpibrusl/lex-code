@@ -20,8 +20,14 @@ bash examples/manifesto_full_chain/demo.sh
 ## Quickstart
 
 Use `bin/lex-code` rather than calling `lex run` by hand: it supplies
-the capability grant every session needs and the `main --` separator
-that stops your first flag being read as a function name.
+the capability grant every session needs, the `main --` separator that
+stops your first flag being read as a function name, and a raised
+`--max-steps` — the VM's 10,000,000-step default is a DoS guard for
+untrusted sandboxed snippets, not for a long agentic session, and a
+verbose provider's ordinary output can hit it outright partway through
+a real task. Calling `lex run` directly (as the rest of this README
+does, for entry points other than the TUI) needs the same flag added
+by hand; see `bin/lex-code`'s own comment for the full story.
 
 ```sh
 # set provider key
@@ -43,7 +49,7 @@ export ANTHROPIC_API_KEY=sk-...
 lex run src/bootstrap/run.lex
 
 # web UI + HTTP API on :7700 (see Web Frontend)
-lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
+lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/server/web.lex serve_web
 ```
 
@@ -128,17 +134,17 @@ VLLM_MODEL=deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct \
 ```sh
 # native (direct to the Go endpoint, no proxy)
 export OPENCODE_API_KEY=$(cat ~/.credentials/opencode/key | tr -d '\n')
-lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
+lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/tui/main.lex main -- --opencode "implement list.zip"
 
 # override the default model (kimi-k2.7-code)
 OPENCODE_MODEL=qwen3.7-max \
-  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
+  lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/tui/main.lex main -- --opencode "implement list.zip"
 
 # via the LiteLLM proxy instead (shares one proxy + model list with lex-loom — see below)
 LITELLM_MODEL=deepseek-v4-flash \
-  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
+  lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/tui/main.lex main -- --litellm "implement list.zip"
 ```
 
@@ -158,23 +164,23 @@ cd ..
 
 # run lex-code against qwen3-coder:30b (recommended local model)
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
+  lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/tui/main.lex main
 
 # one-shot via the --litellm flag
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
+  lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/tui/main.lex main -- --litellm "implement list.zip"
 
 # OpenCode Go through the proxy instead of native --opencode
 LITELLM_MODEL=kimi-k2.7-code \
-  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
+  lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/tui/main.lex main -- --litellm "implement list.zip"
 
 # override the proxy URL (default: http://localhost:4000)
 LITELLM_BASE_URL=http://gpu-box:4000 \
 LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
+  lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/tui/main.lex main -- --litellm
 ```
 
@@ -488,7 +494,7 @@ server-launch choice, not a per-call argument.
 
 ```sh
 LEX_CODE_PROVIDER=anthropic ANTHROPIC_API_KEY=… \
-lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
+lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/server/mcp_main.lex main &
 
 curl -s http://localhost:7778/.well-known/agent.json
@@ -513,7 +519,7 @@ carries a server for it.
 
 ```sh
 LEX_CODE_PROVIDER=anthropic ANTHROPIC_API_KEY=… \
-  lex run --allow-effects approval,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
+  lex run --max-steps 20000000000 --allow-effects approval,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/server/client_protocol.lex main
 ```
 
@@ -628,7 +634,7 @@ lex-code
 process is the whole thing — no separate static server needed.
 
 ```sh
-lex run --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
+lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/server/web.lex serve_web
 
 # then open http://localhost:7700

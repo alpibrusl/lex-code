@@ -113,10 +113,15 @@ for task in $EVAL_TASKS; do
         exit 2
       fi
       lex pkg install >>"$log_file" 2>&1
+      # --max-steps: the VM's 10,000,000-step default is a DoS guard for
+      # untrusted sandboxed snippets (lex run --help), not for a trusted,
+      # multi-turn agent run — a verbose provider's normal output can hit
+      # it outright partway through a task (bin/lex-code sets the same
+      # override, and explains why in its own comment).
       LEX_TASK_SPEC="$REPO_ROOT/$task" \
         LEX_PROVIDER="$provider" \
         LEX_PIPELINE="$EVAL_PIPELINE" \
-        lex run --allow-effects "$ALLOW_EFFECTS" src/bootstrap/run.lex main >>"$log_file" 2>&1
+        lex run --max-steps 20000000000 --allow-effects "$ALLOW_EFFECTS" src/bootstrap/run.lex main >>"$log_file" 2>&1
     )
     run_status=$?
 
