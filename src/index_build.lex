@@ -234,7 +234,7 @@ fn reusable(cfg :: embed.Config, prev :: Option[embed.Config]) -> Bool
 # Accumulates reversed: `list.concat(acc, [e])` copies the whole list on
 # every append, which is the second half of the quadratic blowup above.
 # The caller reverses once.
-fn fold_docs(cfg :: embed.Config, docs :: List[Doc], usable :: Map[Str, List[Float]], acc :: List[embed.Entry]) -> [io, net] Result[List[embed.Entry], Str] {
+fn fold_docs(cfg :: embed.Config, docs :: List[Doc], usable :: Map[Str, List[Float]], acc :: List[embed.Entry]) -> [net] Result[List[embed.Entry], Str] {
   match list.head(docs) {
     None => Ok(acc),
     Some(d) => match entry_for(cfg, d, usable) {
