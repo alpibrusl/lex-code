@@ -23,6 +23,8 @@ import "../bar/checks" as checks
 
 import "../bar/ledger" as ledger
 
+import "./effect_minimality" as effmin
+
 import "./util" as util
 
 fn params() -> s.ModelSchema {
@@ -56,9 +58,20 @@ fn run_one(root :: Str, path :: Str, id :: Str) -> [io, proc] Result[jv.Json, e.
   }
 }
 
+# Lex-native evidence the ledger's two source books have no way to ask
+# for — they were written for prose checklists, not a typed effect
+# system — so this is deliberately a separate section, not a 15th
+# ledger item pretending to be sourced from either book (#121). #119's
+# effect_minimality probe is the first signal here: a declared effect
+# row wider than the body needs, something no general-purpose review
+# tool could check at all.
+fn lex_native_signals(path :: Str) -> [io, proc] Str {
+  str.join(["\nLEX-NATIVE SIGNALS — not from either source book; specific to what a typed effect system can prove about itself.\n\n", effmin.report(path)], "")
+}
+
 fn run_walk(root :: Str, path :: Str) -> [io, proc] Result[jv.Json, e.Errors] {
   let probes := checks.run_all(root, path)
-  Ok(JStr(str.join(["MINIMUM BAR — repository probes over ", root, "\n\n", str.join(list.map(probes, checks.render), "\n\n"), "\n", open_items()], "")))
+  Ok(JStr(str.join(["MINIMUM BAR — repository probes over ", root, "\n\n", str.join(list.map(probes, checks.render), "\n\n"), "\n", lex_native_signals(path), "\n", open_items()], "")))
 }
 
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
