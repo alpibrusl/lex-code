@@ -70,9 +70,22 @@ fn google_agent() -> [env] ag.AgentLoop {
 # endpoint over full-scale cloud models (DeepSeek, Qwen3, Kimi, GLM, MiniMax,
 # MiMo), not a small local model, so it gets the same full tool budget as the
 # other cloud providers above rather than litellm/ollama's stripped-down
-# treatment. OPENCODE_API_KEY required; OPENCODE_MODEL overrides the default.
+# treatment. OPENCODE_API_KEY required; OPENCODE_MODEL overrides the default
+# (kimi-k2.7-code).
+#
+# max_steps raised from the other cloud providers' 50: watched a real build
+# (a from-scratch RLP codec, kimi-k2.7-code) via the persisted one-shot trail
+# (tui/main.lex#cli_session_id) run out of budget one or two turns from
+# done — the implementation was already correct and independently verified,
+# and the model was mid-fix on a syntax error in the test file, having just
+# run a python one-liner to inspect the exact broken byte range, when
+# `[max_steps reached]` cut it off. 200 gives real margin without being
+# unbounded: unlike the VM's own step ceiling (a compute-time guard, safe to
+# raise arbitrarily high for trusted code — see bin/lex-code), each step
+# here is a paid API call, so an actually-stuck loop should still hit a
+# wall rather than run forever.
 fn opencode_agent() -> [env] ag.AgentLoop {
-  let base := { name: "build", goal: bp.system(), model: prov.make_model_ref("opencode", tools.opencode_model()), provider: providers.opencode_go(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
+  let base := { name: "build", goal: bp.system(), model: prov.make_model_ref("opencode", tools.opencode_model()), provider: providers.opencode_go(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(200), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
