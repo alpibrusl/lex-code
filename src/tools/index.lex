@@ -24,6 +24,12 @@ import "./lex_run" as run_tool
 
 import "./lex_test" as test_tool
 
+import "./lex_stdlib" as stdlib_tool
+
+import "./lex_guide" as guide_tool
+
+import "./lex_cli_help" as cli_help_tool
+
 import "./lex_spec_check" as spec_check_tool
 
 import "./lex_spec_smt" as spec_smt_tool
@@ -149,7 +155,7 @@ fn all_tools() -> List[t.Tool] {
 # enough for the curated core; it doesn't need load_toolset gating the
 # way the heavier vcs/spec/store groups do.
 fn minimal_tools() -> List[t.Tool] {
-  [read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), remember_tool.tool(), check_tool.tool(), run_tool.tool(), test_tool.tool()]
+  [read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), remember_tool.tool(), check_tool.tool(), run_tool.tool(), test_tool.tool(), stdlib_tool.tool(), guide_tool.tool(), cli_help_tool.tool()]
 }
 
 # Model name advertised to the LiteLLM proxy (must match a model_name in
