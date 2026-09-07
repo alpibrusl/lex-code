@@ -770,6 +770,24 @@ name or a spec. An unrecognised agent is refused with the list of valid ones
 rather than skipped: a pipeline quietly missing a stage is a run that looks
 successful and did less than it was asked to.
 
+### The fix loop — `impl_test_fix_loop`
+
+Every preset above runs each stage exactly once, win or lose: if `test`'s
+tests fail, that failure is just the pipeline's final state — nothing
+reruns `build` with it. `impl_test_fix_loop` (`--pipeline=impl_test_fix_loop`,
+or `LEX_PIPELINE=impl_test_fix_loop` for the bootstrap script) does: `impl →
+test`, then a real subprocess (`lex test tests`, the same command
+`lex_test`'s tool wraps) decides pass or fail by exit code — never by asking
+the fixing agent whether it thinks it's done, the same "mechanical, not
+LLM-judged" rule `examples/tasks/*.task`'s criteria already apply to one task,
+extended across attempts. On a nonzero exit it re-runs `impl` (up to twice)
+with that command's actual output appended to the task, so the model is
+fixing a named failure, not guessing at one. Each retry gets its own session
+id (`impl_retry1`, `impl_retry2`) so the persistent trail keeps every
+attempt separately, `.lex/sessions/impl_retry1.db` included, rather than a
+later round colliding with an earlier one on disk. It is preset-only — the
+`,`/`|` spec grammar composes fixed agent names, and a retry loop isn't one.
+
 ## Eval harness
 
 Nothing else in this repo measures whether lex-code writes good Lex — CI

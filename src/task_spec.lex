@@ -191,7 +191,7 @@ fn label_of(c :: SuccessCriterion) -> Str
   examples {
     label_of(CheckPasses("src/a.lex")) => "lex check src/a.lex",
     label_of(SpecCheckPasses("src/a.lex")) => "lex spec check src/a.lex",
-    label_of(TestPasses("tests/t.lex")) => "lex test tests/t.lex",
+    label_of(TestPasses("tests/t.lex")) => "lex run tests/t.lex run_all",
     label_of(VerifiedKindSeen("verified.test")) => "a verified.test pass recorded in this project",
     label_of(VerifiedTargetSeen("src/a.lex", "verified.test")) => "a verified.test pass recorded on src/a.lex",
     label_of(Malformed("oops")) => "malformed verified_on entry \"oops\""
@@ -200,7 +200,7 @@ fn label_of(c :: SuccessCriterion) -> Str
   match c {
     CheckPasses(p) => str.concat("lex check ", p),
     SpecCheckPasses(p) => str.concat("lex spec check ", p),
-    TestPasses(p) => str.concat("lex test ", p),
+    TestPasses(p) => str.join(["lex run ", p, " run_all"], ""),
     VerifiedKindSeen(k) => str.join(["a ", k, " pass recorded in this project"], ""),
     VerifiedTargetSeen(t, k) => str.join(["a ", k, " pass recorded on ", t], ""),
     Malformed(entry) => str.join(["malformed verified_on entry \"", entry, "\""], ""),
