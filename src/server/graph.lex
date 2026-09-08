@@ -21,13 +21,19 @@
 
 import "lex-llm/delta" as d
 
-import "lex-llm/message" as msg
+import "lex-trail/log" as trail_log
+
+import "lex-trail/event" as trail_ev
+
+import "lex-trail/kinds" as kinds
 
 import "std.list" as list
 
 import "std.str" as str
 
 import "std.int" as int
+
+import "std.time" as time
 
 import "std.process" as proc
 
@@ -594,17 +600,30 @@ fn run_agent(def :: AgentDef, task :: Str, provider_tag :: Str) -> [env, net, ll
   }
 }
 
-# Same as `run_agent`, but also hands back the turn's full conversation —
-# needed only by the fix loop's verify gate, which has to read a `ToolMsg`
-# it did not itself dispatch (see `tool_result_texts`'s comment). Every
-# other caller uses `run_agent`/`run_agent_persistent`, which discard the
-# session because nothing else needs anything past `NodeResult`.
-fn run_agent_with_messages(def :: AgentDef, task :: Str, provider_tag :: Str) -> [env, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] (NodeResult, List[msg.Message]) {
+# Same as `run_agent`, but also hands back the turn's trail events —
+# needed only by the fix loop's verify gate, which has to read a tool
+# result it did not itself dispatch (see `tool_result_texts`'s comment for
+# why `Session.messages`/`d.Step` cannot supply this). Every other caller
+# uses `run_agent`/`run_agent_persistent`, which discard the session
+# because nothing else needs anything past `NodeResult`.
+#
+# `trail_log.range` reads events by timestamp window, not by session —
+# the same connection two callers query with two different windows sees
+# only their own turn's events, but a query wide enough to span BOTH
+# would see both. `started`/`ended` bracket exactly this one turn, so
+# that is only a hazard for calls sharing a log AND overlapping in time,
+# which nothing here does (rounds run strictly one after another).
+fn run_agent_with_events(def :: AgentDef, task :: Str, provider_tag :: Str) -> [env, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] (NodeResult, List[trail_ev.Event]) {
   match sess.new_session_with_provider(def.name, def.mode, provider_tag) {
     Err(_) => ({ name: def.name, steps: [] }, []),
     Ok(session) => {
+      let started := time.now_ms()
       let result := sess.run_turn_with_provider(session, shape(def, task), provider_tag)
-      ({ name: def.name, steps: result.steps }, result.session.messages)
+      let ended := time.now_ms()
+      match trail_log.range(result.session.log, started, ended) {
+        Err(_) => ({ name: def.name, steps: result.steps }, []),
+        Ok(events) => ({ name: def.name, steps: result.steps }, events),
+      }
     },
   }
 }
@@ -671,41 +690,53 @@ fn fix_task(task :: Str, def :: FixLoopDef, out :: { stdout :: Str, stderr :: St
 # "OK <name>" / "FAIL <name> got=... want=..." via a real `lex_run`, not a
 # prose verdict — validated live against lex-abi's encode_call (2026-09-08,
 # after #144/#145/#146): the final run's own `lex_run` call literally
-# printed "OK selector\nFAIL encode_call got=...". That text lands in the
-# turn's `ToolMsg` conversation history (`Session.messages`), not in
-# `d.Step` — `StepToolResult` carries only `(call_id, success_bool)`, not
-# the tool's returned content (`lex-llm/agent.lex`'s own dispatcher
-# constructs it from `disp.call.id`/`disp.success`, never the result body).
-# Scanning `ToolMsg` content for "FAIL" inspects the same class of
-# evidence as an exit code — a real subprocess's captured stdout — just
-# recorded inside the transcript, because verify's own file returns a
-# rendered `Str` rather than calling `std.process.exit`; nothing about a
-# Lex function's return value is meant to gate anything by itself, this
-# loop is what turns its printed output into one.
-fn tool_result_texts(messages :: List[msg.Message]) -> List[Str] {
-  list.fold(messages, [], fn (acc :: List[Str], m :: msg.Message) -> List[Str] {
-    match m {
-      ToolMsg(_, text) => list.concat(acc, [text]),
-      _ => acc,
+# printed "OK selector\nFAIL encode_call got=...".
+#
+# That text is NOT reachable from `TurnResult` at all — a first attempt at
+# this reached for `Session.messages`' `ToolMsg` entries and shipped
+# broken (#148), caught live in a controlled follow-up test: `finish_turn`
+# (session.lex) only ever appends the turn's FINAL `StepDone` message to
+# `session.messages`, never the `ToolMsg`s a mid-loop tool dispatch
+# produces, so the scan silently saw zero text and no FAIL was ever
+# detected. `d.Step` cannot help either — `StepToolResult` carries only
+# `(call_id, success_bool)`, not the tool's returned content
+# (`lex-llm/agent.lex`'s dispatcher constructs it from `disp.call.id`/
+# `disp.success`, never the result body). The one place the text actually
+# lands is the session's own trail (`Session.log`), which every tool
+# dispatch appends a `cap.completed`/`cap.failed` event to as it happens
+# (`lex-llm/agent.lex`'s `cap_completed_json`) — the same log this
+# session's own manual `sqlite3 .../sessions/*.db` inspections read from
+# throughout. Scanning it for "FAIL" inspects the same class of evidence
+# as an exit code — a real subprocess's captured stdout — just recorded
+# in the trail because verify's own file returns a rendered `Str` rather
+# than calling `std.process.exit`; nothing about a Lex function's return
+# value is meant to gate anything by itself, this loop is what turns its
+# printed output into one.
+fn tool_result_texts(events :: List[trail_ev.Event]) -> List[Str] {
+  list.fold(events, [], fn (acc :: List[Str], e :: trail_ev.Event) -> List[Str] {
+    if e.kind == kinds.cap_completed() and str.contains(e.payload_json, "\"lex_run\"") {
+      list.concat(acc, [e.payload_json])
+    } else {
+      acc
     }
   })
 }
 
-fn verify_found_failure(messages :: List[msg.Message]) -> Bool
+fn verify_found_failure(events :: List[trail_ev.Event]) -> Bool
   examples {
     verify_found_failure([]) => false,
-    verify_found_failure([ToolMsg("call1", "OK selector\nOK encode_call")]) => false,
-    verify_found_failure([ToolMsg("call1", "OK selector\nFAIL encode_call got=x want=y")]) => true,
-    verify_found_failure([UserMsg("hi"), ToolMsg("call1", "all fine")]) => false
+    verify_found_failure([trail_ev.make("cap.completed", None, "{\"capability\":\"lex_run\",\"result\":\"OK selector\\nOK encode_call\"}", 0)]) => false,
+    verify_found_failure([trail_ev.make("cap.completed", None, "{\"capability\":\"lex_run\",\"result\":\"OK selector\\nFAIL encode_call got=x want=y\"}", 0)]) => true,
+    verify_found_failure([trail_ev.make("cap.invoked", None, "{\"capability\":\"lex_run\",\"args\":{\"fn_name\":\"FAIL_looking_but_unrun\"}}", 0)]) => false
   }
 {
-  list.fold(tool_result_texts(messages), false, fn (acc :: Bool, text :: Str) -> Bool {
+  list.fold(tool_result_texts(events), false, fn (acc :: Bool, text :: Str) -> Bool {
     acc or str.contains(text, "FAIL")
   })
 }
 
-fn verify_fix_task(task :: Str, verify_messages :: List[msg.Message]) -> Str {
-  str.join([task, "\n\nAn independent verification pass found a problem with the implementation. It re-derived the expected values itself rather than trusting the implementation's own tests, so this is not the same claim as a failing test.\nVerification output:\n", truncate_for_prompt(str.join(tool_result_texts(verify_messages), "\n")), "\n\nFind and fix the bug that caused this. Do not rewrite unrelated working code, and do not edit the verification file itself."], "")
+fn verify_fix_task(task :: Str, verify_events :: List[trail_ev.Event]) -> Str {
+  str.join([task, "\n\nAn independent verification pass found a problem with the implementation. It re-derived the expected values itself rather than trusting the implementation's own tests, so this is not the same claim as a failing test.\nVerification output:\n", truncate_for_prompt(str.join(tool_result_texts(verify_events), "\n")), "\n\nFind and fix the bug that caused this. Do not rewrite unrelated working code, and do not edit the verification file itself."], "")
 }
 
 fn run_fix_loop(def :: FixLoopDef, task :: Str, provider_tag :: Str) -> [env, concurrent, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] List[NodeResult] {
@@ -740,15 +771,15 @@ fn fix_round(def :: FixLoopDef, task :: Str, provider_tag :: Str, round :: Int, 
         None => acc,
         Some(vdef) => {
           let verify_def_r := { name: round_name(vdef.name, round), mode: vdef.mode, task_prefix: vdef.task_prefix }
-          let verify_run := run_agent_with_messages(verify_def_r, task, provider_tag)
+          let verify_run := run_agent_with_events(verify_def_r, task, provider_tag)
           match verify_run {
-            (verify_result, verify_messages) => if verify_found_failure(verify_messages) {
+            (verify_result, verify_events) => if verify_found_failure(verify_events) {
               if round >= def.max_rounds {
                 list.concat(acc, [verify_result])
               } else {
                 let next_round := round + 1
                 let fix_def := { name: round_name(def.fix.name, next_round), mode: def.fix.mode, task_prefix: def.fix.task_prefix }
-                let fix_result := run_agent(fix_def, verify_fix_task(task, verify_messages), provider_tag)
+                let fix_result := run_agent(fix_def, verify_fix_task(task, verify_events), provider_tag)
                 fix_round(def, task, provider_tag, next_round, list.concat(acc, [verify_result, fix_result]))
               }
             } else {
@@ -809,15 +840,15 @@ fn fix_round_persistent(def :: FixLoopDef, task :: Str, provider_tag :: Str, rou
         None => acc,
         Some(vdef) => {
           let verify_def_r := { name: round_name(vdef.name, round), mode: vdef.mode, task_prefix: vdef.task_prefix }
-          let verify_run := run_agent_persistent_with_messages(verify_def_r, task, provider_tag)
+          let verify_run := run_agent_persistent_with_events(verify_def_r, task, provider_tag)
           match verify_run {
-            (verify_result, verify_messages) => if verify_found_failure(verify_messages) {
+            (verify_result, verify_events) => if verify_found_failure(verify_events) {
               if round >= def.max_rounds {
                 list.concat(acc, [verify_result])
               } else {
                 let next_round := round + 1
                 let fix_def := { name: round_name(def.fix.name, next_round), mode: def.fix.mode, task_prefix: def.fix.task_prefix }
-                let fix_result := run_agent_persistent(fix_def, verify_fix_task(task, verify_messages), provider_tag)
+                let fix_result := run_agent_persistent(fix_def, verify_fix_task(task, verify_events), provider_tag)
                 fix_round_persistent(def, task, provider_tag, next_round, list.concat(acc, [verify_result, fix_result]))
               }
             } else {
@@ -840,13 +871,18 @@ fn run_agent_persistent(def :: AgentDef, task :: Str, provider_tag :: Str) -> [e
   }
 }
 
-# Persistent counterpart to `run_agent_with_messages` — see its comment.
-fn run_agent_persistent_with_messages(def :: AgentDef, task :: Str, provider_tag :: Str) -> [env, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] (NodeResult, List[msg.Message]) {
+# Persistent counterpart to `run_agent_with_events` — see its comment.
+fn run_agent_persistent_with_events(def :: AgentDef, task :: Str, provider_tag :: Str) -> [env, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] (NodeResult, List[trail_ev.Event]) {
   match sess.new_session_persistent_with_provider(def.name, def.mode, provider_tag) {
     Err(_) => ({ name: def.name, steps: [] }, []),
     Ok(session) => {
+      let started := time.now_ms()
       let result := sess.run_turn_with_provider(session, shape(def, task), provider_tag)
-      ({ name: def.name, steps: result.steps }, result.session.messages)
+      let ended := time.now_ms()
+      match trail_log.range(result.session.log, started, ended) {
+        Err(_) => ({ name: def.name, steps: result.steps }, []),
+        Ok(events) => ({ name: def.name, steps: result.steps }, events),
+      }
     },
   }
 }
