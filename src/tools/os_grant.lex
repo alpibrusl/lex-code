@@ -59,7 +59,7 @@ fn grant_summary_for_mode(mode :: Str) -> Str {
     if mode == "bar" {
       "fs=read-only net=none exec=sandboxed"
     } else {
-      if mode == "spec" {
+      if mode == "spec" or mode == "verify" {
         "fs=read-write net=none exec=none"
       } else {
         if mode == "test" or mode == "refactor" {

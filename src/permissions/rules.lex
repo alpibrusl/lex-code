@@ -87,6 +87,19 @@ fn test_permission() -> sp.Spec {
   allow_tools("test_tools", ["read", "write", "edit", "grep", "glob", "lex_check", "lex_run", "lex_test"])
 }
 
+# Verify never edits — the implementation and its existing test file are
+# both off limits for changes; `write` is for the verifier's OWN new,
+# separate verification file only. No `bash`/exec, same discipline as
+# `bar_permission`'s "a walk cannot quietly turn into a fix": a verifier
+# that can shell out can also quietly patch around what it finds.
+#
+# lex_stdlib/lex_guide/lex_cli_help (atomic on-demand context, #141)
+# belong here too once merged — a verifier writing its own Lex code
+# should have the same "ask, don't guess" tools build/test get.
+fn verify_permission() -> sp.Spec {
+  allow_tools("verify_tools", ["read", "write", "grep", "glob", "lex_check", "lex_run", "lex_test"])
+}
+
 fn build_permission() -> sp.Spec {
   { name: "build_all", quantifiers: [QStr("tool")], predicate: EConst(VBool(true)) }
 }
@@ -117,7 +130,11 @@ fn mode_of_spec(spec :: sp.Spec) -> Str {
               if spec.name == "test_tools" {
                 "test"
               } else {
-                "build"
+                if spec.name == "verify_tools" {
+                  "verify"
+                } else {
+                  "build"
+                }
               }
             }
           }

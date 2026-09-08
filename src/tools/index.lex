@@ -229,6 +229,16 @@ fn review_dynamic_tools() -> List[t.Tool] {
   list.concat(dynamic_tools(), [attest_tool.tool(), effects_tool.tool(), audit_tool.tool(), sigid_tool.tool()])
 }
 
+# Standalone, not built on dynamic_tools(): verify's grant has no
+# bash/edit (rules.verify_permission()), so it should not even see
+# tools it is refused the moment it calls them. `write` is here for the
+# verifier's own new verification file only — read/grep/glob/lex_check/
+# lex_run/lex_test are what it needs to inspect an implementation and
+# run its own checks against it.
+fn verify_dynamic_tools() -> List[t.Tool] {
+  [read_tool.tool(), write_tool.tool(), grep_tool.tool(), glob_tool.tool(), check_tool.tool(), run_tool.tool(), test_tool.tool()]
+}
+
 # explore/plan/refactor's local variants had `tools: []` and
 # `max_steps: Some(3)` — not curated-minimal, just entirely unwired,
 # unlike every other local mode. Confirmed live: an explore-mode call
