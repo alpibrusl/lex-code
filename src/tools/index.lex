@@ -234,9 +234,13 @@ fn review_dynamic_tools() -> List[t.Tool] {
 # tools it is refused the moment it calls them. `write` is here for the
 # verifier's own new verification file only — read/grep/glob/lex_check/
 # lex_run/lex_test are what it needs to inspect an implementation and
-# run its own checks against it.
+# run its own checks against it. lex_stdlib/lex_guide/lex_cli_help are
+# here for the same reason build/test get them: a verifier authoring
+# its own Lex code should ask a stdlib signature or a syntax rule
+# rather than guess it — confirmed the hard way in #143's live test,
+# which burned its whole step budget on exactly that class of mistake.
 fn verify_dynamic_tools() -> List[t.Tool] {
-  [read_tool.tool(), write_tool.tool(), grep_tool.tool(), glob_tool.tool(), check_tool.tool(), run_tool.tool(), test_tool.tool()]
+  [read_tool.tool(), write_tool.tool(), grep_tool.tool(), glob_tool.tool(), check_tool.tool(), run_tool.tool(), test_tool.tool(), stdlib_tool.tool(), guide_tool.tool(), cli_help_tool.tool()]
 }
 
 # explore/plan/refactor's local variants had `tools: []` and
