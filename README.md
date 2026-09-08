@@ -790,6 +790,24 @@ attempt separately, `.lex/sessions/impl_retry1.db` included, rather than a
 later round colliding with an earlier one on disk. It is preset-only — the
 `,`/`|` spec grammar composes fixed agent names, and a retry loop isn't one.
 
+### The fix loop, verified — `impl_test_fix_loop_verified`
+
+`lex test tests` exiting 0 is evidence the test file's own assertions held,
+not evidence they asserted the right thing — a fix-loop bug this session
+found twice for real: a compiler bug that made an empty test directory
+exit 0 (fixed upstream, lex-lang v0.10.17), and a mistyped expected value
+in an implementation's own tests. `impl_test_fix_loop_verified`
+(`--pipeline=impl_test_fix_loop_verified`) is `impl_test_fix_loop` with one
+more gate: once `lex test tests` passes, a `verify` agent runs and
+independently re-derives whether the implementation is actually correct
+instead of trusting anything already on disk (see [Independent
+verification mode](#independent-verification-mode) — `verify` never edits
+the implementation or its tests). A FAIL it reports goes to the same `fix`
+agent, from the same shared retry budget as a mechanical failure — not a
+second one — and the next round re-checks `lex test` before trusting
+`verify` again, since a fix aimed at `verify`'s finding could in principle
+break a test that was passing before.
+
 ## Eval harness
 
 Nothing else in this repo measures whether lex-code writes good Lex — CI
