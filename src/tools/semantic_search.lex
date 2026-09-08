@@ -16,6 +16,8 @@ import "std.str" as str
 
 import "std.list" as list
 
+import "std.process" as proc
+
 import "std.int" as int
 
 import "lex-llm/tool" as t
@@ -68,7 +70,7 @@ fn k_of(args :: jv.Json) -> Int {
 # query is embedded with those rather than with anything configured here.
 # A cosine between vectors from two different models is a number with no
 # meaning, so this is the only correct source for that choice.
-fn search(query :: Str, k :: Int) -> [net, io] Result[jv.Json, e.Errors] {
+fn search(query :: Str, k :: Int) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match embed.read_index() {
     (None, _) => Err(e.single("", "no_index", missing_index_msg())),
     (Some(cfg), entries) => if list.is_empty(entries) {
@@ -76,7 +78,7 @@ fn search(query :: Str, k :: Int) -> [net, io] Result[jv.Json, e.Errors] {
     } else {
       match embed.embed_one(cfg, query) {
         Err(msg) => Err(e.single("", "embed_failed", msg)),
-        Ok(qvec) => Ok(JStr(render(query, embed.top_k(embed.score_all(entries, embed.truncate(qvec, cfg.dims)), k), cfg))),
+        Ok(qvec) => Ok(JStr(render(query, embed.top_k(embed.score_all(entries, embed.truncate(qvec, cfg.dims)), k), cfg, git_head()))),
       }
     },
   }
@@ -86,15 +88,50 @@ fn missing_index_msg() -> Str {
   str.join(["no semantic index at ", embed.index_path(), ". Build one with:\n\n  lex run --allow-effects env,io,net,proc src/index_build.lex main\n\nIt needs a LiteLLM proxy reachable at LITELLM_BASE_URL (default ", embed.default_base_url(), ") serving an embedding model as LEX_EMBED_MODEL (default ", embed.default_model(), ")."], "")
 }
 
+# "" outside a git checkout or if `git` itself fails — same convention as
+# index_build.lex's own git_head, duplicated rather than shared: two
+# independent tool-facing files each small enough that a shared import
+# would cost more than it saves.
+fn git_head() -> [proc] Str {
+  match proc.run("git", ["rev-parse", "HEAD"]) {
+    Err(_) => "",
+    Ok(out) => if out.exit_code == 0 {
+      str.trim(out.stdout)
+    } else {
+      ""
+    },
+  }
+}
+
+# A heuristic, not a guarantee: a commit that never touched a function
+# signature would not actually make the index stale, and this cannot
+# tell the difference (see embed.Config's own comment on
+# built_at_commit). Empty on either side means "cannot vouch either
+# way" — silence, not a false "up to date."
+fn staleness_note(cfg :: embed.Config, current_commit :: Str) -> Str
+  examples {
+    staleness_note({ base_url: "u", model: "m", dims: 8, built_at_commit: "abc" }, "abc") => "",
+    staleness_note({ base_url: "u", model: "m", dims: 8, built_at_commit: "abc" }, "def") => "\n\nNOTE: this index was built at commit abc, HEAD is now def — it may be missing or misdescribing functions changed since. Rebuild with src/index_build.lex if results look stale.",
+    staleness_note({ base_url: "u", model: "m", dims: 8, built_at_commit: "" }, "def") => "",
+    staleness_note({ base_url: "u", model: "m", dims: 8, built_at_commit: "abc" }, "") => ""
+  }
+{
+  if str.is_empty(cfg.built_at_commit) or str.is_empty(current_commit) or cfg.built_at_commit == current_commit {
+    ""
+  } else {
+    str.join(["\n\nNOTE: this index was built at commit ", cfg.built_at_commit, ", HEAD is now ", current_commit, " — it may be missing or misdescribing functions changed since. Rebuild with src/index_build.lex if results look stale."], "")
+  }
+}
+
 # The scores are cosine similarities, and they are only meaningful next to
 # each other: a top hit at 62% on a small corpus can be the right answer,
 # and one at 88% can be wrong. Saying so is cheaper than having a model
 # treat the number as a confidence and stop reading at the first result.
-fn render(query :: Str, hits :: List[embed.Hit], cfg :: embed.Config) -> Str {
+fn render(query :: Str, hits :: List[embed.Hit], cfg :: embed.Config, current_commit :: Str) -> Str {
   if list.is_empty(hits) {
-    str.join(["no matches for \"", query, "\""], "")
+    str.join(["no matches for \"", query, "\"", staleness_note(cfg, current_commit)], "")
   } else {
-    str.join([str.join([int.to_str(list.len(hits)), " nearest to \"", query, "\" (", cfg.model, "):"], ""), "\n\n", embed.render_hits(hits), "\n\nScores are cosine similarity, useful only relative to each other — read the top few rather than trusting the number. The index covers functions as of the last build; run src/index_build.lex after adding code."], "")
+    str.join([str.join([int.to_str(list.len(hits)), " nearest to \"", query, "\" (", cfg.model, "):"], ""), "\n\n", embed.render_hits(hits), "\n\nScores are cosine similarity, useful only relative to each other — read the top few rather than trusting the number.", staleness_note(cfg, current_commit)], "")
   }
 }
 

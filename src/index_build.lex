@@ -39,8 +39,24 @@ import "lex-schema/json_value" as jv
 
 import "./embed" as embed
 
-fn config_from_env() -> [env] embed.Config {
-  { base_url: env_or("LITELLM_BASE_URL", embed.default_base_url()), model: env_or("LEX_EMBED_MODEL", embed.default_model()), dims: dims_from_env() }
+fn config_from_env() -> [env, proc] embed.Config {
+  { base_url: env_or("LITELLM_BASE_URL", embed.default_base_url()), model: env_or("LEX_EMBED_MODEL", embed.default_model()), dims: dims_from_env(), built_at_commit: git_head() }
+}
+
+# "" outside a git checkout (or if `git` itself is unavailable) rather
+# than an error — a missing commit hash is a fact `semantic_search`'s
+# staleness check already treats as "cannot vouch for freshness", the
+# same conservative reading `sig_for` gives an unhashable verified.jsonl
+# target elsewhere in this codebase, not a reason to fail the whole build.
+fn git_head() -> [proc] Str {
+  match proc.run("git", ["rev-parse", "HEAD"]) {
+    Err(_) => "",
+    Ok(out) => if out.exit_code == 0 {
+      str.trim(out.stdout)
+    } else {
+      ""
+    },
+  }
 }
 
 fn dims_from_env() -> [env] Int {
@@ -210,11 +226,11 @@ fn reuse_or_embed(cfg :: embed.Config, docs :: List[Doc]) -> [io, net] Result[Li
 # ranking, which produces plausible-looking nonsense rather than an error.
 fn reusable(cfg :: embed.Config, prev :: Option[embed.Config]) -> Bool
   examples {
-    reusable({ base_url: "u", model: "m", dims: 64 }, Some({ base_url: "u", model: "m", dims: 64 })) => true,
-    reusable({ base_url: "u", model: "m", dims: 64 }, Some({ base_url: "u", model: "other", dims: 64 })) => false,
-    reusable({ base_url: "u", model: "m", dims: 64 }, Some({ base_url: "elsewhere", model: "m", dims: 64 })) => false,
-    reusable({ base_url: "u", model: "m", dims: 64 }, Some({ base_url: "u", model: "m", dims: 128 })) => false,
-    reusable({ base_url: "u", model: "m", dims: 64 }, None) => false
+    reusable({ base_url: "u", model: "m", dims: 64, built_at_commit: "c1" }, Some({ base_url: "u", model: "m", dims: 64, built_at_commit: "c2" })) => true,
+    reusable({ base_url: "u", model: "m", dims: 64, built_at_commit: "c1" }, Some({ base_url: "u", model: "other", dims: 64, built_at_commit: "c1" })) => false,
+    reusable({ base_url: "u", model: "m", dims: 64, built_at_commit: "c1" }, Some({ base_url: "elsewhere", model: "m", dims: 64, built_at_commit: "c1" })) => false,
+    reusable({ base_url: "u", model: "m", dims: 64, built_at_commit: "c1" }, Some({ base_url: "u", model: "m", dims: 128, built_at_commit: "c1" })) => false,
+    reusable({ base_url: "u", model: "m", dims: 64, built_at_commit: "c1" }, None) => false
   }
 {
   match prev {

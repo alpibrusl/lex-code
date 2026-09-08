@@ -54,7 +54,14 @@ import "std.int" as int
 
 import "lex-schema/json_value" as jv
 
-type Config = { base_url :: Str, model :: Str, dims :: Int }
+# `built_at_commit` is the git HEAD sha the index was built from ("" when
+# not built inside a git checkout, or by an index written before this
+# field existed). It is a staleness HINT, not a correctness guarantee — a
+# commit that never touched a function's signature would not actually
+# need reindexing, and this cannot tell the difference — but "the index
+# might be stale" said once is worth more than silently querying against
+# whatever the corpus looked like at some unstated point in the past.
+type Config = { base_url :: Str, model :: Str, dims :: Int, built_at_commit :: Str }
 
 type Entry = { sig :: Str, name :: Str, file :: Str, text :: Str, vec :: List[Float] }
 
@@ -109,7 +116,7 @@ fn default_dims() -> Int
 }
 
 fn default_config() -> Config {
-  { base_url: default_base_url(), model: default_model(), dims: default_dims() }
+  { base_url: default_base_url(), model: default_model(), dims: default_dims(), built_at_commit: "" }
 }
 
 # Keep the first `dims` components and renormalise. A vector shorter than
@@ -329,17 +336,21 @@ fn entry_text(name :: Str, signature :: Str, effects :: List[Str], examples :: L
 # ---- the index file ---------------------------------------------------
 fn encode_header(cfg :: Config) -> Str
   examples {
-    encode_header({ base_url: "http://x", model: "m", dims: 64 }) => "{\"kind\":\"header\",\"base_url\":\"http://x\",\"model\":\"m\",\"dims\":64}"
+    encode_header({ base_url: "http://x", model: "m", dims: 64, built_at_commit: "abc123" }) => "{\"kind\":\"header\",\"base_url\":\"http://x\",\"model\":\"m\",\"dims\":64,\"built_at_commit\":\"abc123\"}"
   }
 {
-  jv.stringify(JObj([("kind", JStr("header")), ("base_url", JStr(cfg.base_url)), ("model", JStr(cfg.model)), ("dims", JInt(cfg.dims))]))
+  jv.stringify(JObj([("kind", JStr("header")), ("base_url", JStr(cfg.base_url)), ("model", JStr(cfg.model)), ("dims", JInt(cfg.dims)), ("built_at_commit", JStr(cfg.built_at_commit))]))
 }
 
+# A header line with no `built_at_commit` (written before this field
+# existed) decodes with "" — the same "cannot vouch for freshness" value
+# a missing git checkout produces, and the right one: an old index is not
+# LESS possibly-stale than one this session cannot place in git history.
 fn decode_header(line :: Str) -> Option[Config] {
   match jv.parse_into_errors(str.trim(line)) {
     Err(_) => None,
     Ok(j) => match jv.get_field(j, "kind") {
-      Some(JStr("header")) => Some({ base_url: str_field(j, "base_url"), model: str_field(j, "model"), dims: int_field(j, "dims") }),
+      Some(JStr("header")) => Some({ base_url: str_field(j, "base_url"), model: str_field(j, "model"), dims: int_field(j, "dims"), built_at_commit: str_field(j, "built_at_commit") }),
       _ => None,
     },
   }
