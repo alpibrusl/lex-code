@@ -218,6 +218,7 @@ fn select_mode(argv :: List[Str]) -> sess.AgentMode
     select_mode([]) => Build,
     select_mode(["--bar"]) => Bar,
     select_mode(["--review"]) => Review,
+    select_mode(["--verify"]) => Verify,
     select_mode(["--bar", "--plan"]) => Plan,
     select_mode(["a task"]) => Build
   }
@@ -240,10 +241,14 @@ fn select_mode(argv :: List[Str]) -> sess.AgentMode
             if has_flag(argv, "--review") {
               Review
             } else {
-              if has_flag(argv, "--bar") {
-                Bar
+              if has_flag(argv, "--verify") {
+                Verify
               } else {
-                Build
+                if has_flag(argv, "--bar") {
+                  Bar
+                } else {
+                  Build
+                }
               }
             }
           }
@@ -384,6 +389,7 @@ fn plan_invocation(argv :: List[Str]) -> Invocation
     plan_invocation(["--ollama", "--plan"]) => { mode: Plan, provider: "ollama", task: None, multi: false, pipeline: None },
     plan_invocation(["--multi"]) => { mode: Build, provider: "litellm", task: None, multi: true, pipeline: None },
     plan_invocation(["--litellm", "--review", "check the diff"]) => { mode: Review, provider: "litellm", task: Some("check the diff"), multi: false, pipeline: None },
+    plan_invocation(["--litellm", "--verify", "check src/abi.lex against the ABI spec"]) => { mode: Verify, provider: "litellm", task: Some("check src/abi.lex against the ABI spec"), multi: false, pipeline: None },
     plan_invocation(["--multi", "--pipeline=impl_then_spec_then_test"]) => { mode: Build, provider: "litellm", task: None, multi: true, pipeline: Some("impl_then_spec_then_test") }
   }
 {
@@ -398,7 +404,7 @@ fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, ap
     Some(task) => run_once(task, mode, provider_tag),
     None => {
       io.print(str.concat("lex-code — Lex-specialized coding assistant", "\n"))
-      io.print(str.concat("modes:     --plan | --explore | --refactor | --spec | --test | --review | --bar | --multi", "\n"))
+      io.print(str.concat("modes:     --plan | --explore | --refactor | --spec | --test | --review | --verify | --bar | --multi", "\n"))
       io.print(str.join(["pipelines: --pipeline=", str.join(graph.preset_names(), " | --pipeline="), "\n           --pipeline=build,spec,test|review   (\",\" in order, \"|\" at once)", "\n"], ""))
       io.print(str.concat("providers: --mistral | --openai | --google | --vertex | --litellm | --ollama | --vllm | --opencode  (default: anthropic)", "\n"))
       io.print(str.concat("one-shot:  lex run src/tui/main.lex -- [flags] \"your task\"", "\n"))

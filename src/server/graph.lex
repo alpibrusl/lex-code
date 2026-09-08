@@ -64,6 +64,15 @@ fn review_def() -> AgentDef {
   { name: "review", mode: Review, task_prefix: "Review implementation: " }
 }
 
+# Distinct from `review_def`: review audits structure and trust (effects,
+# attestations, SigIds). Verify re-derives the expected output from the
+# task's own spec and checks the implementation against that — a
+# different question, and not one `review`'s toolset (no `write`, so it
+# could never author its own check) can answer.
+fn verify_def() -> AgentDef {
+  { name: "verify", mode: Verify, task_prefix: "Independently verify: " }
+}
+
 fn impl_then_test() -> Node {
   SequenceNode([AgentNode(build_def()), AgentNode(test_def())])
 }
@@ -85,12 +94,20 @@ fn full_verify() -> Node {
   SequenceNode([AgentNode(build_def()), AgentNode(spec_def()), AgentNode(test_def()), AgentNode(review_def())])
 }
 
+# impl → test → verify, strictly sequential: verify runs last precisely
+# because it needs something to check — an implementation and a test
+# file already on disk, which it treats as two independent claims to
+# re-derive and check, not two sources of truth to trust.
+fn impl_then_test_then_verify() -> Node {
+  SequenceNode([AgentNode(build_def()), AgentNode(test_def()), AgentNode(verify_def())])
+}
+
 fn preset_names() -> List[Str]
   examples {
-    preset_names() => ["impl_then_test", "impl_and_test_parallel", "impl_then_spec_then_test", "full_verify"]
+    preset_names() => ["impl_then_test", "impl_and_test_parallel", "impl_then_spec_then_test", "full_verify", "impl_then_test_then_verify"]
   }
 {
-  ["impl_then_test", "impl_and_test_parallel", "impl_then_spec_then_test", "full_verify"]
+  ["impl_then_test", "impl_and_test_parallel", "impl_then_spec_then_test", "full_verify", "impl_then_test_then_verify"]
 }
 
 # Resolve a pipeline name from the command line. Unknown names are None
@@ -109,7 +126,11 @@ fn preset(name :: Str) -> Option[Node] {
         if name == "full_verify" {
           Some(full_verify())
         } else {
-          None
+          if name == "impl_then_test_then_verify" {
+            Some(impl_then_test_then_verify())
+          } else {
+            None
+          }
         }
       }
     }
@@ -126,6 +147,7 @@ fn preset_shape(name :: Str) -> Str
     preset_shape("impl_and_test_parallel") => "impl ∥ test",
     preset_shape("impl_then_spec_then_test") => "impl → spec → (test ∥ review)",
     preset_shape("full_verify") => "impl → spec → test → review",
+    preset_shape("impl_then_test_then_verify") => "impl → test → verify",
     preset_shape("nope") => ""
   }
 {
@@ -141,6 +163,7 @@ fn is_preset(name :: Str) -> Bool
     is_preset("impl_and_test_parallel") => true,
     is_preset("impl_then_spec_then_test") => true,
     is_preset("full_verify") => true,
+    is_preset("impl_then_test_then_verify") => true,
     is_preset("build") => false,
     is_preset("") => false
   }
@@ -189,7 +212,11 @@ fn agent_for(name :: Str) -> Option[AgentDef] {
           if name == "review" {
             Some(review_def())
           } else {
-            None
+            if name == "verify" {
+              Some(verify_def())
+            } else {
+              None
+            }
           }
         }
       }
@@ -199,10 +226,10 @@ fn agent_for(name :: Str) -> Option[AgentDef] {
 
 fn agent_names_accepted() -> List[Str]
   examples {
-    agent_names_accepted() => ["build", "impl", "spec", "test", "review"]
+    agent_names_accepted() => ["build", "impl", "spec", "test", "review", "verify"]
   }
 {
-  ["build", "impl", "spec", "test", "review"]
+  ["build", "impl", "spec", "test", "review", "verify"]
 }
 
 # One `|`-separated stage: a single agent, or several run at once.
@@ -277,7 +304,7 @@ fn spec_shape(spec :: Str) -> Str
     spec_shape("build,spec,test|review") => "impl → spec → (test ∥ review)",
     spec_shape("impl") => "impl",
     spec_shape("build, spec") => "impl → spec",
-    spec_shape("nope") => "unknown agent \"nope\" — try one of: build, impl, spec, test, review",
+    spec_shape("nope") => "unknown agent \"nope\" — try one of: build, impl, spec, test, review, verify",
     spec_shape("") => "empty pipeline spec"
   }
 {
@@ -296,7 +323,11 @@ fn spec_matches_preset() -> Bool
   if spec_shape("build,test") == preset_shape("impl_then_test") {
     if spec_shape("build|test") == preset_shape("impl_and_test_parallel") {
       if spec_shape("build,spec,test|review") == preset_shape("impl_then_spec_then_test") {
-        spec_shape("build,spec,test,review") == preset_shape("full_verify")
+        if spec_shape("build,spec,test,review") == preset_shape("full_verify") {
+          spec_shape("build,test,verify") == preset_shape("impl_then_test_then_verify")
+        } else {
+          false
+        }
       } else {
         false
       }

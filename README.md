@@ -84,6 +84,7 @@ lex-code --plan --ollama "how should we structure the session module?"
 | `--spec` | Spec | Generate lex-spec `Spec` values |
 | `--test` | Test | Write unit and property tests |
 | `--review` | Review | Code-review: correctness, style, effects |
+| `--verify` | Verify | Independently re-derive expected output from the task's own spec and check the implementation against it — never trusts the implementation's existing test file ([below](#independent-verification-mode)) |
 | `--bar` | Bar | Walk a project against the minimum bar, read-only ([below](#minimum-bar-mode)) |
 | `--multi` | Multi | Run Build + Test in parallel via `std.conc` |
 
@@ -753,17 +754,18 @@ attestation graph, which is what `lex blame --with-evidence` reads and what
 ### Pipeline specs
 
 A spec is two characters of grammar: `,` runs stages in order, `|` runs them
-at once. Agents are `build` (alias `impl`), `spec`, `test`, `review`.
+at once. Agents are `build` (alias `impl`), `spec`, `test`, `review`, `verify`.
 
 ```
 build,test              impl → test
 build|test              impl ∥ test
 build,spec,test|review  impl → spec → (test ∥ review)
+build,test,verify       impl → test → verify
 ```
 
-That last one is exactly the `impl_then_spec_then_test` preset — an
-`examples {}` case asserts the two stay equal, so the grammar and the named
-presets cannot drift apart.
+The last two are exactly the `impl_then_spec_then_test` and
+`impl_then_test_then_verify` presets — an `examples {}` case asserts each
+pair stays equal, so the grammar and the named presets cannot drift apart.
 
 The same values work on the TUI's `--pipeline=` flag, which takes a preset
 name or a spec. An unrecognised agent is refused with the list of valid ones
@@ -889,6 +891,60 @@ fixed, the probe itself turned out to be reading only the first
 version inline in a download URL with no variable at all, had sat two
 patch versions behind unnoticed. It now reads every lex-lang version
 named in any workflow and names the file that disagrees.
+
+## Independent verification mode
+
+`--review` audits structure and trust — effects, attestations, SigIds,
+"is this well-scoped". `--verify` answers a different question: "does
+the implementation actually do what it claims", and it does not take
+the implementation's own test file as evidence for that.
+
+This came out of two real failures, on two different from-scratch
+packages, that a build → test pipeline alone did not catch: a test
+file with a broken relative import that made `lex test` refuse to even
+load it, and two hand-typed 500+ character hex strings in a test file
+that were each a few characters short — an error invisible by
+inspection, and one that makes `lex test` fail for the wrong reason
+(the test's own expected value was wrong, not the implementation). A
+real algorithmic bug (a fold accumulator that overwrote its
+accumulated list each step instead of appending) sat underneath both,
+indistinguishable from "the test is wrong" until someone re-derived
+the expected values independently.
+
+So `--verify` is built around one rule: **an implementation's existing
+test file is not independent evidence.** It:
+
+- Re-derives expected output from the task's own cited spec (a
+  worked example, a canonical test vector, an algorithm described
+  step by step) — by hand, from first principles — rather than
+  trusting a constant already sitting in the code or its test file.
+- Says so explicitly when a cited spec's exact text isn't available to
+  confirm against, rather than silently trusting whatever the
+  implementation already assumes. lex-code has no web-access tool
+  today, so an external standard cited by name (an RFC, a vendor spec)
+  is exactly this case.
+- Writes its own new verification file — never edits the
+  implementation or its existing tests — and never reuses the
+  implementation's own expected-value constants.
+- Never hand-types one long literal as a single comparison: a
+  multi-word hex string or long JSON blob gets built from smaller,
+  individually-labeled pieces and joined, so a wrong piece is visible
+  by inspection instead of buried in one long string.
+- Reports every case checked, not just failures — "all N checked, all
+  pass" is itself the finding when nothing is wrong.
+
+It never edits anything (`verify_permission`: `read`, `write` — for its
+own new file only — `grep`, `glob`, `lex_check`, `lex_run`, `lex_test`;
+no `edit`, no `bash`) — a verifier that can shell out or patch the
+implementation directly can quietly fix around what it finds instead of
+reporting it.
+
+```sh
+lex run src/tui/main.lex -- --verify "check src/abi.lex against the ABI spec"
+
+# as a pipeline stage, after build and test:
+lex run src/tui/main.lex -- --multi --pipeline=impl_then_test_then_verify
+```
 
 ## Permissions
 
