@@ -25,6 +25,10 @@ import "std.list" as list
 
 import "std.str" as str
 
+import "std.int" as int
+
+import "std.process" as proc
+
 import "./session" as sess
 
 # `task_prefix` is what the old runner did inline — `"Write unit tests
@@ -32,7 +36,30 @@ import "./session" as sess
 # for work the presets never anticipated.
 type AgentDef = { name :: Str, mode :: sess.AgentMode, task_prefix :: Str }
 
-type Node = AgentNode(AgentDef) | SequenceNode(List[Node]) | ParallelNode(List[Node])
+# `setup` runs once, unconditionally (typically build → test). Then
+# `verify_program`/`verify_args` — a real subprocess, e.g. `lex test
+# tests` — decides pass/fail by exit code, never by asking the fixing
+# agent whether it thinks it's done: the same "mechanical, not LLM-judged"
+# rule task_spec.lex already applies to one task's SuccessCriterion,
+# extended across retries here. On failure, `fix` re-runs (up to
+# `max_rounds` times) with the verification command's own output appended
+# to the task, so the model sees the actual failure rather than being
+# asked to guess what might be wrong.
+#
+# `lex test <dir>`, not `lex run <dir> run_all`: `lex run` has no
+# directory support at all — `read_program` opens whatever path string
+# it's given as a single file, so a bare directory fails with a raw OS
+# "Is a directory" error regardless of what's inside. `lex_test.lex`'s
+# tool carried this exact bug (default `path: "tests"`, executed as `lex
+# run tests run_all`) until a live fix-loop run hit it: the mechanical
+# verify step failed with that same opaque OS error on every round,
+# masking a real, fixable bug in the file it never actually got to look
+# at. `lex test` is the real native subcommand for "run every
+# tests/test_*.lex file, calling run_all in each" (`lex introspect`'s own
+# description) and correctly takes a directory.
+type FixLoopDef = { setup :: Node, fix :: AgentDef, verify_program :: Str, verify_args :: List[Str], max_rounds :: Int }
+
+type Node = AgentNode(AgentDef) | SequenceNode(List[Node]) | ParallelNode(List[Node]) | FixLoopNode(FixLoopDef)
 
 type NodeResult = { name :: Str, steps :: List[d.Step] }
 
@@ -102,12 +129,30 @@ fn impl_then_test_then_verify() -> Node {
   SequenceNode([AgentNode(build_def()), AgentNode(test_def()), AgentNode(verify_def())])
 }
 
+# impl → test, then up to 2 retries: run `lex test tests` and, on a
+# nonzero exit, feed its actual output back to a fresh `impl` turn instead
+# of stopping. Manually verified end to end on a real bug (lex-rlp's RLP
+# single-byte shortcut, asymmetric between encode and decode): a fresh
+# build turn given the exact failing hex diagnosed and fixed it, and an
+# independent re-verify confirmed every vector passed — that pass used a
+# human pointing at the failure, not this loop; an automated attempt with
+# `lex run tests run_all` (see `FixLoopDef`'s comment) never got past the
+# broken verify command's opaque error, across two separate live runs, to
+# find out whether the loop itself helps. Retest once the `lex test` fix
+# is in. 2 rounds: each is a paid, unbounded-length agent turn — like the
+# other presets' own per-agent cost, not the VM's free-to-raise compute
+# ceiling — so an agent that can't fix its own bug in two pointed attempts
+# should stop and surface the failure, not spend indefinitely.
+fn impl_test_fix_loop() -> Node {
+  FixLoopNode({ setup: SequenceNode([AgentNode(build_def()), AgentNode(test_def())]), fix: build_def(), verify_program: "lex", verify_args: ["test", "tests"], max_rounds: 2 })
+}
+
 fn preset_names() -> List[Str]
   examples {
-    preset_names() => ["impl_then_test", "impl_and_test_parallel", "impl_then_spec_then_test", "full_verify", "impl_then_test_then_verify"]
+    preset_names() => ["impl_then_test", "impl_and_test_parallel", "impl_then_spec_then_test", "full_verify", "impl_then_test_then_verify", "impl_test_fix_loop"]
   }
 {
-  ["impl_then_test", "impl_and_test_parallel", "impl_then_spec_then_test", "full_verify", "impl_then_test_then_verify"]
+  ["impl_then_test", "impl_and_test_parallel", "impl_then_spec_then_test", "full_verify", "impl_then_test_then_verify", "impl_test_fix_loop"]
 }
 
 # Resolve a pipeline name from the command line. Unknown names are None
@@ -129,7 +174,11 @@ fn preset(name :: Str) -> Option[Node] {
           if name == "impl_then_test_then_verify" {
             Some(impl_then_test_then_verify())
           } else {
-            None
+            if name == "impl_test_fix_loop" {
+              Some(impl_test_fix_loop())
+            } else {
+              None
+            }
           }
         }
       }
@@ -148,6 +197,7 @@ fn preset_shape(name :: Str) -> Str
     preset_shape("impl_then_spec_then_test") => "impl → spec → (test ∥ review)",
     preset_shape("full_verify") => "impl → spec → test → review",
     preset_shape("impl_then_test_then_verify") => "impl → test → verify",
+    preset_shape("impl_test_fix_loop") => "impl → test ⟳×2",
     preset_shape("nope") => ""
   }
 {
@@ -164,6 +214,7 @@ fn is_preset(name :: Str) -> Bool
     is_preset("impl_then_spec_then_test") => true,
     is_preset("full_verify") => true,
     is_preset("impl_then_test_then_verify") => true,
+    is_preset("impl_test_fix_loop") => true,
     is_preset("build") => false,
     is_preset("") => false
   }
@@ -340,18 +391,22 @@ fn spec_matches_preset() -> Bool
 }
 
 # ---- shape queries (pure, so they can carry examples) ------------------
+# A `FixLoopNode` counts `max_rounds` retries on top of `setup` — an
+# upper bound, since a passing verify stops the loop early and runs fewer.
 fn node_count(n :: Node) -> Int
   examples {
     node_count(AgentNode({ name: "a", mode: Build, task_prefix: "" })) => 1,
     node_count(SequenceNode([])) => 0,
     node_count(impl_then_test()) => 2,
-    node_count(impl_then_spec_then_test()) => 4
+    node_count(impl_then_spec_then_test()) => 4,
+    node_count(impl_test_fix_loop()) => 4
   }
 {
   match n {
     AgentNode(_) => 1,
     SequenceNode(kids) => count_all(kids),
     ParallelNode(kids) => count_all(kids),
+    FixLoopNode(def) => node_count(def.setup) + def.max_rounds,
   }
 }
 
@@ -361,10 +416,14 @@ fn count_all(kids :: List[Node]) -> Int {
   })
 }
 
+# `FixLoopNode` reports only `setup`'s names: the retry rounds are
+# runtime-conditional (0 to `max_rounds` of them actually run, depending
+# on whether verify passes), not part of the pipeline's static shape.
 fn agent_names(n :: Node) -> List[Str]
   examples {
     agent_names(impl_then_test()) => ["impl", "test"],
     agent_names(impl_then_spec_then_test()) => ["impl", "spec", "test", "review"],
+    agent_names(impl_test_fix_loop()) => ["impl", "test"],
     agent_names(SequenceNode([])) => []
   }
 {
@@ -372,6 +431,7 @@ fn agent_names(n :: Node) -> List[Str]
     AgentNode(def) => [def.name],
     SequenceNode(kids) => names_all(kids),
     ParallelNode(kids) => names_all(kids),
+    FixLoopNode(def) => agent_names(def.setup),
   }
 }
 
@@ -389,6 +449,7 @@ fn render_shape(n :: Node) -> Str
     render_shape(impl_then_test()) => "impl → test",
     render_shape(impl_and_test_parallel()) => "impl ∥ test",
     render_shape(impl_then_spec_then_test()) => "impl → spec → (test ∥ review)",
+    render_shape(impl_test_fix_loop()) => "impl → test ⟳×2",
     render_shape(AgentNode({ name: "solo", mode: Build, task_prefix: "" })) => "solo",
     render_shape(SequenceNode([])) => ""
   }
@@ -397,7 +458,12 @@ fn render_shape(n :: Node) -> Str
     AgentNode(def) => def.name,
     SequenceNode(kids) => join_kids(kids, " → "),
     ParallelNode(kids) => join_kids(kids, " ∥ "),
+    FixLoopNode(def) => fix_loop_shape(def),
   }
+}
+
+fn fix_loop_shape(def :: FixLoopDef) -> Str {
+  str.join([render_shape(def.setup), " ⟳×", int.to_str(def.max_rounds)], "")
 }
 
 # A nested branch is parenthesised so the grouping survives flattening;
@@ -414,6 +480,7 @@ fn wrap(n :: Node) -> Str {
     AgentNode(def) => def.name,
     SequenceNode(kids) => paren(join_kids(kids, " → ")),
     ParallelNode(kids) => paren(join_kids(kids, " ∥ ")),
+    FixLoopNode(def) => paren(fix_loop_shape(def)),
   }
 }
 
@@ -450,6 +517,7 @@ fn run_node(n :: Node, task :: Str, provider_tag :: Str) -> [env, concurrent, ne
     }), [], fn (acc :: List[NodeResult], rs :: List[NodeResult]) -> List[NodeResult] {
       list.concat(acc, rs)
     }),
+    FixLoopNode(def) => run_fix_loop(def, task, provider_tag),
   }
 }
 
@@ -463,6 +531,73 @@ fn run_agent(def :: AgentDef, task :: Str, provider_tag :: Str) -> [env, net, ll
     Ok(session) => {
       let result := sess.run_turn_with_provider(session, shape(def, task), provider_tag)
       { name: def.name, steps: result.steps }
+    },
+  }
+}
+
+# ---- the fix loop -------------------------------------------------------
+#
+# Runs `setup` once, then mechanically verifies with a real subprocess —
+# never the fixing agent's own self-report. `round_name` gives each retry
+# a distinct session id: the persistent variant writes one trail file per
+# id, and reusing "impl" across rounds would hit the exact stale
+# `event_count` collision #91 found — a later round's fresh session
+# colliding with an earlier round's id on disk.
+fn round_name(base :: Str, round :: Int) -> Str
+  examples {
+    round_name("impl", 0) => "impl",
+    round_name("impl", 1) => "impl_retry1",
+    round_name("impl", 2) => "impl_retry2"
+  }
+{
+  if round == 0 {
+    base
+  } else {
+    str.join([base, "_retry", int.to_str(round)], "")
+  }
+}
+
+# A retry's task must not grow unboundedly across rounds — the verify
+# command's own combined stdout+stderr is capped, same idiom as
+# `bash.lex`'s `truncate_output` for a tool result.
+fn max_fix_context_chars() -> Int {
+  4000
+}
+
+fn truncate_for_prompt(s :: Str) -> Str {
+  let len := str.len(s)
+  if len <= max_fix_context_chars() {
+    s
+  } else {
+    str.join([str.slice(s, 0, max_fix_context_chars()), "\n\n[... verification output truncated: ", int.to_str(len), " total characters ...]"], "")
+  }
+}
+
+fn fix_task(task :: Str, def :: FixLoopDef, out :: { stdout :: Str, stderr :: Str, exit_code :: Int }) -> Str {
+  str.join([task, "\n\nA previous attempt at this task exists in the working directory, but verification failed.\nCommand: ", def.verify_program, " ", str.join(def.verify_args, " "), "\nExit code: ", int.to_str(out.exit_code), "\nOutput:\n", truncate_for_prompt(str.concat(out.stdout, out.stderr)), "\n\nFind and fix the bug that caused this failure. Do not rewrite unrelated working code."], "")
+}
+
+fn run_fix_loop(def :: FixLoopDef, task :: Str, provider_tag :: Str) -> [env, concurrent, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] List[NodeResult] {
+  fix_round(def, task, provider_tag, 0, run_node(def.setup, task, provider_tag))
+}
+
+# `Err` from the verify command itself (not found, refused to run) stops
+# the loop rather than looping forever on a command that can never
+# succeed — an unrunnable check is not evidence the fix failed.
+fn fix_round(def :: FixLoopDef, task :: Str, provider_tag :: Str, round :: Int, acc :: List[NodeResult]) -> [env, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] List[NodeResult] {
+  match proc.run(def.verify_program, def.verify_args) {
+    Err(_) => acc,
+    Ok(out) => if out.exit_code == 0 {
+      acc
+    } else {
+      if round >= def.max_rounds {
+        acc
+      } else {
+        let next_round := round + 1
+        let fix_def := { name: round_name(def.fix.name, next_round), mode: def.fix.mode, task_prefix: def.fix.task_prefix }
+        let fix_result := run_agent(fix_def, fix_task(task, def, out), provider_tag)
+        fix_round(def, task, provider_tag, next_round, list.concat(acc, [fix_result]))
+      }
     },
   }
 }
@@ -490,6 +625,29 @@ fn run_node_persistent(n :: Node, task :: Str, provider_tag :: Str) -> [env, con
     }), [], fn (acc :: List[NodeResult], rs :: List[NodeResult]) -> List[NodeResult] {
       list.concat(acc, rs)
     }),
+    FixLoopNode(def) => run_fix_loop_persistent(def, task, provider_tag),
+  }
+}
+
+fn run_fix_loop_persistent(def :: FixLoopDef, task :: Str, provider_tag :: Str) -> [env, concurrent, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] List[NodeResult] {
+  fix_round_persistent(def, task, provider_tag, 0, run_node_persistent(def.setup, task, provider_tag))
+}
+
+fn fix_round_persistent(def :: FixLoopDef, task :: Str, provider_tag :: Str, round :: Int, acc :: List[NodeResult]) -> [env, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] List[NodeResult] {
+  match proc.run(def.verify_program, def.verify_args) {
+    Err(_) => acc,
+    Ok(out) => if out.exit_code == 0 {
+      acc
+    } else {
+      if round >= def.max_rounds {
+        acc
+      } else {
+        let next_round := round + 1
+        let fix_def := { name: round_name(def.fix.name, next_round), mode: def.fix.mode, task_prefix: def.fix.task_prefix }
+        let fix_result := run_agent_persistent(fix_def, fix_task(task, def, out), provider_tag)
+        fix_round_persistent(def, task, provider_tag, next_round, list.concat(acc, [fix_result]))
+      }
+    },
   }
 }
 

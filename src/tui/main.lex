@@ -94,6 +94,27 @@ fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str) -> [env, i
   }
 }
 
+# `--once --multi --pipeline=NAME "task"` — a graph pipeline run non-
+# interactively, exactly once, the multi-agent counterpart to `run_once`.
+# Before this, `--multi`/`--pipeline=` were silently ignored whenever a
+# task was given on the command line: `main`'s dispatch only ever
+# consulted them in the no-task branch that launches `multi_repl`, so
+# there was no way to drive a graph pipeline (including a fix loop) from
+# a single non-interactive invocation — only from a live REPL session.
+# Uses the persistent runner, same as `run_once`, so every node's trail —
+# `impl`, `test`, and any `impl_retryN` a fix loop actually ran — survives
+# the process for post-mortem debugging.
+fn run_once_multi(task :: Str, pipeline :: graph.Node, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random, concurrent] Nil {
+  io.print(str.join(["[running ", int.to_str(graph.node_count(pipeline)), " agents: ", graph.render_shape(pipeline), "]\n"], ""))
+  let result := graph.run_graph_persistent(pipeline, task, provider_tag)
+  let __printed := list.map(result.results, fn (r :: graph.NodeResult) -> [io] Nil {
+    print_node(r)
+  })
+  io.print(str.join(["\n(trails: ", str.join(list.map(result.results, fn (r :: graph.NodeResult) -> Str {
+    str.join([".lex/sessions/", r.name, ".db"], "")
+  }), ", "), ")\n"], ""))
+}
+
 fn multi_repl(provider_tag :: Str, pipeline :: graph.Node) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random, concurrent] Nil {
   io.print(str.join(["\n[multi ", graph.render_shape(pipeline), "] task> "], ""))
   match io.read("-") {
@@ -401,7 +422,14 @@ fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, ap
   let provider_tag := inv.provider
   let mode := inv.mode
   match inv.task {
-    Some(task) => run_once(task, mode, provider_tag),
+    Some(task) => if inv.multi {
+      match resolve_pipeline(inv.pipeline) {
+        Err(msg) => io.print(str.concat(msg, "\n")),
+        Ok(pipeline) => run_once_multi(task, pipeline, provider_tag),
+      }
+    } else {
+      run_once(task, mode, provider_tag)
+    },
     None => {
       io.print(str.concat("lex-code — Lex-specialized coding assistant", "\n"))
       io.print(str.concat("modes:     --plan | --explore | --refactor | --spec | --test | --review | --verify | --bar | --multi", "\n"))
