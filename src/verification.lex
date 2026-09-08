@@ -32,6 +32,8 @@ import "lex-schema/json_value" as jv
 
 import "std.io" as io
 
+import "std.process" as proc
+
 import "std.str" as str
 
 import "std.list" as list
@@ -170,18 +172,109 @@ fn record_of(e :: ev.Event) -> Option[Record]
   }
 }
 
+# Plain insertion sort over Str — std.list has no `sort` (the same family
+# of gap as the missing `map.fold`), and `sig_for_dir` below needs a
+# stable, content-derived file order rather than whatever `find` happens
+# to print (readdir order is not guaranteed stable across calls). Str
+# supports `<=` natively.
+fn insert_sorted(sorted :: List[Str], x :: Str) -> List[Str]
+  examples {
+    insert_sorted([], "b") => ["b"],
+    insert_sorted(["b"], "a") => ["a", "b"],
+    insert_sorted(["a", "c"], "b") => ["a", "b", "c"]
+  }
+{
+  if list.is_empty(sorted) {
+    [x]
+  } else {
+    match list.head(sorted) {
+      None => [x],
+      Some(h) => if x <= h {
+        list.concat([x], sorted)
+      } else {
+        list.concat([h], insert_sorted(list.tail(sorted), x))
+      },
+    }
+  }
+}
+
+fn sort_strs(xs :: List[Str]) -> List[Str]
+  examples {
+    sort_strs([]) => [],
+    sort_strs(["c", "a", "b", "a"]) => ["a", "a", "b", "c"]
+  }
+{
+  list.fold(xs, [], insert_sorted)
+}
+
+# `target` is a DIRECTORY for every `lex_test`/`lex_spec_check` record
+# (their tool arg is a path like "tests", never a single file) — `io.read`
+# on a directory always errors, which used to fall straight through to
+# `sig_for`'s "can't read" branch and return "" unconditionally. Combined
+# with `is_fresh` (a non-empty target with an empty sig is always Stale),
+# that made `verified.test`/`verified.spec_check` permanently
+# unsatisfiable via `VerifiedKindSeen`/`VerifiedTargetSeen` — not flaky,
+# every single time, for as long as the tool's target stayed a directory.
+# Found live: lex-economy's `treasury` task was the first task in that
+# project to ask for `verified.test` at all (its `identity`/`contract`/
+# `reputation` modules only ever asked for `verified.type_check`), so this
+# had never been exercised before.
+#
+# Fixed by hashing the sorted concatenation of every file's path and
+# content under the directory — deterministic, and it changes exactly
+# when the directory's content does. Shelled through `find` (`[proc]`)
+# rather than `std.fs.walk` (`[fs_walk]`) deliberately: `sig_for` is
+# called from `linter.lex`'s `record_verified`, which runs from inside
+# `edit`/`write`'s `Tool.execute` — a row FIXED by the `Tool` record type
+# at `[net, io, proc]` (AGENTS.md; effect rows unify by equality, not
+# subtyping), so adding `fs_walk` there is not an option without breaking
+# that interface. `record_verified`'s own comment documents the same
+# `proc`-instead-of-the-typed-effect trade for exactly this reason
+# (`mkdir` instead of `std.fs.mkdir_p`) — this reuses the established
+# pattern rather than inventing a second one.
+fn sig_for_dir(target :: Str) -> [io, proc] Str {
+  match proc.run("find", [target, "-type", "f"]) {
+    Err(_) => "",
+    Ok(out) => if out.exit_code != 0 {
+      ""
+    } else {
+      let paths := list.filter(str.split(out.stdout, "\n"), fn (p :: Str) -> Bool {
+        not str.is_empty(p)
+      })
+      if list.is_empty(paths) {
+        ""
+      } else {
+        let combined := list.fold(sort_strs(paths), "", fn (acc :: Str, p :: Str) -> [io] Str {
+          match io.read(p) {
+            Err(_) => acc,
+            Ok(content) => str.concat(acc, str.concat(p, content)),
+          }
+        })
+        crypto.sha256_str(combined)
+      }
+    },
+  }
+}
+
 # `target`'s content hash right now, or "" when there is nothing to hash —
 # an empty target (a whole-project-scope pass) or a target this process
 # can't read. "" is also what an unhashable record decodes to, so the two
 # cases are indistinguishable on purpose: both mean "cannot vouch for this
 # as fresh," which is the conservative side to fail on.
-fn sig_for(target :: Str) -> [io] Str {
+#
+# Tries a plain file read first — the common case, and unchanged from
+# before this function knew about directories, so no existing single-file
+# sig's meaning shifts. Only falls through to `sig_for_dir` when that
+# read fails, which is also what happens for a target that does not exist
+# at all; `sig_for_dir` returns "" for that case too (find's own
+# not-found error), so the fallback is safe either way.
+fn sig_for(target :: Str) -> [io, proc] Str {
   if str.is_empty(target) {
     ""
   } else {
     match io.read(target) {
-      Err(_) => "",
       Ok(content) => crypto.sha256_str(content),
+      Err(_) => sig_for_dir(target),
     }
   }
 }
@@ -198,10 +291,10 @@ fn sig_for(target :: Str) -> [io] Str {
 # `target` now, right after the turn that produced this record, is as close
 # to "the content this pass actually covered" as the session log leaves
 # reachable.
-fn harvest(log :: trail_log.Log, since_ms :: Int, now_ms :: Int) -> [io, sql] List[Record] {
+fn harvest(log :: trail_log.Log, since_ms :: Int, now_ms :: Int) -> [io, sql, proc] List[Record] {
   match trail_log.range(log, since_ms, now_ms) {
     Err(_) => [],
-    Ok(events) => list.fold(events, [], fn (acc :: List[Record], e :: ev.Event) -> [io] List[Record] {
+    Ok(events) => list.fold(events, [], fn (acc :: List[Record], e :: ev.Event) -> [io, proc] List[Record] {
       match record_of(e) {
         None => acc,
         Some(r) => list.concat(acc, [{ kind: r.kind, tool: r.tool, target: r.target, sig: sig_for(r.target), ts_ms: r.ts_ms }]),
