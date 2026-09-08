@@ -39,6 +39,8 @@ import "std.process" as proc
 
 import "./session" as sess
 
+import "../verification" as verification
+
 # `task_prefix` is what the old runner did inline — `"Write unit tests
 # for: " ++ task`. Making it a field is what lets a caller build a node
 # for work the presets never anticipated.
@@ -622,10 +624,56 @@ fn run_agent_with_events(def :: AgentDef, task :: Str, provider_tag :: Str) -> [
       let ended := time.now_ms()
       match trail_log.range(result.session.log, started, ended) {
         Err(_) => ({ name: def.name, steps: result.steps }, []),
-        Ok(events) => ({ name: def.name, steps: result.steps }, events),
+        Ok(events) => {
+          let __attested := attest_verify_pass_if_clean(result.session.log, events)
+          ({ name: def.name, steps: result.steps }, events)
+        },
       }
     },
   }
+}
+
+# lex-code#32: verify mode's own pass is never one of lex-llm's `verified.*`
+# kinds — `lex_run` (what verify's own convention runs its checks through)
+# isn't a tool `verified_kind_for_tool` recognizes, and it shouldn't be
+# recognized generically there either: an ordinary build-mode `lex_run`
+# passing proves nothing, only a VERIFY-mode one that found no FAIL does.
+# So a clean pass here — the strongest evidence in the whole system, an
+# independent re-derivation that never trusted the implementation — left
+# no durable trace for a later `review` agent or `task_spec.lex` criterion
+# to find. Attest it directly, reusing `verification.lex`'s own
+# Record/harvest/append_all rather than inventing a second mechanism.
+#
+# Guarded on "did this turn's tool output actually contain a `lex_run`
+# result at all", not just "no FAIL found in it" — a session that errored
+# out before running anything has an empty event list, and `false` is the
+# vacuous, wrong answer to "did verify find a failure" for that case. Same
+# trap `lex test`'s own empty-directory bug taught this session to guard
+# against (lex-lang v0.10.17); the fix here is the same shape.
+fn attest_verify_pass_if_clean(log :: trail_log.Log, events :: List[trail_ev.Event]) -> [io, sql, time] Unit {
+  if list.is_empty(tool_result_texts(events)) {
+    ()
+  } else {
+    if verify_found_failure(events) {
+      ()
+    } else {
+      match trail_log.append(log, independent_check_kind(), None, "{\"tool\":\"lex_run\",\"target\":\"\",\"result\":\"pass\"}") {
+        Err(_) => (),
+        Ok(evt) => {
+          let __promoted := verification.append_all(verification.harvest(log, evt.ts_ms, evt.ts_ms + 1))
+          ()
+        },
+      }
+    }
+  }
+}
+
+fn independent_check_kind() -> Str
+  examples {
+    independent_check_kind() => "verified.independent_check"
+  }
+{
+  "verified.independent_check"
 }
 
 # ---- the fix loop -------------------------------------------------------
@@ -881,7 +929,10 @@ fn run_agent_persistent_with_events(def :: AgentDef, task :: Str, provider_tag :
       let ended := time.now_ms()
       match trail_log.range(result.session.log, started, ended) {
         Err(_) => ({ name: def.name, steps: result.steps }, []),
-        Ok(events) => ({ name: def.name, steps: result.steps }, events),
+        Ok(events) => {
+          let __attested := attest_verify_pass_if_clean(result.session.log, events)
+          ({ name: def.name, steps: result.steps }, events)
+        },
       }
     },
   }

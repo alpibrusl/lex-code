@@ -57,13 +57,21 @@ fn path() -> Str
   ".lex/verified.jsonl"
 }
 
-# The event kinds lex-llm writes when a verification tool reports a pass.
+# The event kinds a verification tool reports a pass under. The first
+# three are lex-llm's own (`verified_kind_for_tool` in lex-llm/agent.lex);
+# `verified.independent_check` is lex-code's own, written directly by
+# `graph.lex`'s fix-loop verify gate rather than by lex-llm's dispatcher —
+# `lex_run` (what verify mode's own convention runs its checks through)
+# isn't one of the tool names that dispatcher recognizes, and adding it
+# there would need lex-llm to also know a call came from Verify mode
+# specifically, since an ordinary build-mode `lex_run` passing proves
+# nothing (lex-code#32).
 fn verified_kinds() -> List[Str]
   examples {
-    verified_kinds() => ["verified.type_check", "verified.spec_check", "verified.test"]
+    verified_kinds() => ["verified.type_check", "verified.spec_check", "verified.test", "verified.independent_check"]
   }
 {
-  ["verified.type_check", "verified.spec_check", "verified.test"]
+  ["verified.type_check", "verified.spec_check", "verified.test", "verified.independent_check"]
 }
 
 fn is_verified_kind(kind :: Str) -> Bool
