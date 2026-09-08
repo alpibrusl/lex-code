@@ -650,7 +650,7 @@ fn run_agent_with_events(def :: AgentDef, task :: Str, provider_tag :: Str) -> [
 # vacuous, wrong answer to "did verify find a failure" for that case. Same
 # trap `lex test`'s own empty-directory bug taught this session to guard
 # against (lex-lang v0.10.17); the fix here is the same shape.
-fn attest_verify_pass_if_clean(log :: trail_log.Log, events :: List[trail_ev.Event]) -> [io, sql, time] Unit {
+fn attest_verify_pass_if_clean(log :: trail_log.Log, events :: List[trail_ev.Event]) -> [io, sql, time, proc] Unit {
   if list.is_empty(tool_result_texts(events)) {
     ()
   } else {

@@ -270,7 +270,7 @@ fn malformed_outcome(entry :: Str) -> Outcome
 # records (`target == ""`) have no single file to hash against, so they are
 # never stale by this check; that is the same limitation `sig_for` already
 # documents, not a new one.
-fn is_fresh(r :: verification.Record) -> [io] Bool {
+fn is_fresh(r :: verification.Record) -> [io, proc] Bool {
   if str.is_empty(r.target) {
     true
   } else {
@@ -305,8 +305,8 @@ fn upgrade(acc :: Presence, hit :: Bool, fresh :: Bool) -> [io] Presence {
   }
 }
 
-fn presence_on(records :: List[verification.Record], target :: Str, kind :: Str) -> [io] Presence {
-  list.fold(records, Absent, fn (acc :: Presence, r :: verification.Record) -> [io] Presence {
+fn presence_on(records :: List[verification.Record], target :: Str, kind :: Str) -> [io, proc] Presence {
+  list.fold(records, Absent, fn (acc :: Presence, r :: verification.Record) -> [io, proc] Presence {
     let hit := r.kind == kind and r.target == target
     upgrade(acc, hit, if hit {
       is_fresh(r)
@@ -316,8 +316,8 @@ fn presence_on(records :: List[verification.Record], target :: Str, kind :: Str)
   })
 }
 
-fn presence(records :: List[verification.Record], kind :: Str) -> [io] Presence {
-  list.fold(records, Absent, fn (acc :: Presence, r :: verification.Record) -> [io] Presence {
+fn presence(records :: List[verification.Record], kind :: Str) -> [io, proc] Presence {
+  list.fold(records, Absent, fn (acc :: Presence, r :: verification.Record) -> [io, proc] Presence {
     let hit := r.kind == kind
     upgrade(acc, hit, if hit {
       is_fresh(r)
@@ -327,7 +327,7 @@ fn presence(records :: List[verification.Record], kind :: Str) -> [io] Presence 
   })
 }
 
-fn target_outcome(label :: Str, target :: Str, kind :: Str) -> [io] Outcome {
+fn target_outcome(label :: Str, target :: Str, kind :: Str) -> [io, proc] Outcome {
   match presence_on(verification.all(), target, kind) {
     Fresh => { label: label, met: true, detail: "" },
     Stale => { label: label, met: false, detail: str.join(["a ", kind, " record exists for ", target, " but it no longer matches the file's current content — re-run the check"], "") },
@@ -335,7 +335,7 @@ fn target_outcome(label :: Str, target :: Str, kind :: Str) -> [io] Outcome {
   }
 }
 
-fn verified_outcome(label :: Str, kind :: Str) -> [io] Outcome {
+fn verified_outcome(label :: Str, kind :: Str) -> [io, proc] Outcome {
   match presence(verification.all(), kind) {
     Fresh => { label: label, met: true, detail: "" },
     Stale => { label: label, met: false, detail: str.join(["a ", kind, " record exists in this project but no longer matches its target's current content — re-run the check"], "") },

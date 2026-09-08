@@ -453,7 +453,7 @@ fn refused_turn_streamed(session :: Session, reason :: Str, on_step :: (d.Step) 
 # cache. A FAILED assistant append is deliberately not patched over — the
 # cache keeps the message anyway, so the next turn's derivation check finds
 # the divergence and refuses loudly. Noisy failure over silent context loss.
-fn finish_turn(session :: Session, derived :: List[msg.Message], steps :: List[d.Step], started_ms :: Int) -> [env, net, io, sql, time] TurnResult {
+fn finish_turn(session :: Session, derived :: List[msg.Message], steps :: List[d.Step], started_ms :: Int) -> [env, net, io, sql, time, proc] TurnResult {
   let ended := time.now_ms()
   let __harvested := verification.append_all(verification.harvest(session.log, started_ms, ended))
   let __exported := obs.export_turn(session.id, session.log, started_ms, ended)
