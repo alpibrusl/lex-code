@@ -93,11 +93,15 @@ fn test_permission() -> sp.Spec {
 # `bar_permission`'s "a walk cannot quietly turn into a fix": a verifier
 # that can shell out can also quietly patch around what it finds.
 #
-# lex_stdlib/lex_guide/lex_cli_help (atomic on-demand context, #141)
-# belong here too once merged — a verifier writing its own Lex code
-# should have the same "ask, don't guess" tools build/test get.
+# lex_stdlib/lex_guide/lex_cli_help (atomic on-demand context, #141):
+# a verifier writing its own Lex code should have the same "ask, don't
+# guess" tools build/test get — confirmed the hard way in #143's own
+# live test, where a verify run's derivation logic was entirely
+# correct but it burned its whole step budget on an import-path
+# mistake and a missing stdlib import before ever landing a file that
+# type-checked.
 fn verify_permission() -> sp.Spec {
-  allow_tools("verify_tools", ["read", "write", "grep", "glob", "lex_check", "lex_run", "lex_test"])
+  allow_tools("verify_tools", ["read", "write", "grep", "glob", "lex_check", "lex_run", "lex_test", "lex_stdlib", "lex_guide", "lex_cli_help"])
 }
 
 fn build_permission() -> sp.Spec {
