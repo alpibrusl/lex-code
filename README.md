@@ -751,6 +751,20 @@ src/list.lex`), and a file is not a function, so neither criterion can say
 attestation graph, which is what `lex blame --with-evidence` reads and what
 `attestation_query` calls the stronger signal.
 
+`verified.type_check`/`.spec_check`/`.test` are written by lex-llm's own
+dispatcher whenever `lex_check`/`lex_spec_check`/`lex_test` reports a pass —
+mechanical evidence the tool actually ran and actually passed, not the
+model's word for it. `verified.independent_check` is the fourth kind, and
+it is lex-code's own: a bare `lex_run` pass proves nothing on its own (an
+ordinary build-mode run passing is not evidence of anything beyond "the
+function didn't crash"), so it is written directly by
+`impl_test_fix_loop_verified`'s fix-loop gate (`graph.lex`'s
+`attest_verify_pass_if_clean`) only when a `verify`-mode agent's own
+`lex_run` came back clean — the strongest evidence in the system, since
+verify re-derives the expected output instead of trusting anything on
+disk. A task spec can require it the same way as the others:
+`verified = ["verified.independent_check"]`.
+
 ### Pipeline specs
 
 A spec is two characters of grammar: `,` runs stages in order, `|` runs them
