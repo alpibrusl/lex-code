@@ -143,10 +143,10 @@ fn render(o :: Outcome) -> Str {
 # one anybody kept.
 fn skipped() -> List[Str]
   examples {
-    skipped() => ["read", "write", "edit", "grep", "glob", "bash", "todowrite", "remember", "semantic_search", "load_toolset", "vcs_branch_create", "vcs_branch_use", "vcs_merge_start", "vcs_merge_resolve", "vcs_merge_resolve_one", "vcs_merge_defer", "vcs_merge_commit", "vcs_op_push", "vcs_op_pull", "github_pr_create"]
+    skipped() => ["read", "write", "edit", "grep", "glob", "bash", "todowrite", "remember", "semantic_search", "load_toolset", "vcs_branch_create", "vcs_branch_use", "vcs_merge_start", "vcs_merge_resolve", "vcs_merge_resolve_one", "vcs_merge_defer", "vcs_merge_commit", "vcs_op_push", "vcs_op_pull", "github_pr_create", "github_pr_merge"]
   }
 {
-  ["read", "write", "edit", "grep", "glob", "bash", "todowrite", "remember", "semantic_search", "load_toolset", "vcs_branch_create", "vcs_branch_use", "vcs_merge_start", "vcs_merge_resolve", "vcs_merge_resolve_one", "vcs_merge_defer", "vcs_merge_commit", "vcs_op_push", "vcs_op_pull", "github_pr_create"]
+  ["read", "write", "edit", "grep", "glob", "bash", "todowrite", "remember", "semantic_search", "load_toolset", "vcs_branch_create", "vcs_branch_use", "vcs_merge_start", "vcs_merge_resolve", "vcs_merge_resolve_one", "vcs_merge_defer", "vcs_merge_commit", "vcs_op_push", "vcs_op_pull", "github_pr_create", "github_pr_merge"]
 }
 
 fn is_skipped(name :: Str) -> Bool
