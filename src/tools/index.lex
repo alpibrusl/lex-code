@@ -48,6 +48,8 @@ import "./remember" as remember_tool
 
 import "./github_pr_create" as github_pr_tool
 
+import "./github_pr_merge" as github_pr_merge_tool
+
 import "./lex_store_merge" as store_merge_tool
 
 import "./vcs/ast_diff" as vcs_ast_diff_tool
@@ -124,7 +126,7 @@ fn vcs_tools() -> List[t.Tool] {
 # calling it — it compares a file's effects against that mode's grant —
 # so the toolset has to be built per mode rather than shared.
 fn all_tools_for_mode(mode :: Str) -> List[t.Tool] {
-  list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), remember_tool.tool(), check_tool.tool(), os_check_tool.tool_for_mode(mode), audit_tool.tool(), semantic_search_tool.tool(), run_tool.tool(), test_tool.tool(), spec_check_tool.tool(), spec_smt_tool.tool(), sigid_tool.tool(), attest_tool.tool(), effects_tool.tool(), store_merge_tool.tool(), propagate_tool.tool(), guidelines_tool.tool(), bar_check_tool.tool(), github_pr_tool.tool()], vcs_tools())
+  list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), remember_tool.tool(), check_tool.tool(), os_check_tool.tool_for_mode(mode), audit_tool.tool(), semantic_search_tool.tool(), run_tool.tool(), test_tool.tool(), spec_check_tool.tool(), spec_smt_tool.tool(), sigid_tool.tool(), attest_tool.tool(), effects_tool.tool(), store_merge_tool.tool(), propagate_tool.tool(), guidelines_tool.tool(), bar_check_tool.tool(), github_pr_tool.tool(), github_pr_merge_tool.tool()], vcs_tools())
 }
 
 # The build agent's own toolset: build's grant forbids nothing, so this
