@@ -669,15 +669,26 @@ let test_steps := conc.ask(test_actor, Execute(test_task))
 used to hardcode one — implement `list.zip`, in four fixed phases, with its
 own sequential runner — and now drives the same agent graph the TUI does.
 
+This entry point needs the same `--max-steps` override the Quickstart's
+`bin/lex-code` wrapper supplies for the TUI, and for the same reason: it's
+trusted, long-running orchestration code, not the untrusted-sandboxed-snippet
+case the VM's 10,000,000-step default guards against. There's no wrapper
+script for this entry point, so it has to be typed by hand every time —
+reproduced live: a real multi-module build ran for 17+ minutes across dozens
+of agent turns and hit `step limit exceeded` with the flag omitted, discarding
+that whole run's output (`bootstrap/run.lex`'s own step-by-step printing only
+happens after the graph run returns, so a mid-run panic here loses everything,
+not just the final result).
+
 ```sh
 # the original demo, unchanged
-lex run --allow-effects … src/bootstrap/run.lex main
+lex run --max-steps 20000000000 --allow-effects … src/bootstrap/run.lex main
 
 # a real task, phases of your choosing
 LEX_TASK="add a retry wrapper to src/http.lex" \
 LEX_PIPELINE=build,test \
 LEX_PROVIDER=litellm \
-  lex run --allow-effects … src/bootstrap/run.lex main
+  lex run --max-steps 20000000000 --allow-effects … src/bootstrap/run.lex main
 ```
 
 | Variable | Default | Meaning |
@@ -706,7 +717,7 @@ verified_on = []                      # "<path>:<kind>" — a pass on that path
 
 ```sh
 LEX_TASK_SPEC=examples/tasks/zip.task \
-  lex run --allow-effects … src/bootstrap/run.lex main
+  lex run --max-steps 20000000000 --allow-effects … src/bootstrap/run.lex main
 ```
 
 The spec's `goal` becomes the task the agents are told, so the words they act

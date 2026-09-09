@@ -1,0 +1,29 @@
+#!/usr/bin/env sh
+# Wrapper for `src/bootstrap/run.lex main` — requires `lex` CLI on PATH.
+#
+# Same reason `bin/lex-code` exists for the TUI: the VM's default step
+# budget (10,000,000, a DoS guard for *untrusted* sandboxed snippets per
+# `lex run --help`) kills a long agentic session outright with a
+# step-limit-exceeded panic once enough turns or verbose-enough model
+# output accumulate. bootstrap/run.lex's own build/test/verify pipeline
+# is exactly this case — trusted, long-running orchestration code, not
+# an untrusted snippet — and it has no wrapper of its own, so the flag
+# has to be remembered by hand every time `lex run` is typed directly.
+# Reproduced live, repeatedly: real multi-module builds running 10-20+
+# minutes across dozens of agent turns hit `step limit exceeded` with
+# the flag omitted, discarding that whole run's output (bootstrap/run.lex
+# only prints per-step output after the graph run returns, so a mid-run
+# panic here loses everything, not just the final result — see the
+# README's "Bootstrap Script" section for the full story).
+#
+# bootstrap/run.lex's `main` takes no positional args (LEX_TASK,
+# LEX_TASK_SPEC, LEX_PIPELINE, LEX_PROVIDER are all read from the
+# environment, not argv — see its own header comment for why), so unlike
+# bin/lex-code there is no `main --` separator or "$@" forwarding to get
+# right here; just the effect grant and the step-limit override.
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LEX_CODE_EFFECTS="${LEX_CODE_EFFECTS:-approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time}"
+LEX_CODE_MAX_STEPS="${LEX_CODE_MAX_STEPS:-20000000000}"
+exec lex run --max-steps "$LEX_CODE_MAX_STEPS" --allow-effects "$LEX_CODE_EFFECTS" \
+  "$SCRIPT_DIR/../src/bootstrap/run.lex" main
