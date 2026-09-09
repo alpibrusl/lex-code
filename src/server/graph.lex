@@ -787,8 +787,63 @@ fn verify_fix_task(task :: Str, verify_events :: List[trail_ev.Event]) -> Str {
   str.join([task, "\n\nAn independent verification pass found a problem with the implementation. It re-derived the expected values itself rather than trusting the implementation's own tests, so this is not the same claim as a failing test.\nVerification output:\n", truncate_for_prompt(str.join(tool_result_texts(verify_events), "\n")), "\n\nFind and fix the bug that caused this. Do not rewrite unrelated working code, and do not edit the verification file itself."], "")
 }
 
+# True iff any `cap.completed` event names the `write` or `edit` tool —
+# the two tools capable of actually changing a file. Same scanning shape
+# as `verify_found_failure`: read what the tool dispatcher already
+# recorded on the trail, not what the model's own closing text claims.
+fn wrote_or_edited(events :: List[trail_ev.Event]) -> Bool
+  examples {
+    wrote_or_edited([]) => false,
+    wrote_or_edited([trail_ev.make("cap.completed", None, "{\"capability\":\"write\",\"result\":\"ok\"}", 0)]) => true,
+    wrote_or_edited([trail_ev.make("cap.completed", None, "{\"capability\":\"edit\",\"result\":\"ok\"}", 0)]) => true,
+    wrote_or_edited([trail_ev.make("cap.completed", None, "{\"capability\":\"read\",\"result\":\"ok\"}", 0)]) => false,
+    wrote_or_edited([trail_ev.make("cap.invoked", None, "{\"capability\":\"write\",\"args\":{}}", 0)]) => false
+  }
+{
+  list.fold(events, false, fn (acc :: Bool, e :: trail_ev.Event) -> Bool {
+    if acc {
+      true
+    } else {
+      e.kind == kinds.cap_completed() and (str.contains(e.payload_json, "\"capability\":\"write\"") or str.contains(e.payload_json, "\"capability\":\"edit\""))
+    }
+  })
+}
+
+# Runs `setup`'s first stage with event-tracking when it can (an
+# AgentNode alone, or the head of a SequenceNode — the exact shape
+# every current FixLoopDef.setup uses: `SequenceNode([impl, test])`),
+# so a fully no-op first turn can be caught before the rest of setup
+# and the mechanical verify gate spend their own budget on a file that
+# was never written. Anything else (a ParallelNode, a FixLoopNode, an
+# empty SequenceNode) falls back to today's unconditional run_node —
+# there is no single "first agent" to gate on, so this only ever
+# widens what's covered, never narrows it.
+fn run_setup(setup :: Node, task :: Str, provider_tag :: Str) -> [env, concurrent, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] { results :: List[NodeResult], produced_nothing :: Bool } {
+  match setup {
+    AgentNode(def) => match run_agent_with_events(def, task, provider_tag) {
+      (result, events) => { results: [result], produced_nothing: not wrote_or_edited(events) },
+    },
+    SequenceNode(kids) => match list.head(kids) {
+      Some(AgentNode(first_def)) => match run_agent_with_events(first_def, task, provider_tag) {
+        (first_result, first_events) => if wrote_or_edited(first_events) {
+          { results: list.concat([first_result], run_node(SequenceNode(list.tail(kids)), task, provider_tag)), produced_nothing: false }
+        } else {
+          { results: [first_result], produced_nothing: true }
+        },
+      },
+      _ => { results: run_node(setup, task, provider_tag), produced_nothing: false },
+    },
+    _ => { results: run_node(setup, task, provider_tag), produced_nothing: false },
+  }
+}
+
 fn run_fix_loop(def :: FixLoopDef, task :: Str, provider_tag :: Str) -> [env, concurrent, net, llm, io, proc, sql, fs_read, fs_walk, fs_write, time, approval, crypto, random] List[NodeResult] {
-  fix_round(def, task, provider_tag, 0, run_node(def.setup, task, provider_tag))
+  let setup_run := run_setup(def.setup, task, provider_tag)
+  if setup_run.produced_nothing {
+    setup_run.results
+  } else {
+    fix_round(def, task, provider_tag, 0, setup_run.results)
+  }
 }
 
 # `Err` from the verify command itself (not found, refused to run) stops
