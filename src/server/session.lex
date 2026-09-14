@@ -20,6 +20,8 @@ import "std.str" as str
 
 import "std.io" as io
 
+import "std.process" as proc
+
 import "std.time" as time
 
 import "../agents/build" as build_agent
@@ -354,6 +356,7 @@ fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag ::
         Err(e) => refused_turn(session, str.concat("session history count unavailable: ", e)),
         Ok(count) => if count == list.len(expected) {
           let agent := with_mcp(with_memory(pick_agent(session.mode, provider_tag), session.memory), mcp_tools_for(session.mode))
+          let __intent := record_intent(session.id, user_input, agent.model.provider, agent.model.model)
           let step_iter := ag.run_loop_traced(agent, expected, session.log, session.parent)
           let steps := iter.to_list(step_iter)
           finish_turn(session, expected, steps, started)
@@ -363,6 +366,22 @@ fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag ::
       }
     },
   }
+}
+
+# Record this turn's intent for the write/edit tools (#131/#839). They
+# publish each clean .lex write into the op-log store, and the store
+# stamps every op with *why* — the prompt, model, and session — so
+# `lex recall --intent` and `lex op replay` have real provenance to
+# read. Three raw files, one value each, so a prompt with quotes or
+# newlines needs no escaping; std.env is read-only from Lex, so a file
+# is the channel. `proc` mkdir, not std.fs, for the same effect-row
+# reason as linter.record_verified.
+fn record_intent(session_id :: Str, user_input :: Str, provider :: Str, model :: Str) -> [proc, io] Unit {
+  let __d := proc.run("mkdir", ["-p", ".lex/intent"])
+  let __p := io.write(".lex/intent/prompt", user_input)
+  let __m := io.write(".lex/intent/model", str.concat(provider, str.concat("/", model)))
+  let __s := io.write(".lex/intent/session", session_id)
+  ()
 }
 
 # Same turn-handling as run_turn_with_provider, but on_step fires as each
@@ -414,6 +433,7 @@ fn run_turn_streaming_with_provider(session :: Session, user_input :: Str, provi
         Err(e) => refused_turn_streamed(session, str.concat("session history count unavailable: ", e), on_step),
         Ok(count) => if count == list.len(expected) {
           let agent := with_mcp(with_memory(pick_agent(session.mode, provider_tag), session.memory), mcp_tools_for(session.mode))
+          let __intent := record_intent(session.id, user_input, agent.model.provider, agent.model.model)
           let budget := ag.unwrap_int(agent.options.max_steps, 20)
           let steps := ag.run_steps_streamed(agent, expected, budget, session.log, session.parent, on_step)
           finish_turn(session, expected, steps, started)

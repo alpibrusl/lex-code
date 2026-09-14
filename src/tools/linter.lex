@@ -407,3 +407,74 @@ fn record_verified(tool :: Str, path :: Str, result :: RunResult) -> [proc, io] 
   }
 }
 
+# Where the current turn's intent lives (#131/#839). session.lex writes
+# three raw files at the turn boundary — prompt / model / session, one
+# value per file so a prompt with quotes or newlines never needs
+# escaping — and write/edit read them back here. Files rather than env
+# vars because std.env is read-only from Lex; raw rather than JSON
+# because the values are opaque strings only `lex publish` interprets.
+fn intent_dir() -> Str
+  examples {
+    intent_dir() => ".lex/intent"
+  }
+{
+  ".lex/intent"
+}
+
+# The intent recorded for this turn, if session.lex wrote one.
+fn read_intent() -> [io] Option[{ prompt :: Str, model :: Str, session :: Str }] {
+  match io.read(str.concat(intent_dir(), "/prompt")) {
+    Err(_) => None,
+    Ok(prompt) => match io.read(str.concat(intent_dir(), "/model")) {
+      Err(_) => None,
+      Ok(model) => match io.read(str.concat(intent_dir(), "/session")) {
+        Err(_) => None,
+        Ok(session) => Some({ prompt: prompt, model: model, session: session }),
+      },
+    },
+  }
+}
+
+# After a clean write of a .lex file inside a package, land it in the
+# op-log store with the turn's intent: `lex publish --activate
+# --intent-*` (#131/#839). The store runs its write-time gates — the
+# type check the linter already passed, and the behavioral
+# `examples {}` gate it did not.
+#
+# Returns Some(reason) only when the store's gate REFUSED the change —
+# real feedback the model must see (a well-typed body whose declared
+# examples fail). Everything else is best-effort and returns None so a
+# file write is never blocked by provenance bookkeeping: not a .lex
+# file; no lex.toml in cwd (no package store — never publish into the
+# shared global store by accident); an infra failure. `proc`+`io` only,
+# because Tool.execute's row is fixed at [net, io, proc].
+fn publish_with_intent(path :: Str) -> [proc, io] Option[Str] {
+  if not str.ends_with(path, ".lex") {
+    None
+  } else {
+    match io.read("lex.toml") {
+      Err(_) => None,
+      Ok(_) => {
+        let base := ["--output", "json", "publish", path, "--activate"]
+        let args := match read_intent() {
+          None => base,
+          Some(i) => list.concat(base, ["--intent-prompt", i.prompt, "--intent-model", i.model, "--intent-session", i.session]),
+        }
+        match proc.run("lex", args) {
+          Err(_) => None,
+          Ok(out) => if out.exit_code == 0 {
+            None
+          } else {
+            let text := str.concat(out.stdout, out.stderr)
+            if str.contains(text, "\"phase\"") or str.contains(text, "example_mismatch") {
+              Some(str.trim(text))
+            } else {
+              None
+            }
+          },
+        }
+      },
+    }
+  }
+}
+

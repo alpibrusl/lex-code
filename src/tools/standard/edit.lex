@@ -56,10 +56,13 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
                 if lint.failed {
                   Err(e.single("", "lint_failed", str.concat(header, str.concat("\n", str.concat(lint.summary, "\nFix the errors above.")))))
                 } else {
-                  if str.is_empty(lint.summary) {
-                    Ok(JStr(str.concat(header, linter.readback(path))))
-                  } else {
-                    Ok(JStr(str.concat(header, str.concat("\n", lint.summary))))
+                  match linter.publish_with_intent(path) {
+                    Some(refused) => Err(e.single("", "publish_refused", str.concat(header, str.concat("\n", str.concat(refused, "\nThe change type-checks but the store's gate refused it (declared examples fail). Fix and rewrite."))))),
+                    None => if str.is_empty(lint.summary) {
+                      Ok(JStr(str.concat(header, linter.readback(path))))
+                    } else {
+                      Ok(JStr(str.concat(header, str.concat("\n", lint.summary))))
+                    },
                   }
                 }
               },
