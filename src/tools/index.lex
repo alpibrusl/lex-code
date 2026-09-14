@@ -58,6 +58,10 @@ import "./vcs/op_show" as vcs_op_show_tool
 
 import "./vcs/op_log" as vcs_op_log_tool
 
+import "./vcs/op_replay" as vcs_op_replay_tool
+
+import "./vcs/recall" as vcs_recall_tool
+
 import "./vcs/op_push" as vcs_op_push_tool
 
 import "./vcs/op_pull" as vcs_op_pull_tool
@@ -107,7 +111,7 @@ import "../permissions/rules" as rules
 import "std.env" as env
 
 fn vcs_read_tools() -> List[t.Tool] {
-  [vcs_ast_diff_tool.tool(), vcs_op_show_tool.tool(), vcs_op_log_tool.tool(), vcs_branch_list_tool.tool(), vcs_branch_current_tool.tool(), vcs_branch_show_tool.tool(), vcs_branch_peek_tool.tool(), vcs_branch_overlay_tool.tool(), vcs_merge_status_tool.tool(), vcs_merge_show_conflicts_tool.tool()]
+  [vcs_ast_diff_tool.tool(), vcs_op_show_tool.tool(), vcs_op_log_tool.tool(), vcs_op_replay_tool.tool(), vcs_recall_tool.tool(), vcs_branch_list_tool.tool(), vcs_branch_current_tool.tool(), vcs_branch_show_tool.tool(), vcs_branch_peek_tool.tool(), vcs_branch_overlay_tool.tool(), vcs_merge_status_tool.tool(), vcs_merge_show_conflicts_tool.tool()]
 }
 
 fn vcs_write_tools() -> List[t.Tool] {
