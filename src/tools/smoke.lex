@@ -72,6 +72,8 @@ fn args_for(name :: Str) -> Option[jv.Json] {
     "vcs_ast_diff" => Some(JObj([("file_a", JStr("src/tools/util.lex")), ("file_b", JStr("src/tools/index.lex"))])),
     "vcs_op_show" => Some(JObj([("op_id", JStr("0000000000000000000000000000000000000000000000000000000000000000"))])),
     "vcs_op_log" => Some(JObj([("limit", JStr("1"))])),
+    "vcs_op_replay" => Some(JObj([("op_id", JStr("0000000000000000000000000000000000000000000000000000000000000000"))])),
+    "vcs_recall" => Some(JObj([("limit", JStr("1"))])),
     "vcs_branch_list" => Some(JObj([])),
     "vcs_branch_current" => Some(JObj([])),
     "vcs_branch_show" => Some(JObj([("branch", JStr("main"))])),
