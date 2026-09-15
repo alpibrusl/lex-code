@@ -421,7 +421,7 @@ fn jstr(j :: jv.Json, key :: Str) -> Str {
 }
 
 fn regen_system() -> Str {
-  str.join(["You regenerate exactly one Lex function and output ONLY its Lex source.", "No prose, no explanation, no markdown fences — just the function.", "Lex is expression-bodied: the last expression is the return value, with no `return` and no trailing semicolons.", "Type annotations use `::` (e.g. `x :: Int`). Local bindings are `let name := value`. Matching is `match e { Pat => expr, ... }`.", "Example: fn add(a :: Int, b :: Int) -> Int { a + b }"], "\n")
+  str.join(["You regenerate exactly one Lex function and output ONLY its Lex source.", "No prose, no explanation, no markdown fences — just the function.", "Lex is expression-bodied: the last expression is the return value, with no `return` and no trailing semicolons.", "Type annotations use `::` (e.g. `x :: Int`). Local bindings are `let name := value`. Matching is `match e { Pat => expr, ... }`.", "Lex has NO match guards: `Pat if cond => ...` is a PARSE ERROR — use plain patterns, or a nested `if` in the arm body / instead of `match`.", "Lex has NO unary minus: write `0 - x`, never `-x`.", "Conditionals are expressions: `if cond { a } else { b }`; chain as `if c1 { .. } else { if c2 { .. } else { .. } }`.", "Example: fn add(a :: Int, b :: Int) -> Int { a + b }"], "\n")
 }
 
 fn regen_user_prompt(sig :: Str, prompt :: Str, parent :: Str) -> Str {
