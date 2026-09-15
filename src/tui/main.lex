@@ -12,6 +12,12 @@ import "std.int" as int
 
 import "lex-llm/delta" as d
 
+import "lex-llm/agent" as ag
+
+import "lex-llm/streaming" as streaming
+
+import "std.iter" as iter
+
 import "lex-llm/message" as msg
 
 import "lex-schema/json_value" as jv
@@ -389,7 +395,128 @@ fn collect_final_text(steps :: List[d.Step]) -> Str {
   }
 }
 
-type Invocation = { mode :: sess.AgentMode, provider :: Str, task :: Option[Str], multi :: Bool, pipeline :: Option[Str] }
+# ---- `--regenerate`: the replay-as-verification runner (lex-lang #836) ----
+#
+# `lex op replay <op> --regenerate-cmd 'lex-code --ollama --regenerate'`
+# pipes a ReplayRequest JSON to this on stdin; lex-code regenerates the
+# target function from its recorded intent + parent program and writes
+# ONLY the Lex source of that function to stdout, which lex op replay
+# then compares (content-addressed) against what the op recorded. This
+# closes the loop: lex-code both *produces* ops (with intent) and can
+# *regenerate* them for verification.
+#
+# It is a single no-tools completion, deliberately: regeneration must
+# return text, never touch the filesystem — and lex-code's write/edit
+# tools now publish into the op-log, which would be exactly wrong here.
+# stdout is the artifact; on any failure it stays empty, so lex op
+# replay records an honest "not reproduced" rather than crashing.
+fn jstr(j :: jv.Json, key :: Str) -> Str {
+  match jv.get_field(j, key) {
+    None => "",
+    Some(v) => match jv.as_str(v) {
+      None => "",
+      Some(s) => s,
+    },
+  }
+}
+
+fn regen_system() -> Str {
+  str.join(["You regenerate exactly one Lex function and output ONLY its Lex source.", "No prose, no explanation, no markdown fences — just the function.", "Lex is expression-bodied: the last expression is the return value, with no `return` and no trailing semicolons.", "Type annotations use `::` (e.g. `x :: Int`). Local bindings are `let name := value`. Matching is `match e { Pat => expr, ... }`.", "Example: fn add(a :: Int, b :: Int) -> Int { a + b }"], "\n")
+}
+
+fn regen_user_prompt(sig :: Str, prompt :: Str, parent :: Str) -> Str {
+  let ctx := if str.is_empty(str.trim(parent)) {
+    ""
+  } else {
+    str.join(["Existing program (context — do NOT repeat it in your output):\n", parent, "\n\n"], "")
+  }
+  let intent := if str.is_empty(str.trim(prompt)) {
+    "Intent: (none recorded — reproduce the function faithfully)\n\n"
+  } else {
+    str.join(["Intent (what was asked):\n", prompt, "\n\n"], "")
+  }
+  let want := if str.is_empty(str.trim(sig)) {
+    ""
+  } else {
+    str.join(["Regenerate exactly this function, with this signature:\n", sig, "\n"], "")
+  }
+  str.join([ctx, intent, want], "")
+}
+
+# Strip a leading/trailing markdown fence if the model wrapped its
+# output in one, keeping the inner source verbatim.
+fn strip_fences(s :: Str) -> Str {
+  let t := str.trim(s)
+  if str.starts_with(t, "```") {
+    let lines := str.split(t, "\n")
+    let no_open := list.tail(lines)
+    let rev := list.reverse(no_open)
+    let no_close := match list.head(rev) {
+      Some(last) => if str.starts_with(str.trim(last), "```") {
+        list.tail(rev)
+      } else {
+        rev
+      },
+      None => rev,
+    }
+    str.trim(str.join(list.reverse(no_close), "\n"))
+  } else {
+    t
+  }
+}
+
+# The agent used for regeneration: the provider/model the flags select,
+# but with tools stripped and a one-completion budget so it returns text
+# and never touches the filesystem (lex-code's write/edit tools publish
+# into the op-log, which would be exactly wrong inside a replay).
+fn regen_agent(provider_tag :: Str) -> [env] ag.AgentLoop {
+  let base := sess.pick_agent(Build, provider_tag)
+  { name: "regenerate", goal: regen_system(), model: base.model, provider: base.provider, tools: [], options: { temperature: None, top_p: None, max_steps: Some(1), max_tokens: None }, permission_spec: None }
+}
+
+# The regenerated source text for one request. Uses the provider's
+# streaming half when it has one — ollama's non-streaming `chat` returns
+# nothing, and every working lex-code run streams — folding TextChunks
+# into the answer. Providers with no streaming half fall back to the
+# non-streaming path.
+fn regen_text(agent :: ag.AgentLoop, user :: Str) -> [net, llm, stream] Str {
+  let messages := [msg.system(agent.goal), msg.user(user)]
+  let deltas := match agent.provider.stream {
+    Some(sc) => streaming.collect(sc, agent.model, messages, []),
+    None => iter.to_list(agent.provider.chat(agent.model, messages, [])),
+  }
+  list.fold(deltas, "", fn (acc :: Str, dl :: d.Delta) -> Str {
+    match dl {
+      TextChunk(t) => str.concat(acc, t),
+      _ => acc,
+    }
+  })
+}
+
+# Read all of stdin, one line at a time, until EOF. `io.read("-")` does
+# NOT read stdin (it opens a file literally named "-", which fails on a
+# pipe); `io.readline()` is the real stdin reader, and the ReplayRequest
+# JSON that `lex op replay --regenerate-cmd` pipes in is pretty-printed
+# across many lines, so a single read would only ever see the opening `{`.
+fn drain_stdin(acc :: List[Str]) -> [io] List[Str] {
+  match io.readline() {
+    None => list.reverse(acc),
+    Some(l) => drain_stdin(list.cons(l, acc)),
+  }
+}
+
+fn regenerate(provider_tag :: Str) -> [env, io, net, llm, stream] Nil {
+  let raw := str.join(drain_stdin([]), "\n")
+  match jv.parse(raw) {
+    Err(_) => (),
+    Ok(req) => {
+      let user := regen_user_prompt(jstr(req, "target_signature"), jstr(req, "prompt"), jstr(req, "parent_program"))
+      io.print(strip_fences(regen_text(regen_agent(provider_tag), user)))
+    },
+  }
+}
+
+type Invocation = { mode :: sess.AgentMode, provider :: Str, task :: Option[Str], multi :: Bool, pipeline :: Option[Str], regenerate :: Bool }
 
 # The whole command line, resolved in one pure function.
 #
@@ -405,50 +532,55 @@ type Invocation = { mode :: sess.AgentMode, provider :: Str, task :: Option[Str]
 # then cover the whole parse path rather than its pieces.
 fn plan_invocation(argv :: List[Str]) -> Invocation
   examples {
-    plan_invocation([]) => { mode: Build, provider: "litellm", task: None, multi: false, pipeline: None },
-    plan_invocation(["--bar", "walk this repo"]) => { mode: Bar, provider: "litellm", task: Some("walk this repo"), multi: false, pipeline: None },
-    plan_invocation(["--ollama", "--plan"]) => { mode: Plan, provider: "ollama", task: None, multi: false, pipeline: None },
-    plan_invocation(["--multi"]) => { mode: Build, provider: "litellm", task: None, multi: true, pipeline: None },
-    plan_invocation(["--litellm", "--review", "check the diff"]) => { mode: Review, provider: "litellm", task: Some("check the diff"), multi: false, pipeline: None },
-    plan_invocation(["--litellm", "--verify", "check src/abi.lex against the ABI spec"]) => { mode: Verify, provider: "litellm", task: Some("check src/abi.lex against the ABI spec"), multi: false, pipeline: None },
-    plan_invocation(["--multi", "--pipeline=impl_then_spec_then_test"]) => { mode: Build, provider: "litellm", task: None, multi: true, pipeline: Some("impl_then_spec_then_test") }
+    plan_invocation([]) => { mode: Build, provider: "litellm", task: None, multi: false, pipeline: None, regenerate: false },
+    plan_invocation(["--bar", "walk this repo"]) => { mode: Bar, provider: "litellm", task: Some("walk this repo"), multi: false, pipeline: None, regenerate: false },
+    plan_invocation(["--ollama", "--plan"]) => { mode: Plan, provider: "ollama", task: None, multi: false, pipeline: None, regenerate: false },
+    plan_invocation(["--multi"]) => { mode: Build, provider: "litellm", task: None, multi: true, pipeline: None, regenerate: false },
+    plan_invocation(["--litellm", "--review", "check the diff"]) => { mode: Review, provider: "litellm", task: Some("check the diff"), multi: false, pipeline: None, regenerate: false },
+    plan_invocation(["--litellm", "--verify", "check src/abi.lex against the ABI spec"]) => { mode: Verify, provider: "litellm", task: Some("check src/abi.lex against the ABI spec"), multi: false, pipeline: None, regenerate: false },
+    plan_invocation(["--multi", "--pipeline=impl_then_spec_then_test"]) => { mode: Build, provider: "litellm", task: None, multi: true, pipeline: Some("impl_then_spec_then_test"), regenerate: false },
+    plan_invocation(["--ollama", "--regenerate"]) => { mode: Build, provider: "ollama", task: None, multi: false, pipeline: None, regenerate: true }
   }
 {
-  { mode: select_mode(argv), provider: select_provider_tag(argv), task: find_task(argv), multi: has_flag(argv, "--multi"), pipeline: find_pipeline(argv) }
+  { mode: select_mode(argv), provider: select_provider_tag(argv), task: find_task(argv), multi: has_flag(argv, "--multi"), pipeline: find_pipeline(argv), regenerate: has_flag(argv, "--regenerate") }
 }
 
 fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random, concurrent] Nil {
   let inv := plan_invocation(io.argv())
   let provider_tag := inv.provider
   let mode := inv.mode
-  match inv.task {
-    Some(task) => if inv.multi {
-      match resolve_pipeline(inv.pipeline) {
-        Err(msg) => io.print(str.concat(msg, "\n")),
-        Ok(pipeline) => run_once_multi(task, pipeline, provider_tag),
-      }
-    } else {
-      run_once(task, mode, provider_tag)
-    },
-    None => {
-      io.print(str.concat("lex-code — Lex-specialized coding assistant", "\n"))
-      io.print(str.concat("modes:     --plan | --explore | --refactor | --spec | --test | --review | --verify | --bar | --multi", "\n"))
-      io.print(str.join(["pipelines: --pipeline=", str.join(graph.preset_names(), " | --pipeline="), "\n           --pipeline=build,spec,test|review   (\",\" in order, \"|\" at once)", "\n"], ""))
-      io.print(str.concat("providers: --mistral | --openai | --google | --vertex | --litellm | --ollama | --vllm | --opencode  (default: anthropic)", "\n"))
-      io.print(str.concat("one-shot:  lex run src/tui/main.lex -- [flags] \"your task\"", "\n"))
-      io.print(str.concat("Ctrl-D to exit", "\n"))
-      if inv.multi {
+  if inv.regenerate {
+    regenerate(provider_tag)
+  } else {
+    match inv.task {
+      Some(task) => if inv.multi {
         match resolve_pipeline(inv.pipeline) {
           Err(msg) => io.print(str.concat(msg, "\n")),
-          Ok(pipeline) => multi_repl(provider_tag, pipeline),
+          Ok(pipeline) => run_once_multi(task, pipeline, provider_tag),
         }
       } else {
-        match sess.new_session_with_provider("tui", mode, provider_tag) {
-          Err(e) => io.print(str.concat(str.concat("startup error: ", e), "\n")),
-          Ok(session) => repl(session, provider_tag),
+        run_once(task, mode, provider_tag)
+      },
+      None => {
+        io.print(str.concat("lex-code — Lex-specialized coding assistant", "\n"))
+        io.print(str.concat("modes:     --plan | --explore | --refactor | --spec | --test | --review | --verify | --bar | --multi", "\n"))
+        io.print(str.join(["pipelines: --pipeline=", str.join(graph.preset_names(), " | --pipeline="), "\n           --pipeline=build,spec,test|review   (\",\" in order, \"|\" at once)", "\n"], ""))
+        io.print(str.concat("providers: --mistral | --openai | --google | --vertex | --litellm | --ollama | --vllm | --opencode  (default: anthropic)", "\n"))
+        io.print(str.concat("one-shot:  lex run src/tui/main.lex -- [flags] \"your task\"", "\n"))
+        io.print(str.concat("Ctrl-D to exit", "\n"))
+        if inv.multi {
+          match resolve_pipeline(inv.pipeline) {
+            Err(msg) => io.print(str.concat(msg, "\n")),
+            Ok(pipeline) => multi_repl(provider_tag, pipeline),
+          }
+        } else {
+          match sess.new_session_with_provider("tui", mode, provider_tag) {
+            Err(e) => io.print(str.concat(str.concat("startup error: ", e), "\n")),
+            Ok(session) => repl(session, provider_tag),
+          }
         }
-      }
-    },
+      },
+    }
   }
 }
 
