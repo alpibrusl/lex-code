@@ -326,11 +326,24 @@ fn extract_capability(payload :: Str) -> Str {
   }
 }
 
+# cap.* → the tool name. A `*_message` event carries a well-formed
+# {"role":..,"text":..} payload (valid JSON here, unlike cap.* payloads) —
+# surface its text so a watcher sees the conversation, not just the feed.
 fn event_label(kind :: Str, payload :: Str) -> Str {
   if str.starts_with(kind, "cap.") {
     extract_capability(payload)
   } else {
-    ""
+    if str.contains(kind, "_message") {
+      match jv.parse(payload) {
+        Err(_) => "",
+        Ok(p) => match jv.get_field(p, "text") {
+          Some(JStr(t)) => t,
+          _ => "",
+        },
+      }
+    } else {
+      ""
+    }
   }
 }
 
