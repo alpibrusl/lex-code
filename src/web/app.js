@@ -1,4 +1,9 @@
-const SERVER_URL = window.LEX_SERVER_URL || 'http://localhost:7700';
+// Default to the page's own origin so the UI works on whatever host/port
+// it was actually served from (a hardcoded :7700 broke every fetch when the
+// server ran on any other port — the watch feed and /a2a silently 404'd/
+// connection-refused). Override with window.LEX_SERVER_URL only for a
+// genuinely cross-origin backend.
+const SERVER_URL = window.LEX_SERVER_URL || location.origin;
 
 const messagesEl   = document.getElementById('messages');
 const inputEl      = document.getElementById('input');
