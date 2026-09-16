@@ -179,12 +179,17 @@ fn litellm_model() -> [env] Str {
 
 # Model name for the native OpenCode Go provider (providers.opencode_go(),
 # hits https://opencode.ai/zen/go/v1 directly — no local proxy needed).
-# Default is a coding-oriented model on the Go plan; override with
-# OPENCODE_MODEL. See litellm/config.yaml for the full Go-plan model list
-# (also reachable via --litellm once the proxy is running).
+# Default is kimi-k3: in a 2026-09-16 bake-off over the Go plan's usable
+# models (a Lex Tree/depth/max2 recursion task, `lex check` as oracle) it
+# both PASSED and returned in ~1.7s — 5x faster than the prior
+# kimi-k2.7-code default (8.9s) and every other passing model
+# (glm-5.3-flash 5.5s, glm-5.3/qwen3.8-max/minimax-m3/mimo/longcat 13-17s,
+# qwen3.8-flash 59s). All deepseek-* 403 (region-locked to China on this
+# plan) and grok is not oa-compat — see litellm/config.yaml for the full
+# refreshed Go-plan list. Override with OPENCODE_MODEL.
 fn opencode_model() -> [env] Str {
   match env.get("OPENCODE_MODEL") {
-    None => "kimi-k2.7-code",
+    None => "kimi-k3",
     Some(m) => m,
   }
 }
