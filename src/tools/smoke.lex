@@ -81,6 +81,7 @@ fn args_for(name :: Str) -> Option[jv.Json] {
     "vcs_branch_overlay" => Some(JObj([("other_branch", JStr("main"))])),
     "vcs_merge_status" => Some(JObj([("merge_id", JStr("no-such-session"))])),
     "vcs_merge_show_conflicts" => Some(JObj([("merge_id", JStr("no-such-session"))])),
+    "find_packages" => Some(JObj([("query", JStr("gcd"))])),
     _ => None,
   }
 }
