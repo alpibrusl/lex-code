@@ -50,7 +50,11 @@ function eventLine(ev) {
   return null;
 }
 
-async function pollEvents(feedEl) {
+// Poll new trail events. Always renders the tool feed into `feedEl`; when
+// `withMessages` is set (watch mode), also renders user/assistant message
+// events as chat bubbles — in a normal turn the messages come from the
+// /a2a result instead, so they'd double up.
+async function pollEvents(feedEl, withMessages) {
   try {
     const r = await fetch(`${SERVER_URL}/events?session=${sessionId}&after=${lastSeq}`);
     const j = await r.json();
@@ -62,6 +66,8 @@ async function pollEvents(feedEl) {
         el.className = 'ev ' + ev.kind.replace(/\./g, '-');
         el.textContent = line;
         feedEl.appendChild(el);
+      } else if (withMessages && ev.kind && ev.kind.endsWith('_message') && ev.label) {
+        addMsg(ev.kind.indexOf('user') >= 0 ? 'user' : 'agent', ev.label);
       }
     }
     messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -139,3 +145,35 @@ inputEl.addEventListener('keydown', e => {
 });
 
 setMode(modeSelect.value);
+
+// ── Watch mode ──────────────────────────────────────────────────────────────
+// `?watch=<session-id>` (or `#watch=<id>`) attaches read-only to a session
+// someone else is driving — e.g. a run Claude is handling — and live-tails its
+// trail: the tool feed plus the conversation, no input of its own.
+function watchSessionId() {
+  const q = new URLSearchParams(location.search).get('watch');
+  if (q) return q;
+  const m = location.hash.match(/watch=([0-9a-f]+)/);
+  return m ? m[1] : null;
+}
+
+function startWatch(sid) {
+  sessionId = sid;
+  lastSeq = 0;
+  // read-only: no sending
+  inputEl.disabled = true;
+  inputEl.placeholder = 'watching a live session — read only';
+  sendBtn.disabled = true;
+  const banner = document.createElement('div');
+  banner.className = 'watch-banner';
+  banner.textContent = '👁 Watching session ' + sid + ' — live';
+  document.getElementById('app').insertBefore(banner, messagesEl);
+  const feedEl = document.createElement('div');
+  feedEl.className = 'feed';
+  messagesEl.appendChild(feedEl);
+  setInterval(() => pollEvents(feedEl, true), 1000);
+  pollEvents(feedEl, true);
+}
+
+const _watch = watchSessionId();
+if (_watch) startWatch(_watch);
