@@ -86,6 +86,8 @@ import "./semantic_search" as semantic_search_tool
 
 import "./find_packages" as find_packages_tool
 
+import "./edit_files" as edit_files_tool
+
 import "./vcs/merge_status" as vcs_merge_status_tool
 
 import "./vcs/merge_show_conflicts" as vcs_merge_show_conflicts_tool
@@ -132,7 +134,7 @@ fn vcs_tools() -> List[t.Tool] {
 # calling it — it compares a file's effects against that mode's grant —
 # so the toolset has to be built per mode rather than shared.
 fn all_tools_for_mode(mode :: Str) -> List[t.Tool] {
-  list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), remember_tool.tool(), check_tool.tool(), os_check_tool.tool_for_mode(mode), audit_tool.tool(), semantic_search_tool.tool(), find_packages_tool.tool(), run_tool.tool(), test_tool.tool(), spec_check_tool.tool(), spec_smt_tool.tool(), sigid_tool.tool(), attest_tool.tool(), effects_tool.tool(), store_merge_tool.tool(), propagate_tool.tool(), guidelines_tool.tool(), bar_check_tool.tool(), github_pr_tool.tool(), github_pr_merge_tool.tool()], vcs_tools())
+  list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), remember_tool.tool(), check_tool.tool(), os_check_tool.tool_for_mode(mode), audit_tool.tool(), semantic_search_tool.tool(), find_packages_tool.tool(), edit_files_tool.tool(), run_tool.tool(), test_tool.tool(), spec_check_tool.tool(), spec_smt_tool.tool(), sigid_tool.tool(), attest_tool.tool(), effects_tool.tool(), store_merge_tool.tool(), propagate_tool.tool(), guidelines_tool.tool(), bar_check_tool.tool(), github_pr_tool.tool(), github_pr_merge_tool.tool()], vcs_tools())
 }
 
 # The build agent's own toolset: build's grant forbids nothing, so this
@@ -165,7 +167,7 @@ fn all_tools() -> List[t.Tool] {
 # enough for the curated core; it doesn't need load_toolset gating the
 # way the heavier vcs/spec/store groups do.
 fn minimal_tools() -> List[t.Tool] {
-  [read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), remember_tool.tool(), check_tool.tool(), run_tool.tool(), test_tool.tool(), stdlib_tool.tool(), guide_tool.tool(), cli_help_tool.tool(), find_packages_tool.tool()]
+  [read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), remember_tool.tool(), check_tool.tool(), run_tool.tool(), test_tool.tool(), stdlib_tool.tool(), guide_tool.tool(), cli_help_tool.tool(), find_packages_tool.tool(), edit_files_tool.tool()]
 }
 
 # Model name advertised to the LiteLLM proxy (must match a model_name in
