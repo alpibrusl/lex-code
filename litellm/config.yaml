@@ -146,14 +146,12 @@ model_list:
   # lex-code uses tool_choice=auto (via lex-llm, shared with lex-loom) so
   # this works correctly.
 
-  # DeepSeek
-  - model_name: deepseek-v4-flash
-    litellm_params:
-      model: openai/deepseek-v4-flash
-      api_base: https://opencode.ai/zen/go/v1
-      api_key: os.environ/OPENCODE_API_KEY
-      merge_reasoning_content_in_choices: true
+  # Refreshed against the live /v1/models list on 2026-09-16 (38 models).
+  # NOTE: deepseek-* return 403 (region-locked to China opt-in) and grok is not
+  # oa-compat on this key/plan; they are listed for completeness. kimi-k3 is the
+  # lex-code default (fastest passing model in the 2026-09-16 Lex bake-off).
 
+  # DeepSeek
   - model_name: deepseek-v4-pro
     litellm_params:
       model: openai/deepseek-v4-pro
@@ -161,7 +159,49 @@ model_list:
       api_key: os.environ/OPENCODE_API_KEY
       merge_reasoning_content_in_choices: true
 
+  - model_name: deepseek-v4.1-flash
+    litellm_params:
+      model: openai/deepseek-v4.1-flash
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: deepseek-v4-flash
+    litellm_params:
+      model: openai/deepseek-v4-flash
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: deepseek-v4-flash-vision-exp
+    litellm_params:
+      model: openai/deepseek-v4-flash-vision-exp
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: deepseek-flash
+    litellm_params:
+      model: openai/deepseek-flash
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
   # Qwen3 (Alibaba)
+  - model_name: qwen3.8-max
+    litellm_params:
+      model: openai/qwen3.8-max
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: qwen3.8-flash
+    litellm_params:
+      model: openai/qwen3.8-flash
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
   - model_name: qwen3.7-max
     litellm_params:
       model: openai/qwen3.7-max
@@ -219,6 +259,42 @@ model_list:
       api_key: os.environ/OPENCODE_API_KEY
       merge_reasoning_content_in_choices: true
 
+  # GLM (Z.ai / Zhipu)
+  - model_name: glm-5.3
+    litellm_params:
+      model: openai/glm-5.3
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: glm-5.3-flash
+    litellm_params:
+      model: openai/glm-5.3-flash
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: glm-5.2
+    litellm_params:
+      model: openai/glm-5.2
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: glm-5.1
+    litellm_params:
+      model: openai/glm-5.1
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: glm-5
+    litellm_params:
+      model: openai/glm-5
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
   # MiniMax
   - model_name: minimax-m3
     litellm_params:
@@ -237,29 +313,6 @@ model_list:
   - model_name: minimax-m2.5
     litellm_params:
       model: openai/minimax-m2.5
-      api_base: https://opencode.ai/zen/go/v1
-      api_key: os.environ/OPENCODE_API_KEY
-      merge_reasoning_content_in_choices: true
-
-  # GLM (Z.ai / Zhipu)
-  # glm-5.2 confirmed available on Go plan API (local models.json cache was stale)
-  - model_name: glm-5.2
-    litellm_params:
-      model: openai/glm-5.2
-      api_base: https://opencode.ai/zen/go/v1
-      api_key: os.environ/OPENCODE_API_KEY
-      merge_reasoning_content_in_choices: true
-
-  - model_name: glm-5.1
-    litellm_params:
-      model: openai/glm-5.1
-      api_base: https://opencode.ai/zen/go/v1
-      api_key: os.environ/OPENCODE_API_KEY
-      merge_reasoning_content_in_choices: true
-
-  - model_name: glm-5
-    litellm_params:
-      model: openai/glm-5
       api_base: https://opencode.ai/zen/go/v1
       api_key: os.environ/OPENCODE_API_KEY
       merge_reasoning_content_in_choices: true
@@ -289,6 +342,87 @@ model_list:
   - model_name: mimo-v2-omni
     litellm_params:
       model: openai/mimo-v2-omni
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  # Grok (xAI) — note: not oa-compat on this plan, kept for completeness
+  - model_name: grok-4.6
+    litellm_params:
+      model: openai/grok-4.6
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: grok-4.5
+    litellm_params:
+      model: openai/grok-4.5
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  # GPT (OpenAI)
+  - model_name: gpt-5.6-luna
+    litellm_params:
+      model: openai/gpt-5.6-luna
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  # Hunyuan (Tencent)
+  - model_name: hy4-preview
+    litellm_params:
+      model: openai/hy4-preview
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: hy3
+    litellm_params:
+      model: openai/hy3
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: hy3-preview
+    litellm_params:
+      model: openai/hy3-preview
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  # Other / preview
+  - model_name: longcat-2.0
+    litellm_params:
+      model: openai/longcat-2.0
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: muse-spark-1.3-contributor
+    litellm_params:
+      model: openai/muse-spark-1.3-contributor
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: muse-spark-1.2-contributor
+    litellm_params:
+      model: openai/muse-spark-1.2-contributor
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: omen-alpha
+    litellm_params:
+      model: openai/omen-alpha
+      api_base: https://opencode.ai/zen/go/v1
+      api_key: os.environ/OPENCODE_API_KEY
+      merge_reasoning_content_in_choices: true
+
+  - model_name: union-alpha
+    litellm_params:
+      model: openai/union-alpha
       api_base: https://opencode.ai/zen/go/v1
       api_key: os.environ/OPENCODE_API_KEY
       merge_reasoning_content_in_choices: true
