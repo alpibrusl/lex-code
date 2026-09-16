@@ -160,4 +160,20 @@ footer {
 }
 
 #send-btn:hover { background: #4338ca; }
+
+/* Live progress feed — tool-by-tool trail events streamed during a turn. */
+.feed {
+  margin: 4px 0 2px;
+  padding: 6px 10px;
+  border-left: 2px solid #4f46e5;
+  background: rgba(79, 70, 229, 0.05);
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+}
+.feed:empty { display: none; }
+.ev { padding: 1px 0; color: #6b7280; white-space: pre-wrap; }
+.ev.cap-invoked   { color: #4f46e5; }
+.ev.cap-completed { color: #059669; }
+.ev.cap-failed    { color: #dc2626; }
 #send-btn:disabled { opacity: 0.5; cursor: not-allowed; }

@@ -46,6 +46,10 @@ import "./session" as sess
 
 import "./persist" as persist
 
+import "std.sql" as sql
+
+import "lex-trail/log" as trail_log
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 fn get_env_w(key :: Str, fallback :: Str) -> [env] Str {
   match env.get(key) {
@@ -294,6 +298,97 @@ fn handle_a2a_body(body :: Str) -> [env, io, time, crypto, random, sql, fs_read,
   }
 }
 
+# ── Live progress feed (GET /events) ─────────────────────────────────────────
+# The trail that `run_turn_with_provider` writes lands in the session's
+# persistent log (.lex/sessions/<id>.db) as it happens: a `cap.invoked`
+# before every tool call and `cap.completed`/`cap.failed` after, plus the
+# user/assistant message events. This endpoint tails that log — a second,
+# read-only connection to the same db — so the browser can render the
+# agent's tool-by-tool progress live while the /a2a turn is still running,
+# instead of only seeing the buffered result at the end. Cursor is the
+# monotonic rowid; the caller polls with the last `seq` it saw.
+# Pull the tool name out of a cap.* payload by string-scanning the
+# `"capability":"<name>"` field rather than parsing the whole payload:
+# cap.completed / cap.failed splice the raw tool result/error in after it,
+# which is often not valid JSON, so a full parse would fail and drop the
+# label. The capability field is always the well-formed prefix.
+fn extract_capability(payload :: Str) -> Str {
+  let key := "\"capability\":\""
+  match str.find(payload, key, 0) {
+    None => "",
+    Some(i) => {
+      let rest := str.slice(payload, i + str.len(key), str.len(payload))
+      match str.find(rest, "\"", 0) {
+        None => "",
+        Some(j) => str.slice(rest, 0, j),
+      }
+    },
+  }
+}
+
+fn event_label(kind :: Str, payload :: Str) -> Str {
+  if str.starts_with(kind, "cap.") {
+    extract_capability(payload)
+  } else {
+    ""
+  }
+}
+
+fn event_to_json(r :: sql.Row) -> Str {
+  let seq := match sql.get_int(r, "seq") {
+    Some(n) => n,
+    None => 0,
+  }
+  let kind := match sql.get_str(r, "kind") {
+    Some(k) => k,
+    None => "",
+  }
+  let payload := match sql.get_str(r, "payload_json") {
+    Some(p) => p,
+    None => "{}",
+  }
+  let ts := match sql.get_int(r, "ts_ms") {
+    Some(t) => t,
+    None => 0,
+  }
+  str.join(["{\"seq\":", int.to_str(seq), ",\"kind\":", jv.stringify(JStr(kind)), ",\"label\":", jv.stringify(JStr(event_label(kind, payload))), ",\"ts\":", int.to_str(ts), "}"], "")
+}
+
+fn max_seq(rows :: List[sql.Row], start :: Int) -> Int {
+  list.fold(rows, start, fn (acc :: Int, r :: sql.Row) -> Int {
+    match sql.get_int(r, "seq") {
+      Some(n) => if n > acc {
+        n
+      } else {
+        acc
+      },
+      None => acc,
+    }
+  })
+}
+
+fn handle_events(sid :: Str, after :: Int) -> [sql, fs_read, fs_write] resp.Response {
+  if not is_safe_id(sid) {
+    resp.json("{\"events\":[],\"last\":0}")
+  } else {
+    match persist.open_persistent(sid) {
+      Err(_) => resp.json("{\"events\":[],\"last\":0}"),
+      Ok(log) => {
+        let q := str.join(["SELECT rowid AS seq, kind, payload_json, ts_ms FROM events WHERE rowid > ", int.to_str(after), " ORDER BY rowid ASC LIMIT 300"], "")
+        match trail_log.xquery(log.db, q, []) {
+          Err(_) => resp.json("{\"events\":[],\"last\":0}"),
+          Ok(rows) => {
+            let items := str.join(list.map(rows, fn (r :: sql.Row) -> Str {
+              event_to_json(r)
+            }), ",")
+            resp.json(str.join(["{\"events\":[", items, "],\"last\":", int.to_str(max_seq(rows, after)), "}"], ""))
+          },
+        }
+      },
+    }
+  }
+}
+
 # ── Static-only router (no [env] routes) ─────────────────────────────────────
 fn build_static_router(web_dir :: Str) -> router.Router {
   let r0 := router.new()
@@ -303,7 +398,12 @@ fn build_static_router(web_dir :: Str) -> router.Router {
       Err(_) => resp.not_found(),
     }
   })
-  sf.mount_dir(r1, "/", web_dir)
+  let r2 := router.route_effectful(r1, "GET", "/events", fn (c :: ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] resp.Response {
+    let sid := ctx.query_param_or(c, "session", "")
+    let after := parse_int_or_w(ctx.query_param_or(c, "after", "0"), 0)
+    with_cors(handle_events(sid, after))
+  })
+  sf.mount_dir(r2, "/", web_dir)
 }
 
 # ── Entry point ───────────────────────────────────────────────────────────────
