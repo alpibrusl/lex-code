@@ -39,6 +39,8 @@ import "std.process" as proc
 
 import "./session" as sess
 
+import "./judgment" as judgment
+
 import "../verification" as verification
 
 # `task_prefix` is what the old runner did inline — `"Write unit tests
@@ -650,11 +652,11 @@ fn run_agent_with_events(def :: AgentDef, task :: Str, provider_tag :: Str) -> [
 # vacuous, wrong answer to "did verify find a failure" for that case. Same
 # trap `lex test`'s own empty-directory bug taught this session to guard
 # against (lex-lang v0.10.17); the fix here is the same shape.
-fn attest_verify_pass_if_clean(log :: trail_log.Log, events :: List[trail_ev.Event]) -> [io, sql, time, proc] Unit {
+fn attest_verify_pass_if_clean(log :: trail_log.Log, events :: List[trail_ev.Event]) -> [env, io, net, sql, time, proc] Unit {
   if list.is_empty(tool_result_texts(events)) {
     ()
   } else {
-    if verify_found_failure(events) {
+    if judgment.judged_failure(verify_found_failure(events), str.join(tool_result_texts(events), "\n")) {
       ()
     } else {
       match trail_log.append(log, independent_check_kind(), None, "{\"tool\":\"lex_run\",\"target\":\"\",\"result\":\"pass\"}") {
@@ -876,7 +878,7 @@ fn fix_round(def :: FixLoopDef, task :: Str, provider_tag :: Str, round :: Int, 
           let verify_def_r := { name: round_name(vdef.name, round), mode: vdef.mode, task_prefix: vdef.task_prefix }
           let verify_run := run_agent_with_events(verify_def_r, task, provider_tag)
           match verify_run {
-            (verify_result, verify_events) => if verify_found_failure(verify_events) {
+            (verify_result, verify_events) => if judgment.judged_failure(verify_found_failure(verify_events), str.join(tool_result_texts(verify_events), "\n")) {
               if round >= def.max_rounds {
                 list.concat(acc, [verify_result])
               } else {
@@ -945,7 +947,7 @@ fn fix_round_persistent(def :: FixLoopDef, task :: Str, provider_tag :: Str, rou
           let verify_def_r := { name: round_name(vdef.name, round), mode: vdef.mode, task_prefix: vdef.task_prefix }
           let verify_run := run_agent_persistent_with_events(verify_def_r, task, provider_tag)
           match verify_run {
-            (verify_result, verify_events) => if verify_found_failure(verify_events) {
+            (verify_result, verify_events) => if judgment.judged_failure(verify_found_failure(verify_events), str.join(tool_result_texts(verify_events), "\n")) {
               if round >= def.max_rounds {
                 list.concat(acc, [verify_result])
               } else {
