@@ -43,6 +43,8 @@
 
 import "std.str" as str
 
+import "std.int" as int
+
 import "std.map" as map
 
 import "std.env" as env
@@ -94,25 +96,27 @@ fn threshold_from_env() -> [env] Float {
     default_threshold()
   } else {
     match jv.parse(raw) {
-      Ok(JFloat(f)) => f,
-      Ok(JInt(i)) => int_to_float(i),
-      _ => default_threshold(),
+      Err(_) => default_threshold(),
+      Ok(j) => match jv.as_float(j) {
+        Some(f) => f,
+        None => match jv.as_int(j) {
+          Some(i) => int.to_float(i),
+          None => default_threshold(),
+        },
+      },
     }
   }
 }
 
-fn int_to_float(i :: Int) -> Float {
-  match jv.parse(str.concat(jv.stringify(JInt(i)), ".0")) {
-    Ok(JFloat(f)) => f,
-    _ => default_threshold(),
-  }
-}
-
+# json_value ships the accessors; matching constructors by hand here would be
+# a second decoder for the same shape, free to drift from the first.
 fn num(j :: jv.Json) -> Float {
-  match j {
-    JFloat(f) => f,
-    JInt(i) => int_to_float(i),
-    _ => 0.0,
+  match jv.as_float(j) {
+    Some(f) => f,
+    None => match jv.as_int(j) {
+      Some(i) => int.to_float(i),
+      None => 0.0,
+    },
   }
 }
 
