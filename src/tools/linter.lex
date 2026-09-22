@@ -435,6 +435,54 @@ fn read_intent() -> [io] Option[{ prompt :: Str, model :: Str, session :: Str }]
   }
 }
 
+# The typed issue this turn implements, if any (#173). `--issue <id>`
+# writes `.lex/intent/issue` as `<session>\t<issue_id>`; it counts only
+# for the session that wrote it, so an `--issue` run can never stamp its
+# issue onto a later, unrelated session's ops through a leftover file.
+fn issue_for_session(content :: Str, session :: Str) -> Option[Str]
+  examples {
+    issue_for_session("cli-1\tabc", "cli-1") => Some("abc"),
+    issue_for_session("cli-1\tabc\n", "cli-1") => Some("abc"),
+    issue_for_session("cli-1\tabc", "cli-2") => None,
+    issue_for_session("cli-1\t", "cli-1") => None,
+    issue_for_session("cli-10\tabc", "cli-1") => None,
+    issue_for_session("", "") => None
+  }
+{
+  if str.is_empty(session) {
+    None
+  } else {
+    match str.strip_prefix(str.trim(content), str.concat(session, "\t")) {
+      None => None,
+      Some(id) => if str.is_empty(str.trim(id)) or str.contains(id, "\t") {
+        None
+      } else {
+        Some(str.trim(id))
+      },
+    }
+  }
+}
+
+fn read_intent_issue(session :: Str) -> [io] Option[Str] {
+  match io.read(str.concat(intent_dir(), "/issue")) {
+    Err(_) => None,
+    Ok(content) => issue_for_session(content, session),
+  }
+}
+
+fn intent_args(i :: { prompt :: Str, model :: Str, session :: Str }, issue :: Option[Str]) -> List[Str]
+  examples {
+    intent_args({ prompt: "p", model: "m", session: "s" }, None) => ["--intent-prompt", "p", "--intent-model", "m", "--intent-session", "s"],
+    intent_args({ prompt: "p", model: "m", session: "s" }, Some("abc")) => ["--intent-prompt", "p", "--intent-model", "m", "--intent-session", "s", "--intent-issue", "abc"]
+  }
+{
+  let base := ["--intent-prompt", i.prompt, "--intent-model", i.model, "--intent-session", i.session]
+  match issue {
+    None => base,
+    Some(id) => list.concat(base, ["--intent-issue", id]),
+  }
+}
+
 # After a clean write of a .lex file inside a package, land it in the
 # op-log store with the turn's intent: `lex publish --activate
 # --intent-*` (#131/#839). The store runs its write-time gates — the
@@ -458,7 +506,7 @@ fn publish_with_intent(path :: Str) -> [proc, io] Option[Str] {
         let base := ["--output", "json", "publish", path, "--activate"]
         let args := match read_intent() {
           None => base,
-          Some(i) => list.concat(base, ["--intent-prompt", i.prompt, "--intent-model", i.model, "--intent-session", i.session]),
+          Some(i) => list.concat(base, intent_args(i, read_intent_issue(i.session))),
         }
         match proc.run("lex", args) {
           Err(_) => None,

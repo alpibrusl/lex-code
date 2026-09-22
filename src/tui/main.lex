@@ -22,6 +22,10 @@ import "lex-llm/message" as msg
 
 import "lex-schema/json_value" as jv
 
+import "std.process" as proc
+
+import "../issue_contract" as ic
+
 import "../server/session" as sess
 
 import "../server/multi_agent" as multi
@@ -96,6 +100,55 @@ fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str) -> [env, i
     Ok(session) => {
       let __printed := sess.run_turn_streaming_with_provider(session, task, provider_tag, print_step)
       io.print(str.join(["\n(trail: .lex/sessions/", session_id, ".db)\n"], ""))
+    },
+  }
+}
+
+# `--issue=<id> ["extra guidance"]` (#173, lex-lang #949): implement a
+# typed issue from its declared acceptance, then let the gate say whether
+# it is done.
+#
+# The issue's acceptance becomes the task (issue_contract.contract_prompt)
+# — the contract to satisfy, not a paraphrase of it. `.lex/intent/issue`
+# ties this session to the issue, so every clean .lex write publishes with
+# `--intent-issue` and its ops link back (issue ↔ intent ↔ ops). The run
+# ends with `lex issue verify` whatever the model claimed, and prints the
+# verdict on a machine-readable last line:
+#
+#   [ISSUE_VERDICT]\t<verified|failed|inconclusive|unavailable>\t<issue_id>
+fn run_issue(issue_id :: Str, guidance :: Option[Str], mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
+  match proc.run("lex", ["--output", "json", "issue", "show", issue_id]) {
+    Err(e) => io.print(str.join(["error: ", e, "\n"], "")),
+    Ok(out) => if out.exit_code != 0 {
+      io.print(str.join(["error: cannot read issue ", issue_id, ": ", str.trim(str.concat(out.stdout, out.stderr)), "\n"], ""))
+    } else {
+      match jv.parse(str.trim(out.stdout)) {
+        Err(_) => io.print(str.join(["error: unreadable issue ", issue_id, "\n"], "")),
+        Ok(issue) => {
+          let contract := ic.contract_prompt(issue)
+          let task := match guidance {
+            None => contract,
+            Some(g) => str.join([contract, "\nAdditional guidance from the user:\n", g, "\n"], ""),
+          }
+          let session_id := cli_session_id()
+          match sess.new_session_persistent_with_provider(session_id, mode, provider_tag) {
+            Err(e) => io.print(str.concat(str.concat("error: ", e), "\n")),
+            Ok(session) => {
+              let __d := proc.run("mkdir", ["-p", ".lex/intent"])
+              let __w := io.write(".lex/intent/issue", str.join([session_id, "\t", issue_id], ""))
+              let __printed := sess.run_turn_streaming_with_provider(session, task, provider_tag, print_step)
+              let verdict := match proc.run("lex", ["--output", "json", "issue", "verify", issue_id]) {
+                Err(_) => "unavailable",
+                Ok(v) => match ic.verdict_of(v.stdout) {
+                  None => "unavailable",
+                  Some(word) => word,
+                },
+              }
+              io.print(str.join(["\n(trail: .lex/sessions/", session_id, ".db)\n[ISSUE_VERDICT]\t", verdict, "\t", issue_id, "\n"], ""))
+            },
+          }
+        },
+      }
     },
   }
 }
@@ -211,6 +264,32 @@ fn find_pipeline(argv :: List[Str]) -> Option[Str]
         None
       } else {
         Some(name)
+      },
+    },
+  }
+}
+
+# `--issue=<id>` (#173): implement a typed issue from its declared
+# acceptance. One token for the same reason as `--pipeline=`.
+fn find_issue(argv :: List[Str]) -> Option[Str]
+  examples {
+    find_issue(["--issue=9fd3cc"]) => Some("9fd3cc"),
+    find_issue(["--ollama", "--issue=abc", "keep it small"]) => Some("abc"),
+    find_issue(["--issue="]) => None,
+    find_issue(["--issue", "abc"]) => None,
+    find_issue([]) => None
+  }
+{
+  match list.head(list.filter(argv, fn (a :: Str) -> Bool {
+    str.starts_with(a, "--issue=")
+  })) {
+    None => None,
+    Some(tok) => match str.strip_prefix(tok, "--issue=") {
+      None => None,
+      Some(id) => if str.is_empty(id) {
+        None
+      } else {
+        Some(id)
       },
     },
   }
@@ -516,7 +595,7 @@ fn regenerate(provider_tag :: Str) -> [env, io, net, llm, stream] Nil {
   }
 }
 
-type Invocation = { mode :: sess.AgentMode, provider :: Str, task :: Option[Str], multi :: Bool, pipeline :: Option[Str], regenerate :: Bool }
+type Invocation = { mode :: sess.AgentMode, provider :: Str, task :: Option[Str], multi :: Bool, pipeline :: Option[Str], regenerate :: Bool, issue :: Option[Str] }
 
 # The whole command line, resolved in one pure function.
 #
@@ -532,17 +611,18 @@ type Invocation = { mode :: sess.AgentMode, provider :: Str, task :: Option[Str]
 # then cover the whole parse path rather than its pieces.
 fn plan_invocation(argv :: List[Str]) -> Invocation
   examples {
-    plan_invocation([]) => { mode: Build, provider: "litellm", task: None, multi: false, pipeline: None, regenerate: false },
-    plan_invocation(["--bar", "walk this repo"]) => { mode: Bar, provider: "litellm", task: Some("walk this repo"), multi: false, pipeline: None, regenerate: false },
-    plan_invocation(["--ollama", "--plan"]) => { mode: Plan, provider: "ollama", task: None, multi: false, pipeline: None, regenerate: false },
-    plan_invocation(["--multi"]) => { mode: Build, provider: "litellm", task: None, multi: true, pipeline: None, regenerate: false },
-    plan_invocation(["--litellm", "--review", "check the diff"]) => { mode: Review, provider: "litellm", task: Some("check the diff"), multi: false, pipeline: None, regenerate: false },
-    plan_invocation(["--litellm", "--verify", "check src/abi.lex against the ABI spec"]) => { mode: Verify, provider: "litellm", task: Some("check src/abi.lex against the ABI spec"), multi: false, pipeline: None, regenerate: false },
-    plan_invocation(["--multi", "--pipeline=impl_then_spec_then_test"]) => { mode: Build, provider: "litellm", task: None, multi: true, pipeline: Some("impl_then_spec_then_test"), regenerate: false },
-    plan_invocation(["--ollama", "--regenerate"]) => { mode: Build, provider: "ollama", task: None, multi: false, pipeline: None, regenerate: true }
+    plan_invocation([]) => { mode: Build, provider: "litellm", task: None, multi: false, pipeline: None, regenerate: false, issue: None },
+    plan_invocation(["--bar", "walk this repo"]) => { mode: Bar, provider: "litellm", task: Some("walk this repo"), multi: false, pipeline: None, regenerate: false, issue: None },
+    plan_invocation(["--ollama", "--plan"]) => { mode: Plan, provider: "ollama", task: None, multi: false, pipeline: None, regenerate: false, issue: None },
+    plan_invocation(["--multi"]) => { mode: Build, provider: "litellm", task: None, multi: true, pipeline: None, regenerate: false, issue: None },
+    plan_invocation(["--litellm", "--review", "check the diff"]) => { mode: Review, provider: "litellm", task: Some("check the diff"), multi: false, pipeline: None, regenerate: false, issue: None },
+    plan_invocation(["--litellm", "--verify", "check src/abi.lex against the ABI spec"]) => { mode: Verify, provider: "litellm", task: Some("check src/abi.lex against the ABI spec"), multi: false, pipeline: None, regenerate: false, issue: None },
+    plan_invocation(["--multi", "--pipeline=impl_then_spec_then_test"]) => { mode: Build, provider: "litellm", task: None, multi: true, pipeline: Some("impl_then_spec_then_test"), regenerate: false, issue: None },
+    plan_invocation(["--ollama", "--regenerate"]) => { mode: Build, provider: "ollama", task: None, multi: false, pipeline: None, regenerate: true, issue: None },
+    plan_invocation(["--opencode", "--issue=9fd3cc"]) => { mode: Build, provider: "opencode", task: None, multi: false, pipeline: None, regenerate: false, issue: Some("9fd3cc") }
   }
 {
-  { mode: select_mode(argv), provider: select_provider_tag(argv), task: find_task(argv), multi: has_flag(argv, "--multi"), pipeline: find_pipeline(argv), regenerate: has_flag(argv, "--regenerate") }
+  { mode: select_mode(argv), provider: select_provider_tag(argv), task: find_task(argv), multi: has_flag(argv, "--multi"), pipeline: find_pipeline(argv), regenerate: has_flag(argv, "--regenerate"), issue: find_issue(argv) }
 }
 
 fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random, concurrent] Nil {
@@ -552,35 +632,43 @@ fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, ap
   if inv.regenerate {
     regenerate(provider_tag)
   } else {
-    match inv.task {
-      Some(task) => if inv.multi {
+    match inv.issue {
+      Some(issue_id) => run_issue(issue_id, inv.task, mode, provider_tag),
+      None => dispatch(inv, mode, provider_tag),
+    }
+  }
+}
+
+fn dispatch(inv :: Invocation, mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random, concurrent] Nil {
+  match inv.task {
+    Some(task) => if inv.multi {
+      match resolve_pipeline(inv.pipeline) {
+        Err(msg) => io.print(str.concat(msg, "\n")),
+        Ok(pipeline) => run_once_multi(task, pipeline, provider_tag),
+      }
+    } else {
+      run_once(task, mode, provider_tag)
+    },
+    None => {
+      io.print(str.concat("lex-code — Lex-specialized coding assistant", "\n"))
+      io.print(str.concat("modes:     --plan | --explore | --refactor | --spec | --test | --review | --verify | --bar | --multi", "\n"))
+      io.print(str.join(["pipelines: --pipeline=", str.join(graph.preset_names(), " | --pipeline="), "\n           --pipeline=build,spec,test|review   (\",\" in order, \"|\" at once)", "\n"], ""))
+      io.print(str.concat("providers: --mistral | --openai | --google | --vertex | --litellm | --ollama | --vllm | --opencode  (default: anthropic)", "\n"))
+      io.print(str.concat("one-shot:  lex run src/tui/main.lex -- [flags] \"your task\"", "\n"))
+      io.print(str.concat("issue:     --issue=<id> [\"extra guidance\"]   implement a typed issue from its acceptance, then verify it", "\n"))
+      io.print(str.concat("Ctrl-D to exit", "\n"))
+      if inv.multi {
         match resolve_pipeline(inv.pipeline) {
           Err(msg) => io.print(str.concat(msg, "\n")),
-          Ok(pipeline) => run_once_multi(task, pipeline, provider_tag),
+          Ok(pipeline) => multi_repl(provider_tag, pipeline),
         }
       } else {
-        run_once(task, mode, provider_tag)
-      },
-      None => {
-        io.print(str.concat("lex-code — Lex-specialized coding assistant", "\n"))
-        io.print(str.concat("modes:     --plan | --explore | --refactor | --spec | --test | --review | --verify | --bar | --multi", "\n"))
-        io.print(str.join(["pipelines: --pipeline=", str.join(graph.preset_names(), " | --pipeline="), "\n           --pipeline=build,spec,test|review   (\",\" in order, \"|\" at once)", "\n"], ""))
-        io.print(str.concat("providers: --mistral | --openai | --google | --vertex | --litellm | --ollama | --vllm | --opencode  (default: anthropic)", "\n"))
-        io.print(str.concat("one-shot:  lex run src/tui/main.lex -- [flags] \"your task\"", "\n"))
-        io.print(str.concat("Ctrl-D to exit", "\n"))
-        if inv.multi {
-          match resolve_pipeline(inv.pipeline) {
-            Err(msg) => io.print(str.concat(msg, "\n")),
-            Ok(pipeline) => multi_repl(provider_tag, pipeline),
-          }
-        } else {
-          match sess.new_session_with_provider("tui", mode, provider_tag) {
-            Err(e) => io.print(str.concat(str.concat("startup error: ", e), "\n")),
-            Ok(session) => repl(session, provider_tag),
-          }
+        match sess.new_session_with_provider("tui", mode, provider_tag) {
+          Err(e) => io.print(str.concat(str.concat("startup error: ", e), "\n")),
+          Ok(session) => repl(session, provider_tag),
         }
-      },
-    }
+      }
+    },
   }
 }
 

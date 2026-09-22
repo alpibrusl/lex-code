@@ -87,6 +87,34 @@ lex-code --plan --ollama "how should we structure the session module?"
 | `--verify` | Verify | Independently re-derive expected output from the task's own spec and check the implementation against it — never trusts the implementation's existing test file ([below](#independent-verification-mode)) |
 | `--bar` | Bar | Walk a project against the minimum bar, read-only ([below](#minimum-bar-mode)) |
 | `--multi` | Multi | Run Build + Test in parallel via `std.conc` |
+| `--issue=<id>` | Build | Implement a typed issue from its declared acceptance, then verify it ([below](#implementing-a-typed-issue)) |
+
+### Implementing a typed issue
+
+A [typed issue](https://github.com/alpibrusl/lex-lang/issues/949) is a
+contract, not a description: exact signatures to add, change, or remove,
+plus the examples that decide whether it holds (or, for a bug, the one
+example that fails at head). `--issue=<id>` works from that contract:
+
+```sh
+lex issue create --title "digit_sum" --shape typed_delta \
+  --api 'digit_sum:(n :: Int) -> Int:added' \
+  --example 'digit_sum(1234) => 10' --example 'digit_sum(-56) => 11'
+lex-code --issue=<id> ["optional extra guidance"]
+```
+
+1. `lex issue show` renders the acceptance as the task.
+2. The session is bound to the issue, so every clean `.lex` write is
+   published with `--intent-issue` and its ops link back to it
+   (issue → intent → ops → attestation).
+3. The agent iterates against the oracle with the `issue_verify` tool.
+4. Whatever the model claims, the run ends with `lex issue verify` and a
+   machine-readable last line:
+   `[ISSUE_VERDICT]\t<verified|failed|inconclusive|unavailable>\t<id>`.
+
+`typed_delta` and `failing_example` issues close by proof. `free_form`,
+`metric_invariant` and `evidence` verify as `inconclusive` for now. For
+a `free_form` issue the agent ends by proposing a typed acceptance.
 
 ## Providers
 
@@ -555,6 +583,8 @@ for production interop.
 | `lex_audit` | Effect audit |
 | `lex_run` | Run a Lex expression |
 | `lex_test` | Run tests |
+| `issue_show` | Render a typed issue's acceptance as the contract to implement |
+| `issue_verify` | Evaluate a typed issue at head, record an `IssueVerified` attestation |
 
 ### Spec tools
 
