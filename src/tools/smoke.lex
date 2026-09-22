@@ -84,6 +84,7 @@ fn args_for(name :: Str) -> Option[jv.Json] {
     "find_packages" => Some(JObj([("query", JStr("gcd"))])),
     "issue_show" => Some(JObj([("issue_id", JStr("0000000000000000000000000000000000000000000000000000000000000000"))])),
     "issue_verify" => Some(JObj([("issue_id", JStr("0000000000000000000000000000000000000000000000000000000000000000"))])),
+    "issue_propose" => Some(JObj([("issue_id", JStr("0000000000000000000000000000000000000000000000000000000000000000")), ("shape", JStr("failing_example")), ("examples", JStr("f(1) => 1")), ("rationale", JStr("smoke"))])),
     _ => None,
   }
 }
