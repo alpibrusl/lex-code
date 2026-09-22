@@ -82,6 +82,8 @@ fn args_for(name :: Str) -> Option[jv.Json] {
     "vcs_merge_status" => Some(JObj([("merge_id", JStr("no-such-session"))])),
     "vcs_merge_show_conflicts" => Some(JObj([("merge_id", JStr("no-such-session"))])),
     "find_packages" => Some(JObj([("query", JStr("gcd"))])),
+    "issue_show" => Some(JObj([("issue_id", JStr("0000000000000000000000000000000000000000000000000000000000000000"))])),
+    "issue_verify" => Some(JObj([("issue_id", JStr("0000000000000000000000000000000000000000000000000000000000000000"))])),
     _ => None,
   }
 }

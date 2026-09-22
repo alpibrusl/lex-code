@@ -113,8 +113,12 @@ fn json_cmd(rest :: List[Str]) -> List[Str]
 # diagnostics, and from every JSON payload the tools return. The cost is
 # real and worth naming: a refusal phrased outside this vocabulary — the
 # `error: missing second run id` that `lex diff` emits — is not caught.
+#
+# `unknown command` joined with the issue tools (#173): a toolchain pinned
+# older than the command a tool calls answers "error: unknown command
+# `issue`", and none of the six phrases matched it.
 fn refusal_words() -> List[Str] {
-  ["unknown flag", "unknown `lex", "subcommand:", "unexpected arg", "unexpected `--", "usage:"]
+  ["unknown flag", "unknown `lex", "subcommand:", "unexpected arg", "unexpected `--", "usage:", "unknown command"]
 }
 
 fn is_usage_error(text :: Str) -> Bool
@@ -124,6 +128,7 @@ fn is_usage_error(text :: Str) -> Bool
     is_usage_error("error: unexpected arg `5`") => true,
     is_usage_error("error: unexpected `--output`") => true,
     is_usage_error("error: usage: lex op {show|log}") => true,
+    is_usage_error("error: unknown command `issue`. try `lex help`") => true,
     is_usage_error("<root>: error: unexpected arg `5` [cli_failed]") => true,
     is_usage_error("output\nerror: unexpected `--output`") => true,
     is_usage_error("| `-> T` | return type | `: T` (Lex error: missing return arrow) |") => false,
