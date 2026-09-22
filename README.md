@@ -88,6 +88,7 @@ lex-code --plan --ollama "how should we structure the session module?"
 | `--bar` | Bar | Walk a project against the minimum bar, read-only ([below](#minimum-bar-mode)) |
 | `--multi` | Multi | Run Build + Test in parallel via `std.conc` |
 | `--issue=<id>` | Build | Implement a typed issue from its declared acceptance, then verify it ([below](#implementing-a-typed-issue)) |
+| `--refine=<id>` | Build | Propose a typed acceptance for a free-form issue; a human approves it ([below](#refining-a-free-form-issue)) |
 
 ### Implementing a typed issue
 
@@ -113,8 +114,29 @@ lex-code --issue=<id> ["optional extra guidance"]
    `[ISSUE_VERDICT]\t<verified|failed|inconclusive|unavailable>\t<id>`.
 
 `typed_delta` and `failing_example` issues close by proof. `free_form`,
-`metric_invariant` and `evidence` verify as `inconclusive` for now. For
-a `free_form` issue the agent ends by proposing a typed acceptance.
+`metric_invariant` and `evidence` verify as `inconclusive` for now.
+
+### Refining a free-form issue
+
+Not every issue starts with a contract. `--refine=<id>` has the agent read
+the code and **propose** one — exact signatures plus the examples that pin
+them, or the one failing example for a bug — with the `issue_propose`
+tool ([lex-lang #956](https://github.com/alpibrusl/lex-lang/issues/956)).
+It stops there: lex-code has no tool that approves, and the run ends by
+listing the proposals and the command that decides them.
+
+```sh
+lex-code --refine=<id>                         # agent proposes
+lex issue proposals <id>                       # review
+lex issue approve <proposal> --by <you>        # or: reject --notes "..."
+lex-code --issue=<id>                          # implement against the approved contract
+```
+
+Approving never rewrites the issue — its id, intents and verdicts stay
+put; the gate judges it against the latest approved proposal
+(`effective_acceptance` in `lex issue show`). `--refine` runs in Build
+mode with a prompt that forbids implementing; there is no dedicated
+read-only toolset yet (#88).
 
 ## Providers
 
@@ -585,6 +607,7 @@ for production interop.
 | `lex_test` | Run tests |
 | `issue_show` | Render a typed issue's acceptance as the contract to implement |
 | `issue_verify` | Evaluate a typed issue at head, record an `IssueVerified` attestation |
+| `issue_propose` | Propose a typed acceptance for a free-form issue (a human approves it) |
 
 ### Spec tools
 

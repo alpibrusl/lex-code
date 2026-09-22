@@ -103,7 +103,7 @@ fn evidence_section(acc :: jv.Json) -> Str {
 }
 
 fn free_form_section() -> Str {
-  "Shape: free_form. There is no machine oracle — a human closes this issue. Work from the title and body, and end by proposing a typed acceptance (signatures + examples, or a failing example) that would have made it checkable.\n"
+  "Shape: free_form. There is no machine oracle yet — a human closes this issue. Work from the title and body. If you can state what \"done\" means as signatures + examples (or one failing example), call `issue_propose` with it: once a human approves the proposal, the gate judges this issue against it.\n"
 }
 
 fn acceptance_section(acc :: jv.Json) -> Str {
@@ -142,11 +142,26 @@ fn machine_closable(shape :: Str) -> Bool
   shape == "typed_delta" or shape == "failing_example"
 }
 
-fn shape_of(issue :: jv.Json) -> Str {
-  match jv.get_field(issue, "acceptance") {
-    None => "free_form",
-    Some(acc) => field_text(acc, "shape"),
+# The acceptance the gate evaluates: an approved proposal's
+# (`effective_acceptance`, #956) when the issue was refined, else its own.
+fn acceptance_of(issue :: jv.Json) -> jv.Json {
+  match jv.get_field(issue, "effective_acceptance") {
+    Some(a) => a,
+    None => match jv.get_field(issue, "acceptance") {
+      Some(a) => a,
+      None => JObj([]),
+    },
   }
+}
+
+fn shape_of(issue :: jv.Json) -> Str
+  examples {
+    shape_of(JObj([("acceptance", JObj([("shape", JStr("free_form"))]))])) => "free_form",
+    shape_of(JObj([("acceptance", JObj([("shape", JStr("free_form"))])), ("effective_acceptance", JObj([("shape", JStr("typed_delta"))]))])) => "typed_delta",
+    shape_of(JObj([])) => ""
+  }
+{
+  field_text(acceptance_of(issue), "shape")
 }
 
 # The build task for an issue: `lex issue show --output json` in, the
@@ -155,9 +170,13 @@ fn contract_prompt(issue :: jv.Json) -> Str {
   let id := field_text(issue, "issue_id")
   let body := field_text(issue, "body")
   let shape := shape_of(issue)
-  let acc := match jv.get_field(issue, "acceptance") {
-    None => JObj([]),
-    Some(a) => a,
+  let acc := acceptance_of(issue)
+  let refined := match jv.get_field(issue, "approved_proposal") {
+    None => "",
+    Some(p) => match jv.as_str(p) {
+      None => "",
+      Some(pid) => str.join(["(Filed free-form; refined by approved proposal ", pid, " — that acceptance is the contract.)\n"], ""),
+    },
   }
   let closing := if machine_closable(shape) {
     str.join(["\nDone is a proof, not a claim: call `issue_verify` with issue_id `", id, "` and iterate until its verdict is `verified`. A `failed` verdict's detail says exactly which signature or example is wrong. Every .lex file you write is published with this issue as its intent, so the ops link back to it.\n"], "")
@@ -168,7 +187,20 @@ fn contract_prompt(issue :: jv.Json) -> Str {
     ""
   } else {
     str.join(["\n", body, "\n"], "")
-  }, "\n", acceptance_section(acc), closing], "")
+  }, "\n", refined, acceptance_section(acc), closing], "")
+}
+
+# `--refine=<id>`: the agent's half of #956. It does the spec labor —
+# reads the code the issue is about and proposes what "done" means as a
+# typed acceptance — and stops there; approving is the human's.
+fn refine_prompt(issue :: jv.Json) -> Str {
+  let id := field_text(issue, "issue_id")
+  let body := field_text(issue, "body")
+  str.join(["Refine free-form issue ", id, ": ", field_text(issue, "title"), "\n", if str.is_empty(str.trim(body)) {
+    ""
+  } else {
+    str.join(["\n", body, "\n"], "")
+  }, "\nDo NOT implement it. Your job is to state what \"done\" means so a machine can check it:\n", bullets(["read the relevant code first (the package, existing signatures and naming) so the proposal fits it", "prefer typed_delta: the exact signatures to add/change/remove (`name:(a :: T, ...) -> R[:kind]`, one per line) plus examples `name(args) => expected` that pin the behavior, edge cases included", "use failing_example for a bug: the one example that fails today and must pass when fixed", str.join(["call `issue_propose` with issue_id `", id, "` and a rationale explaining why this captures the issue — more than one proposal is fine when the issue is genuinely ambiguous"], ""), "you cannot approve a proposal; end by summarising what you proposed and any judgment calls a human should check"])], "")
 }
 
 # `lex --output json issue verify` → the verdict word, or None when the
