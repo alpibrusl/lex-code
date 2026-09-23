@@ -347,6 +347,56 @@ fn event_label(kind :: Str, payload :: Str) -> Str {
   }
 }
 
+fn jstr_or(obj :: jv.Json, key :: Str, fallback :: Str) -> Str {
+  match jv.get_field(obj, key) {
+    None => fallback,
+    Some(v) => match jv.as_str(v) {
+      Some(s) => s,
+      None => fallback,
+    },
+  }
+}
+
+# For a `write`/`edit` call, the file-change data a diff view needs — the
+# path plus either the new content (write) or the old/new strings (edit)
+# — as its own well-formed JSON value, or the literal `null` when there is
+# none to show.
+#
+# Only `cap.invoked` is ever parsed here. `cap.completed`/`cap.failed`
+# splice the raw tool *result* in after the capability field (see
+# `extract_capability` above), which is often not valid JSON; but
+# `cap.invoked`'s payload is exactly `{"capability":..,"args":<the
+# model's own tool-call JSON>}` — always well-formed, because it's what
+# the provider's function-calling API sent, not a tool's freeform output.
+fn write_edit_diff_json(kind :: Str, payload :: Str) -> Str
+  examples {
+    write_edit_diff_json("cap.completed", "{\"capability\":\"write\",\"result\":not json}") => "null",
+    write_edit_diff_json("cap.invoked", "{\"capability\":\"read\",\"args\":{\"path\":\"x\"}}") => "null",
+    write_edit_diff_json("cap.invoked", "{\"capability\":\"write\",\"args\":{\"path\":\"a.lex\",\"content\":\"fn f() {}\"}}") => "{\"kind\":\"write\",\"path\":\"a.lex\",\"new\":\"fn f() {}\"}",
+    write_edit_diff_json("cap.invoked", "{\"capability\":\"edit\",\"args\":{\"path\":\"a.lex\",\"old_str\":\"1\",\"new_str\":\"2\"}}") => "{\"kind\":\"edit\",\"path\":\"a.lex\",\"old\":\"1\",\"new\":\"2\"}"
+  }
+{
+  if kind != "cap.invoked" {
+    "null"
+  } else {
+    match jv.parse(payload) {
+      Err(_) => "null",
+      Ok(p) => match (jv.get_field(p, "capability"), jv.get_field(p, "args")) {
+        (Some(JStr(cap)), Some(args)) => if cap == "write" {
+          jv.stringify(JObj([("kind", JStr("write")), ("path", JStr(jstr_or(args, "path", ""))), ("new", JStr(jstr_or(args, "content", "")))]))
+        } else {
+          if cap == "edit" {
+            jv.stringify(JObj([("kind", JStr("edit")), ("path", JStr(jstr_or(args, "path", ""))), ("old", JStr(jstr_or(args, "old_str", ""))), ("new", JStr(jstr_or(args, "new_str", "")))]))
+          } else {
+            "null"
+          }
+        },
+        _ => "null",
+      },
+    }
+  }
+}
+
 fn event_to_json(r :: sql.Row) -> Str {
   let seq := match sql.get_int(r, "seq") {
     Some(n) => n,
@@ -364,7 +414,7 @@ fn event_to_json(r :: sql.Row) -> Str {
     Some(t) => t,
     None => 0,
   }
-  str.join(["{\"seq\":", int.to_str(seq), ",\"kind\":", jv.stringify(JStr(kind)), ",\"label\":", jv.stringify(JStr(event_label(kind, payload))), ",\"ts\":", int.to_str(ts), "}"], "")
+  str.join(["{\"seq\":", int.to_str(seq), ",\"kind\":", jv.stringify(JStr(kind)), ",\"label\":", jv.stringify(JStr(event_label(kind, payload))), ",\"diff\":", write_edit_diff_json(kind, payload), ",\"ts\":", int.to_str(ts), "}"], "")
 }
 
 fn max_seq(rows :: List[sql.Row], start :: Int) -> Int {

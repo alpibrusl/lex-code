@@ -25,10 +25,18 @@ let sessionId = randHex(8);
 let busy = false;
 let lastSeq = 0;   // trail cursor (monotonic rowid); persists across turns
 
+// Assistant text is the one thing worth spending Markdown on — the model
+// writes code fences, bold, lists; user input and raw tool output are
+// shown verbatim (`textContent` is already safe against injection, and
+// re-rendering a shell command's stdout as Markdown would just garble it).
 function addMsg(cls, text) {
   const el = document.createElement('div');
   el.className = 'msg ' + cls;
-  el.textContent = text;
+  if (cls === 'agent' && window.renderMarkdown) {
+    el.innerHTML = window.renderMarkdown(text);
+  } else {
+    el.textContent = text;
+  }
   messagesEl.appendChild(el);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   return el;
@@ -65,6 +73,19 @@ async function pollEvents(feedEl, withMessages) {
     const j = await r.json();
     if (typeof j.last === 'number' && j.last > lastSeq) lastSeq = j.last;
     for (const ev of (j.events || [])) {
+      // A write/edit carries its own before/after in `diff` (set only on
+      // the cap.invoked event — see write_edit_diff_json in web.lex) —
+      // show the actual change instead of a bare "▶ write" line. A later
+      // cap.failed for the same call still falls through to the plain
+      // ✗ line below, so a failed write is never silently shown as if it
+      // landed.
+      if (ev.diff) {
+        const el = document.createElement('div');
+        el.className = 'ev ev-diff';
+        el.innerHTML = window.renderDiffBlock(ev.diff);
+        feedEl.appendChild(el);
+        continue;
+      }
       const line = eventLine(ev);
       if (line) {
         const el = document.createElement('div');
