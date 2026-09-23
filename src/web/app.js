@@ -11,6 +11,8 @@ const sendBtn      = document.getElementById('send-btn');
 const modeSelect   = document.getElementById('mode-select');
 const provSelect   = document.getElementById('provider-select');
 const clearBtn     = document.getElementById('clear-btn');
+const sessionListEl = document.getElementById('session-list');
+const newSessionBtn = document.getElementById('new-session-btn');
 
 // A client-chosen session id lets us tail the run's trail live: the server
 // persists this turn's events to .lex/sessions/<id>.db, and GET /events
@@ -47,13 +49,98 @@ function setMode(m) {
   document.title = `lex-code [${m}]`;
 }
 
-clearBtn.addEventListener('click', () => {
+function startNewSession() {
   messagesEl.innerHTML = '';
   sessionId = randHex(8);
   lastSeq = 0;
-});
+  highlightActiveSession(sessionId);
+}
+
+clearBtn.addEventListener('click', startNewSession);
+newSessionBtn.addEventListener('click', startNewSession);
 
 modeSelect.addEventListener('change', () => setMode(modeSelect.value));
+
+// ── Session sidebar ──────────────────────────────────────────────────────────
+// `GET /sessions` lists every session with at least one message, newest
+// first (see persist.recent_sessions / web.lex handle_sessions) — a
+// session with no messages yet isn't in it, including a brand-new one
+// nobody has sent anything to.
+function timeAgo(ts) {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  return Math.floor(h / 24) + 'd ago';
+}
+
+function highlightActiveSession(id) {
+  for (const el of sessionListEl.querySelectorAll('.session-item')) {
+    el.classList.toggle('active', el.dataset.id === id);
+  }
+}
+
+async function loadSessions() {
+  try {
+    const r = await fetch(`${SERVER_URL}/sessions`);
+    const j = await r.json();
+    const sessions = j.sessions || [];
+    sessionListEl.innerHTML = '';
+    if (sessions.length === 0) {
+      const el = document.createElement('div');
+      el.className = 'session-empty';
+      el.textContent = 'No sessions yet';
+      sessionListEl.appendChild(el);
+      return;
+    }
+    for (const s of sessions) {
+      const el = document.createElement('div');
+      el.className = 'session-item';
+      el.dataset.id = s.id;
+      const title = document.createElement('div');
+      title.className = 'session-title';
+      title.textContent = s.title;
+      const time = document.createElement('div');
+      time.className = 'session-time';
+      time.textContent = timeAgo(s.last_ts);
+      el.appendChild(title);
+      el.appendChild(time);
+      el.addEventListener('click', () => switchToSession(s.id));
+      sessionListEl.appendChild(el);
+    }
+    highlightActiveSession(sessionId);
+  } catch (e) {
+    // transient — the sidebar just stays as it was
+  }
+}
+
+// Load a past session into the chat pane and keep going in it: not a
+// read-only watch (that's `?watch=<id>`, a different visitor entirely) —
+// this is *your own* browser resuming a conversation you already had.
+// Backfilling replays its whole trail from seq 0 through the same
+// `pollEvents(feedEl, true)` watch mode already uses for exactly this
+// (tool feed + message bubbles from one pass), so there's one rendering
+// path for "everything that happened in a session", not two.
+async function switchToSession(id) {
+  if (busy) return;
+  sessionId = id;
+  lastSeq = 0;
+  messagesEl.innerHTML = '';
+  const feedEl = document.createElement('div');
+  feedEl.className = 'feed';
+  messagesEl.appendChild(feedEl);
+  // /events caps a single response at 300 rows (see web.lex's query), so
+  // a session longer than that needs more than one fetch to reach the
+  // end — keep polling until a round trip stops moving the cursor.
+  let before;
+  do {
+    before = lastSeq;
+    await pollEvents(feedEl, true);
+  } while (lastSeq > before);
+  highlightActiveSession(id);
+}
 
 // Map a trail event to a one-line live-feed label, or null to ignore it.
 function eventLine(ev) {
@@ -162,6 +249,10 @@ async function send() {
     busy = false;
     sendBtn.disabled = false;
     inputEl.focus();
+    // A brand-new session has no title (no message yet) until now, and any
+    // session's "last active" time moves on every turn — refresh the list
+    // rather than wait for whatever triggers the next natural reload.
+    loadSessions();
   }
 }
 
@@ -190,6 +281,10 @@ function startWatch(sid) {
   inputEl.disabled = true;
   inputEl.placeholder = 'watching a live session — read only';
   sendBtn.disabled = true;
+  // A watch link is a link to ONE session, not an invitation to browse
+  // every other conversation on this server — the sidebar (and its
+  // /sessions fetch) stays off entirely for a watcher.
+  document.getElementById('sidebar').style.display = 'none';
   const banner = document.createElement('div');
   banner.className = 'watch-banner';
   banner.textContent = '👁 Watching session ' + sid + ' — live';
@@ -202,4 +297,8 @@ function startWatch(sid) {
 }
 
 const _watch = watchSessionId();
-if (_watch) startWatch(_watch);
+if (_watch) {
+  startWatch(_watch);
+} else {
+  loadSessions();
+}

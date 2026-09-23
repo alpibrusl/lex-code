@@ -7,39 +7,48 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div id="app">
-  <header>
-    <h1>lex-code</h1>
-    <div id="controls">
-      <label>Mode
-        <select id="mode-select">
-          <option value="build">Build</option>
-          <option value="plan">Plan</option>
-          <option value="explore">Explore</option>
-          <option value="refactor">Refactor</option>
-          <option value="spec">Spec</option>
-          <option value="test">Test</option>
-          <option value="review">Review</option>
-        </select>
-      </label>
-      <label>Provider
-        <select id="provider-select">
-          <option value="opencode" selected>OpenCode</option>
-          <option value="ollama">Ollama</option>
-          <option value="anthropic">Anthropic</option>
-          <option value="openai">OpenAI</option>
-          <option value="mistral">Mistral</option>
-          <option value="google">Google</option>
-        </select>
-      </label>
-      <button id="clear-btn">Clear</button>
+<div id="layout">
+  <aside id="sidebar">
+    <div id="sidebar-header">
+      <span>Sessions</span>
+      <button id="new-session-btn" title="Start a new session">+ New</button>
     </div>
-  </header>
-  <div id="messages"></div>
-  <footer>
-    <textarea id="input" rows="3" placeholder="Ask lex-code…"></textarea>
-    <button id="send-btn">Send</button>
-  </footer>
+    <div id="session-list"></div>
+  </aside>
+  <div id="app">
+    <header>
+      <h1>lex-code</h1>
+      <div id="controls">
+        <label>Mode
+          <select id="mode-select">
+            <option value="build">Build</option>
+            <option value="plan">Plan</option>
+            <option value="explore">Explore</option>
+            <option value="refactor">Refactor</option>
+            <option value="spec">Spec</option>
+            <option value="test">Test</option>
+            <option value="review">Review</option>
+          </select>
+        </label>
+        <label>Provider
+          <select id="provider-select">
+            <option value="opencode" selected>OpenCode</option>
+            <option value="ollama">Ollama</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="openai">OpenAI</option>
+            <option value="mistral">Mistral</option>
+            <option value="google">Google</option>
+          </select>
+        </label>
+        <button id="clear-btn">Clear</button>
+      </div>
+    </header>
+    <div id="messages"></div>
+    <footer>
+      <textarea id="input" rows="3" placeholder="Ask lex-code…"></textarea>
+      <button id="send-btn">Send</button>
+    </footer>
+  </div>
 </div>
 <script src="markdown.js"></script>
 <script src="lex-highlight.js"></script>

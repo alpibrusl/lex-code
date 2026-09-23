@@ -1,8 +1,10 @@
 # web.lex — HTTP server for lex-code.
 #
 # Static files (src/web/) are served through the router.
-# POST /a2a is intercepted before the router so that it can carry the
-# [env] effect needed by sess.run_turn_with_provider (API key reads).
+# POST /a2a and GET /sessions are both intercepted before the router: the
+# router's route handler type fixes its effect row exactly, and neither
+# carries the effect these two need ([env] for /a2a's API key reads,
+# [fs_walk] for /sessions' directory listing).
 #
 # Run:
 #   lex run --allow-effects env,net,io,llm,proc,sql,fs_read,fs_write,time,crypto,random,concurrent \
@@ -452,6 +454,83 @@ fn handle_events(sid :: Str, after :: Int) -> [sql, fs_read, fs_write] resp.Resp
   }
 }
 
+# ── Session listing (GET /sessions) — the web sidebar ────────────────────────
+# A short, human-usable sidebar label: the session's first user message,
+# trimmed and capped. A session with no messages yet (freshly opened, or a
+# foreign/stray id under the directory) falls back to its own id, so no row
+# is ever blank.
+fn session_title(id :: Str, first_message :: Str) -> Str
+  examples {
+    session_title("abc", "please add gcd") => "please add gcd",
+    session_title("abc", "   ") => "abc",
+    session_title("abc", "") => "abc",
+    session_title("abc", "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890") => "0123456789012345678901234567890123456789012345678901234567890123456789012345678…"
+  }
+{
+  let trimmed := str.trim(first_message)
+  if str.is_empty(trimmed) {
+    id
+  } else {
+    if str.len(trimmed) > 80 {
+      str.concat(str.slice(trimmed, 0, 79), "…")
+    } else {
+      trimmed
+    }
+  }
+}
+
+# One entry of the sidebar, or "null" — for an id whose database could not
+# be opened (removed by the sweep between the listing and this open, most
+# likely), or one with no user message yet (opened but never talked to,
+# not worth a row) — the caller filters those out either way.
+#
+# The title comes from the session's own first user message. Its payload is
+# `{"role":"user","text":..}` — well-formed JSON, unlike a cap.* payload, the
+# same fact `event_label` above already relies on for a `*_message` event.
+# Queried inline, not through a helper that takes `log.db` as a parameter:
+# its type is `lex-orm/connection`'s `ConnDb`, which would need importing a
+# module solely to name — `trail_log.xquery` doesn't need it named, only in
+# scope, exactly as `handle_events` above already relies on.
+fn session_summary_json(id :: Str, last_ts :: Int) -> [sql, fs_read, fs_write] Str {
+  match persist.open_persistent(id) {
+    Err(_) => "null",
+    Ok(log) => {
+      let first_message := match trail_log.xquery(log.db, "SELECT payload_json FROM events WHERE kind='code.session.user_message' ORDER BY rowid ASC LIMIT 1", []) {
+        Err(_) => "",
+        Ok(rows) => match list.head(rows) {
+          None => "",
+          Some(r) => match sql.get_str(r, "payload_json") {
+            None => "",
+            Some(p) => match jv.parse(p) {
+              Err(_) => "",
+              Ok(j) => match jv.get_field(j, "text") {
+                Some(JStr(t)) => t,
+                _ => "",
+              },
+            },
+          },
+        },
+      }
+      if str.is_empty(str.trim(first_message)) {
+        "null"
+      } else {
+        jv.stringify(JObj([("id", JStr(id)), ("title", JStr(session_title(id, first_message))), ("last_ts", JInt(last_ts))]))
+      }
+    },
+  }
+}
+
+fn handle_sessions() -> [sql, fs_read, fs_walk, fs_write] resp.Response {
+  let items := list.filter(list.map(persist.recent_sessions(), fn (p :: (Str, Int)) -> [sql, fs_read, fs_write] Str {
+    match p {
+      (id, last_ts) => session_summary_json(id, last_ts),
+    }
+  }), fn (s :: Str) -> Bool {
+    s != "null"
+  })
+  resp.json(str.join(["{\"sessions\":[", str.join(items, ","), "]}"], ""))
+}
+
 # ── Static-only router (no [env] routes) ─────────────────────────────────────
 fn build_static_router(web_dir :: Str) -> router.Router {
   let r0 := router.new()
@@ -470,6 +549,14 @@ fn build_static_router(web_dir :: Str) -> router.Router {
 }
 
 # ── Entry point ───────────────────────────────────────────────────────────────
+# `/a2a` and `/sessions`, dispatched below, both bypass `router.dispatch`
+# rather than being registered on the static router: `router.route_effectful`'s
+# handler type fixes its effect row exactly (rows unify by equality, not
+# subtyping — lex-lang#756), and that row has neither `/a2a`'s `[env]` (API
+# key reads) nor `/sessions`'s `[fs_walk]` (`handle_sessions` →
+# `persist.recent_sessions` → `fs.list_dir`/`fs.stat`). `net.serve_fn`'s own
+# closure row already carries both, so each is just checked for before
+# falling through to the router.
 fn serve_web() -> [env, net, io, llm, proc, sql, fs_read, fs_walk, fs_write, time, crypto, random, concurrent, approval] Unit {
   let port := parse_int_or_w(get_env_w("PORT", "7700"), 7700)
   let web_dir := get_env_w("WEB_DIR", "src/web")
@@ -490,9 +577,14 @@ fn serve_web() -> [env, net, io, llm, proc, sql, fs_read, fs_walk, fs_write, tim
         let rsp := with_cors(handle_a2a_body(req.body))
         { status: rsp.status, body: BodyStr(rsp.body), headers: rsp.headers }
       } else {
-        let raw := { body: req.body, method: req.method, path: req.path, query: req.query, headers: req.headers }
-        let rsp := router.dispatch(r, raw)
-        { status: rsp.status, body: BodyStr(rsp.body), headers: rsp.headers }
+        if req.method == "GET" and req.path == "/sessions" {
+          let rsp := with_cors(handle_sessions())
+          { status: rsp.status, body: BodyStr(rsp.body), headers: rsp.headers }
+        } else {
+          let raw := { body: req.body, method: req.method, path: req.path, query: req.query, headers: req.headers }
+          let rsp := router.dispatch(r, raw)
+          { status: rsp.status, body: BodyStr(rsp.body), headers: rsp.headers }
+        }
       }
     }
   })
