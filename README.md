@@ -6,6 +6,10 @@
 
 A Lex-native coding assistant — think Claude Code or Cursor, built entirely in the Lex ecosystem.
 
+**New here?** [`docs/TUTORIAL.md`](docs/TUTORIAL.md) is a walkthrough —
+install, first run, picking a mode, and the typed-issue workflow — before
+this README's full reference.
+
 ## [Trust Without Comprehension](https://lexlang.org/manifesto) — live demo
 
 Effect-typed parallel orchestration (§VI) + tamper-evident audit (§VIII) — verified live by the type checker:
