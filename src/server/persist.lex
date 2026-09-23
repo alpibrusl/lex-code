@@ -142,3 +142,96 @@ fn sweep_old_sessions(now_ms :: Int) -> [fs_walk, fs_write] Int {
   }
 }
 
+# ── Listing (the web sidebar) ─────────────────────────────────────────────────
+#
+# What a directory entry can answer without opening the database: its id and
+# how recently it was touched. `mtime` is authoritative for "last active" —
+# sqlite writes to the file on every appended event, the same signal
+# `sweep_old_sessions` already trusts to decide what's stale — so the full
+# list can be built, sorted, and capped before a single database is opened.
+# The cap bounds real work: an id past it is simply never queried for a
+# title (web.lex's job, not this module's — this only says which ids exist).
+fn max_sessions_listed() -> Int
+  examples {
+    max_sessions_listed() => 200
+  }
+{
+  200
+}
+
+# The bare id from a `.db` path, or None for anything else the sessions dir
+# might hold — in practice, a `.db-shm`/`.db-wal` sqlite sidecar.
+fn session_id_of_db_path(full :: Str) -> Option[Str]
+  examples {
+    session_id_of_db_path(".lex/sessions/abc123.db") => Some("abc123"),
+    session_id_of_db_path(".lex/sessions/abc123.db-wal") => None,
+    session_id_of_db_path(".lex/sessions/abc123.db-shm") => None,
+    session_id_of_db_path("abc123.db") => Some("abc123")
+  }
+{
+  match list.head(list.reverse(str.split(full, "/"))) {
+    None => None,
+    Some(base) => if str.ends_with(base, ".db") {
+      Some(str.slice(base, 0, str.len(base) - 3))
+    } else {
+      None
+    },
+  }
+}
+
+# `sort_by` sorts ascending by this key, so the newest (largest mtime) comes
+# first only because its key is the most negative — named and given its own
+# example so a mutation that drops the negation (newest last, oldest first
+# in the sidebar) fails a check on its own, rather than only showing up as
+# a UI that looks backwards.
+fn recency_key(mtime_ms :: Int) -> Int
+  examples {
+    recency_key(100) => -100,
+    recency_key(0) => 0
+  }
+{
+  0 - mtime_ms
+}
+
+fn take(n :: Int, xs :: List[(Str, Int)]) -> List[(Str, Int)]
+  examples {
+    take(2, [("a", 1), ("b", 2), ("c", 3)]) => [("a", 1), ("b", 2)],
+    take(0, [("a", 1)]) => [],
+    take(5, [("a", 1)]) => [("a", 1)]
+  }
+{
+  if n <= 0 {
+    []
+  } else {
+    match list.head(xs) {
+      None => [],
+      Some(h) => list.cons(h, take(n - 1, list.tail(xs))),
+    }
+  }
+}
+
+# Every session id paired with its last-active time (ms), newest first,
+# capped at `max_sessions_listed`. Opens no database.
+fn recent_sessions() -> [fs_walk] List[(Str, Int)] {
+  match fs.list_dir(sessions_dir()) {
+    Err(_) => [],
+    Ok(paths) => {
+      let pairs := list.fold(paths, [], fn (acc :: List[(Str, Int)], full :: Str) -> [fs_walk] List[(Str, Int)] {
+        match session_id_of_db_path(full) {
+          None => acc,
+          Some(id) => match fs.stat(full) {
+            Err(_) => acc,
+            Ok(st) => list.concat(acc, [(id, mtime_secs_to_ms(st.mtime))]),
+          },
+        }
+      })
+      let newest_first := list.sort_by(pairs, fn (p :: (Str, Int)) -> Int {
+        match p {
+          (_, mtime) => recency_key(mtime),
+        }
+      })
+      take(max_sessions_listed(), newest_first)
+    },
+  }
+}
+
