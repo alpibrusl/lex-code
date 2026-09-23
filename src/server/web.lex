@@ -532,71 +532,35 @@ fn handle_sessions() -> [sql, fs_read, fs_walk, fs_write] resp.Response {
 }
 
 # ── Static-only router (no [env] routes) ─────────────────────────────────────
-# Every route on one `router.GenericRouter[e]` (lex-web#55), `e` inferred
-# as this whole file's own wide effect row from the handlers registered
-# below — including `/a2a` ([env], for API key reads) and `/sessions`
-# ([fs_walk], for `persist.recent_sessions`'s directory listing), neither
-# of which `router.Router`'s fixed `route_effectful` row can carry (rows
-# unify by equality, not subtyping — lex-lang#756). No bypass: every
-# request goes through `router.dispatch_generic`, including these two.
-fn build_router[e](web_dir :: Str) -> [| e] router.GenericRouter[e] {
-  let r0 := router.new_generic()
-  let r1 := router.route_generic(r0, "GET", "/", fn (c :: ctx.Ctx) -> [env, io, time, crypto, random, sql, fs_read, fs_walk, fs_write, net, concurrent, llm, proc, approval] resp.Response {
+fn build_static_router(web_dir :: Str) -> router.Router {
+  let r0 := router.new()
+  let r1 := router.route_effectful(r0, "GET", "/", fn (c :: ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] resp.Response {
     match io.read(str.concat(web_dir, "/index.html")) {
       Ok(html) => resp.html(html),
       Err(_) => resp.not_found(),
     }
   })
-  let r2 := router.route_generic(r1, "GET", "/events", fn (c :: ctx.Ctx) -> [env, io, time, crypto, random, sql, fs_read, fs_walk, fs_write, net, concurrent, llm, proc, approval] resp.Response {
+  let r2 := router.route_effectful(r1, "GET", "/events", fn (c :: ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] resp.Response {
     let sid := ctx.query_param_or(c, "session", "")
     let after := parse_int_or_w(ctx.query_param_or(c, "after", "0"), 0)
     with_cors(handle_events(sid, after))
   })
-  let r3 := router.route_generic(r2, "GET", "/sessions", fn (c :: ctx.Ctx) -> [env, io, time, crypto, random, sql, fs_read, fs_walk, fs_write, net, concurrent, llm, proc, approval] resp.Response {
-    with_cors(handle_sessions())
-  })
-  let r4 := router.route_generic(r3, "POST", "/a2a", fn (c :: ctx.Ctx) -> [env, io, time, crypto, random, sql, fs_read, fs_walk, fs_write, net, concurrent, llm, proc, approval] resp.Response {
-    with_cors(handle_a2a_body(c.body))
-  })
-  sf.mount_dir_generic(r4, "/", web_dir)
-}
-
-# `net.serve_fn`'s handler must be a NAMED top-level function here, not an
-# inline lambda literal — found the hard way: an inline `fn (req) -> [...]
-# Response { ... router.dispatch_generic(build_router(...), ...) ... }`
-# passed directly as `net.serve_fn`'s second argument fails to type-check
-# ("open effect row"), even with every row fully concrete and no genuine
-# polymorphism left unresolved. `net.serve_fn` is itself effect-row
-# polymorphic (`serve_fn[Eff] :: (Int, (Request) -> [Eff] Response) -> [net,
-# Eff] Unit`, the same mechanism `list.map`'s own `E` uses) — the checker
-# doesn't correctly compose that with a call to another row-polymorphic
-# function from *inside* a lambda literal it is itself checking as the
-# argument to a row-polymorphic HOF, regardless of naming or annotation.
-# Extracting the handler to a name works because a named function is
-# checked and generalized as its own scheme first, then referenced — never
-# body-checked in place as part of `net.serve_fn`'s own call. Rebuilding
-# the router per request is deliberate, not incidental to the fix: it's
-# pure, in-memory route registration, cheap enough that "once at startup"
-# would be premature optimisation, and it keeps `handle_request`'s
-# signature an exact, plain `(Request) -> [...] Response` match for
-# `net.serve_fn` — no captured router value, nothing for the checker to
-# get confused about a second time.
-fn handle_request(req :: Request) -> [env, io, time, crypto, random, sql, fs_read, fs_walk, fs_write, net, concurrent, llm, proc, approval] Response {
-  let web_dir := get_env_w("WEB_DIR", "src/web")
-  if req.method == "OPTIONS" {
-    let rsp := with_cors(resp.no_content())
-    { status: rsp.status, body: BodyStr(rsp.body), headers: rsp.headers }
-  } else {
-    let raw := { body: req.body, method: req.method, path: req.path, query: req.query, headers: req.headers }
-    let rsp := router.dispatch_generic(build_router(web_dir), raw)
-    { status: rsp.status, body: BodyStr(rsp.body), headers: rsp.headers }
-  }
+  sf.mount_dir(r2, "/", web_dir)
 }
 
 # ── Entry point ───────────────────────────────────────────────────────────────
+# `/a2a` and `/sessions`, dispatched below, both bypass `router.dispatch`
+# rather than being registered on the static router: `router.route_effectful`'s
+# handler type fixes its effect row exactly (rows unify by equality, not
+# subtyping — lex-lang#756), and that row has neither `/a2a`'s `[env]` (API
+# key reads) nor `/sessions`'s `[fs_walk]` (`handle_sessions` →
+# `persist.recent_sessions` → `fs.list_dir`/`fs.stat`). `net.serve_fn`'s own
+# closure row already carries both, so each is just checked for before
+# falling through to the router.
 fn serve_web() -> [env, net, io, llm, proc, sql, fs_read, fs_walk, fs_write, time, crypto, random, concurrent, approval] Unit {
   let port := parse_int_or_w(get_env_w("PORT", "7700"), 7700)
   let web_dir := get_env_w("WEB_DIR", "src/web")
+  let r := build_static_router(web_dir)
   let swept := persist.sweep_old_sessions(time.now_ms())
   let __s := if swept > 0 {
     io.print(str.join(["[lex-code] swept ", int.to_str(swept), " session log(s) older than ", int.to_str(persist.max_session_age_days()), " days"], ""))
@@ -604,6 +568,25 @@ fn serve_web() -> [env, net, io, llm, proc, sql, fs_read, fs_walk, fs_write, tim
     ()
   }
   let __p := io.print(str.join(["[lex-code] web on :", int.to_str(port), "  static=", web_dir], ""))
-  net.serve_fn(port, handle_request)
+  net.serve_fn(port, fn (req :: Request) -> [env, io, time, crypto, random, sql, fs_read, fs_walk, fs_write, net, concurrent, llm, proc, approval] Response {
+    if req.method == "OPTIONS" {
+      let rsp := with_cors(resp.no_content())
+      { status: rsp.status, body: BodyStr(rsp.body), headers: rsp.headers }
+    } else {
+      if req.method == "POST" and req.path == "/a2a" {
+        let rsp := with_cors(handle_a2a_body(req.body))
+        { status: rsp.status, body: BodyStr(rsp.body), headers: rsp.headers }
+      } else {
+        if req.method == "GET" and req.path == "/sessions" {
+          let rsp := with_cors(handle_sessions())
+          { status: rsp.status, body: BodyStr(rsp.body), headers: rsp.headers }
+        } else {
+          let raw := { body: req.body, method: req.method, path: req.path, query: req.query, headers: req.headers }
+          let rsp := router.dispatch(r, raw)
+          { status: rsp.status, body: BodyStr(rsp.body), headers: rsp.headers }
+        }
+      }
+    }
+  })
 }
 
