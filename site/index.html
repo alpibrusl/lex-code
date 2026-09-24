@@ -76,6 +76,7 @@
     <a href="#why">Why</a>
     <a href="#issues">Issues</a>
     <a href="#try">Try it</a>
+    <a href="#delegate">Add to your agent</a>
     <a href="#different">Where it fits</a>
     <a href="https://github.com/alpibrusl/lex-code#readme">Docs</a>
     <a href="https://github.com/alpibrusl/lex-code">GitHub</a>
@@ -93,7 +94,7 @@
     with no users but us — because you can't fake out a type checker.</p>
     <div class="cta">
       <a class="primary" href="#try">See it run</a>
-      <a href="https://github.com/alpibrusl/lex-code#readme">Read the docs</a>
+      <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/TUTORIAL.md">Read the tutorial</a>
       <a href="https://github.com/alpibrusl/lex-code">View on GitHub</a>
     </div>
     <div class="install">curl -fsSL https://raw.githubusercontent.com/alpibrusl/lex-code/main/install.sh | bash</div>
@@ -188,11 +189,12 @@ grep '^\[ISSUE_VERDICT\]' /tmp/lex-code.log
         <p>No key, no waitlist, no account: the install script above sets up the Lex toolchain
         too if you don't already have it, then you're running a real session in under a
         minute.</p>
-        <p>Full reference, every mode (<code>--plan</code>, <code>--explore</code>,
-        <code>--refactor</code>, <code>--test</code>, <code>--review</code>,
-        <code>--verify</code>, <code>--bar</code>, <code>--multi</code>), the web UI, and the
-        typed-issue workflow in depth: <a href="https://github.com/alpibrusl/lex-code#readme">the
-        README</a>.</p>
+        <p>New to this: the <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/TUTORIAL.md">tutorial</a>
+        walks from "never used this" to comfortable, typed-issue workflow included. Full
+        reference, every mode (<code>--plan</code>, <code>--explore</code>, <code>--refactor</code>,
+        <code>--test</code>, <code>--review</code>, <code>--verify</code>, <code>--bar</code>,
+        <code>--multi</code>), the web UI, and everything else in depth:
+        <a href="https://github.com/alpibrusl/lex-code#readme">the README</a>.</p>
         <a class="shot" href="https://github.com/alpibrusl/lex-code#web-frontend">
           <img src="demo/webui.gif" width="760" height="486" loading="lazy" alt="Screen recording of the lex-code web UI: a real Ollama session writing a password-strength check, its Trail, and the fact it remembered showing up in Memory.">
         </a>
@@ -200,6 +202,29 @@ grep '^\[ISSUE_VERDICT\]' /tmp/lex-code.log
         Memory, once something's worth remembering across sessions, right in the sidebar.</p>
       </div>
     </div>
+  </section>
+
+  <section class="block" id="delegate">
+    <h2>Add it to your own agent</h2>
+    <p>Already using Claude Code, Cursor, or Codex? No switching needed — tell it lex-code
+    exists and let it decide when a task is Lex-specific. Paste this into a chat with whatever
+    agent you're already using:</p>
+    <pre>When a task involves writing or modifying Lex (.lex files) or the Lex toolchain,
+delegate it to lex-code instead of writing Lex yourself:
+
+  command -v lex-code >/dev/null || curl -fsSL \
+    https://raw.githubusercontent.com/alpibrusl/lex-code/main/install.sh | bash
+  lex-code --ollama "&lt;task&gt;"   # fully local, no key — or drop --ollama for your own provider
+
+Full reference: https://github.com/alpibrusl/lex-code#readme</pre>
+    <p>For Claude Code specifically, a packaged skill does the same thing automatically every
+    session, without re-pasting anything:</p>
+    <pre>mkdir -p ~/.claude/skills/lex-code
+curl -fsSL https://raw.githubusercontent.com/alpibrusl/lex-code/main/skills/lex-code/SKILL.md \
+  -o ~/.claude/skills/lex-code/SKILL.md</pre>
+    <p class="shot-caption">Both real: the skill file is the same one in the repo
+    (<a href="https://github.com/alpibrusl/lex-code/blob/main/skills/lex-code/SKILL.md">skills/lex-code/SKILL.md</a>),
+    and the paste-block above is just its opening lines, condensed for a chat window.</p>
   </section>
 
   <section class="block" id="different">
