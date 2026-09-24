@@ -22,7 +22,7 @@ signal.
 | `bootstrap_custom_task.sh` | [Bootstrap Script](../README.md#bootstrap-script)'s env-var overrides |
 | `web_frontend_smoke.sh` | [Web Frontend](../README.md#web-frontend) |
 | `manifesto_full_chain/`, `manifesto_semantic_diff/`, `manifesto_parallel*.lex` | [Trust Without Comprehension — live demo](../README.md#trust-without-comprehension--live-demo) |
-| `tasks/*.task` | [Task specs](../README.md#task-specs--checking-that-it-got-done) — consumed by `eval_harness_quick.sh` / `make eval` |
+| `tasks/*.task` | [Bootstrap Script → Task specs](../README.md#bootstrap-script) — consumed by `eval_harness_quick.sh` / `make eval` |
 
 ## Prerequisites
 
