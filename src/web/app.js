@@ -10,6 +10,7 @@ const inputEl      = document.getElementById('input');
 const sendBtn      = document.getElementById('send-btn');
 const modeSelect   = document.getElementById('mode-select');
 const provSelect   = document.getElementById('provider-select');
+const modelInput   = document.getElementById('model-input');
 const clearBtn     = document.getElementById('clear-btn');
 const sessionListEl = document.getElementById('session-list');
 const newSessionBtn = document.getElementById('new-session-btn');
@@ -59,6 +60,29 @@ function setMode(m) {
   modeSelect.value = m;
   document.title = `lex-code [${m}]`;
 }
+
+// Placeholder only — shown so the field isn't a blank guessing game, not a
+// claim that this exact model is pulled/available. Matches each provider's
+// own hardcoded default (src/agents/*.lex, src/tools/index.lex); left blank,
+// the backend uses that default itself.
+const DEFAULT_MODEL_BY_PROVIDER = {
+  opencode:  'kimi-k3',
+  ollama:    'qwen3.8:27b-mlx',
+  anthropic: 'claude-sonnet-5',
+  openai:    'gpt-4o',
+  mistral:   'mistral-large-latest',
+  google:    'gemini-2.5-pro',
+};
+
+function updateModelPlaceholder() {
+  modelInput.placeholder = DEFAULT_MODEL_BY_PROVIDER[provSelect.value] || 'default';
+}
+
+provSelect.addEventListener('change', () => {
+  modelInput.value = '';
+  updateModelPlaceholder();
+});
+updateModelPlaceholder();
 
 function startNewSession() {
   messagesEl.innerHTML = '';
@@ -233,6 +257,7 @@ async function send() {
         input: text,
         mode: modeSelect.value,
         provider: provSelect.value,
+        model: modelInput.value.trim(),
         session_id: sessionId
       }
     };
