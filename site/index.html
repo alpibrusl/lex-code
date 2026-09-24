@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>lex-code — a coding agent for Lex</title>
-<meta name="description" content="lex-code writes Lex for you — closed against the type checker and a declared acceptance, not a transcript claiming success. Start using it; you don't have to learn Lex first.">
+<title>lex-code — an experiment in verified AI coding</title>
+<meta name="description" content="An experiment in verified-by-construction AI coding: closed against the type checker and a declared acceptance, not a transcript claiming success. Built first in Lex — a language with no users but us, because you can't fake a type checker.">
 <link rel="canonical" href="https://code.lexlang.org/">
 <link rel="icon" href="logo.svg" type="image/svg+xml">
-<meta property="og:title" content="lex-code — a coding agent for Lex">
-<meta property="og:description" content="Start using it — you don't have to learn Lex first. It writes the Lex for you, verified by the type checker, not a transcript.">
+<meta property="og:title" content="lex-code — an experiment in verified AI coding">
+<meta property="og:description" content="Not something to switch to tomorrow — a real look at whether 'trust the result, not the diff' actually works.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://code.lexlang.org/">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/asciinema-player@3/dist/bundle/asciinema-player.css">
@@ -75,6 +75,7 @@
   <nav>
     <a href="#different">vs. Cursor</a>
     <a href="#why">Why</a>
+    <a href="#issues">Issues</a>
     <a href="#try">Try it</a>
     <a href="https://github.com/alpibrusl/lex-code#readme">Docs</a>
     <a href="https://github.com/alpibrusl/lex-code">GitHub</a>
@@ -84,13 +85,14 @@
 
 <main class="wrap">
   <section class="hero">
-    <h1>A coding agent for Lex.</h1>
-    <p class="lead">Start using it — you don't have to learn <a href="https://lexlang.org">Lex</a> first.
-    Point it at a task and it writes the Lex for you, and closes it against the type checker
-    and a declared acceptance — a result you can trust without reading the diff, not a
-    transcript claiming success.</p>
+    <h1>An experiment in verified AI coding.</h1>
+    <p class="lead">Not something to switch to tomorrow — a real look at whether "trust the
+    result, not the diff" actually works. Point it at a task in plain English; it writes real
+    <a href="https://lexlang.org">Lex</a> and closes the turn against the type checker and a
+    declared acceptance, not a transcript claiming success. Built first in Lex — a language
+    with no users but us — because you can't fake out a type checker.</p>
     <div class="cta">
-      <a class="primary" href="#try">Get started</a>
+      <a class="primary" href="#try">See it run</a>
       <a href="https://github.com/alpibrusl/lex-code#readme">Read the docs</a>
       <a href="https://github.com/alpibrusl/lex-code">View on GitHub</a>
     </div>
@@ -101,6 +103,10 @@
 
   <section class="block" id="different">
     <h2>Why not just use Cursor, Copilot, or Claude Code directly?</h2>
+    <p class="lead" style="margin-bottom:18px">Fair question, and the honest answer is scope: this
+    only writes Lex, a language you don't use. What it's arguing for isn't lex-code over your
+    daily driver — it's a different confidence signal, demonstrated somewhere it can be checked
+    for real rather than argued about in the abstract.</p>
     <div class="pillars">
       <div class="pillar"><h3>Different confidence signal</h3><p>Those tools end when the model
         says it's done and the diff looks right to you. lex-code ends when <code>lex check</code>
@@ -140,6 +146,41 @@
         shell out (Claude Code, Codex, a CI step) can hand it a Lex-specific task. A packaged,
         portable skill is in the repo, ready to install.</p></div>
     </div>
+  </section>
+
+  <section class="block" id="issues">
+    <h2>What's a typed issue?</h2>
+    <p>Work as a declared, checkable contract instead of a paragraph of prose — an API shape and
+    the examples that prove it, the acceptance a run either closes against or doesn't. Real
+    output, the same issue used in "Try it" below:</p>
+    <pre>$ lex issue show aea6613fc9e96953bb1c89fb3c45ac7200f62a379acdee2a47e29bab4c938ced
+{
+  "acceptance": {
+    "api": [
+      { "kind": "added", "name": "zip",
+        "signature": "(xs :: List[A], ys :: List[B]) -> List[(A, B)]" }
+    ],
+    "examples": [ "zip([1,2],[\"a\",\"b\"]) => [(1,\"a\"),(2,\"b\")]" ],
+    "shape": "typed_delta"
+  },
+  "created_at": 1790252464,
+  "issue_id": "aea6613fc9e96953bb1c89fb3c45ac7200f62a379acdee2a47e29bab4c938ced",
+  "title": "add zip"
+}</pre>
+    <p>Issues live in Lex's own op-log VCS: every accepted change is a content-addressed,
+    hash-chained op, and <code>lex issue verify</code> checks the acceptance against HEAD, not a
+    cached memory of it — which is why the same verdict can flip if the code it once verified is
+    later removed. Honestly: there's no web UI for any of this yet, just the CLI. Real, truncated
+    output from this repo:</p>
+    <pre>$ lex op log
+op_id:   188906eedb0952d086826165b6e49148485936d9deb9b1155f1e349f9cadc019
+kind:    modify_body
+parent:  021e626a7699e6940565cd7e2aa8b4a53e137d220327b6ed1e9e3f129fdae57c
+
+op_id:   021e626a7699e6940565cd7e2aa8b4a53e137d220327b6ed1e9e3f129fdae57c
+kind:    add_function
+parent:  c32da6062f16626dc4d5e5e84783ca642d92f7cb8d0879a1dfd767614de760b0
+  ...</pre>
   </section>
 
   <section class="block" id="try">
