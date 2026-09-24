@@ -42,6 +42,14 @@ You also need a model to talk to. Pick one:
 
 ## Getting it
 
+Fastest path — installs the Lex toolchain too, if you don't already have it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/alpibrusl/lex-code/main/install.sh | bash
+```
+
+Or, from a clone (also what the one-liner does under the hood):
+
 ```sh
 git clone https://github.com/alpibrusl/lex-code
 cd lex-code

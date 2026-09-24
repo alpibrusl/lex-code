@@ -1,0 +1,7 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="lex-code">
+  <rect width="64" height="64" rx="14" fill="#0d1018"/>
+  <rect x="1" y="1" width="62" height="62" rx="13" fill="none" stroke="#2d3a56" stroke-width="1.5"/>
+  <path d="M20 20 L11 32 L20 44" fill="none" stroke="#7c8cf8" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M44 20 L53 32 L44 44" fill="none" stroke="#7c8cf8" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M36 16 L28 48" fill="none" stroke="#4f46e5" stroke-width="4.5" stroke-linecap="round"/>
+</svg>

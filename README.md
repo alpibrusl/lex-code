@@ -1,5 +1,13 @@
 # lex-code
 
+```
+    __                               __
+   / /__  _  __      _________  ____/ /__
+  / / _ \| |/_/_____/ ___/ __ \/ __  / _ \
+ / /  __/>  </_____/ /__/ /_/ / /_/ /  __/
+/_/\___/_/|_|      \___/\____/\__,_/\___/
+```
+
 [![CI](https://github.com/alpibrusl/lex-code/actions/workflows/ci.yml/badge.svg)](https://github.com/alpibrusl/lex-code/actions/workflows/ci.yml)
 
 **Part of the [Lex](https://lexlang.org) project** — Agents · [Manifesto](https://lexlang.org/manifesto) · [All packages](https://lexlang.org)
@@ -9,6 +17,27 @@ A Lex-native coding assistant — think Claude Code or Cursor, built entirely in
 **New here?** [`docs/TUTORIAL.md`](docs/TUTORIAL.md) is a walkthrough —
 install, first run, picking a mode, and the typed-issue workflow — before
 this README's full reference.
+
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/alpibrusl/lex-code/main/install.sh | bash
+```
+
+Installs the pinned Lex toolchain (only if `lex` isn't already on your
+PATH — an existing install is left alone), resolves lex-code's own
+package dependencies, and installs the `lex-code` binary via the
+repo's own `make install` below. Safe to re-run. macOS and Linux; on
+Windows, use WSL. Override the prefix with `LEX_CODE_PREFIX=~/.local`.
+
+```sh
+# set a provider key, then run it
+export ANTHROPIC_API_KEY=sk-...
+lex-code "implement list.zip"
+
+# or fully local, no key
+lex-code --ollama
+```
 
 ## [Trust Without Comprehension](https://lexlang.org/manifesto) — live demo
 
@@ -57,9 +86,14 @@ lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,f
   src/server/web.lex serve_web
 ```
 
-## Install as a binary
+## Install from a checkout (what `install.sh` runs for you)
+
+Already have a clone, want a custom prefix, or don't want to pipe a
+script into bash — this is what the one-liner above does under the hood:
 
 ```sh
+lex pkg install    # fetch lex-llm, lex-agent, and the rest
+
 # installs to /usr/local/bin/lex-code and /usr/local/lib/lex-code/
 make install
 
