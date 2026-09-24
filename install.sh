@@ -98,6 +98,6 @@ info "Installing lex-code to $PREFIX..."
 make install PREFIX="$PREFIX"
 
 echo
-info "Done. Set a provider key, then run lex-code:"
-echo "    export ANTHROPIC_API_KEY=sk-...   # or: lex-code --ollama   (fully local, no key)"
-echo "    lex-code \"implement list.zip\""
+info "Done. Run lex-code:"
+echo "    lex-code --ollama \"implement list.zip\"   # fully local, no key"
+echo "    lex-code --opencode                        # OPENCODE_API_KEY required"

@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "Grant for running lex-code as a lex-os-mediated subprocess (`lex-os exec`).",
+    "filesystem: ReadWrite — Build/Refactor/Test modes write files, not just read them.",
+    "network: Full — reaches the local model (Ollama) or the OpenCode Go endpoint.",
+    "exec: Sandboxed — lex-code's own tools shell out to `lex check`/`lex test`/git.",
+    "This grant governs the ONE lex-code process lex-os spawns; it does not narrow",
+    "what lex-code's own --allow-effects capability grant already restricts inside it — the",
+    "two are independent, stacked boundaries (lex-os is the outer host-level one)."
+  ],
+  "goal": {
+    "description": "unused — overwritten by the exec spec"
+  },
+  "grant": { "filesystem": "ReadWrite", "network": "Full", "exec": "Sandboxed" },
+  "budget": { "wall_clock_secs": 1800, "max_commands": 500, "max_money_cents": 0, "max_api_calls": 0 },
+  "isolation_floor": "MicroVm",
+  "egress": []
+}
