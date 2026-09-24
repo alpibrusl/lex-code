@@ -52,6 +52,10 @@ import "std.sql" as sql
 
 import "lex-trail/log" as trail_log
 
+import "../project_memory" as pmem
+
+import "lex-memory/src/memory" as mem
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 fn get_env_w(key :: Str, fallback :: Str) -> [env] Str {
   match env.get(key) {
@@ -399,6 +403,13 @@ fn write_edit_diff_json(kind :: Str, payload :: Str) -> Str
   }
 }
 
+# `payload` (the raw trail `payload_json` column) is NOT reliably valid
+# JSON on its own — cap.completed/cap.failed splice a tool's raw
+# freeform result into it (see `event_label`'s comment above) — so the
+# `"payload"` field below wraps it with `jv.stringify(JStr(...))`, a
+# JSON *string* value, rather than splicing it in raw. Splicing it raw
+# would let a single malformed tool result break parsing of the whole
+# /events response.
 fn event_to_json(r :: sql.Row) -> Str {
   let seq := match sql.get_int(r, "seq") {
     Some(n) => n,
@@ -416,7 +427,7 @@ fn event_to_json(r :: sql.Row) -> Str {
     Some(t) => t,
     None => 0,
   }
-  str.join(["{\"seq\":", int.to_str(seq), ",\"kind\":", jv.stringify(JStr(kind)), ",\"label\":", jv.stringify(JStr(event_label(kind, payload))), ",\"diff\":", write_edit_diff_json(kind, payload), ",\"ts\":", int.to_str(ts), "}"], "")
+  str.join(["{\"seq\":", int.to_str(seq), ",\"kind\":", jv.stringify(JStr(kind)), ",\"label\":", jv.stringify(JStr(event_label(kind, payload))), ",\"diff\":", write_edit_diff_json(kind, payload), ",\"ts\":", int.to_str(ts), ",\"payload\":", jv.stringify(JStr(payload)), "}"], "")
 }
 
 fn max_seq(rows :: List[sql.Row], start :: Int) -> Int {
@@ -531,6 +542,24 @@ fn handle_sessions() -> [sql, fs_read, fs_walk, fs_write] resp.Response {
   resp.json(str.join(["{\"sessions\":[", str.join(items, ","), "]}"], ""))
 }
 
+# ── Project memory (GET /memory) — everything project_memory.lex has stored,
+# newest first within each kind. Read-only: this route never writes.
+fn memory_entry_to_json(e :: mem.MemoryEntry) -> Str {
+  str.join(["{\"id\":", jv.stringify(JStr(e.id)), ",\"kind\":", jv.stringify(JStr(e.kind)), ",\"key\":", jv.stringify(JStr(e.key)), ",\"content\":", jv.stringify(JStr(e.content)), ",\"ts\":", jv.stringify(JStr(e.ts)), ",\"importance\":", jv.stringify(JStr(e.importance)), ",\"scope\":", jv.stringify(JStr(e.scope)), "}"], "")
+}
+
+fn handle_memory() -> [sql, fs_read, fs_write] resp.Response {
+  match pmem.open() {
+    Err(_) => resp.json("{\"entries\":[]}"),
+    Ok(pm) => {
+      let entries := pmem.recall_all(pm)
+      let __c := pmem.close(pm)
+      let items := list.map(entries, memory_entry_to_json)
+      resp.json(str.join(["{\"entries\":[", str.join(items, ","), "]}"], ""))
+    },
+  }
+}
+
 # ── Static-only router (no [env] routes) ─────────────────────────────────────
 fn build_static_router(web_dir :: Str) -> router.Router {
   let r0 := router.new()
@@ -545,7 +574,10 @@ fn build_static_router(web_dir :: Str) -> router.Router {
     let after := parse_int_or_w(ctx.query_param_or(c, "after", "0"), 0)
     with_cors(handle_events(sid, after))
   })
-  sf.mount_dir(r2, "/", web_dir)
+  let r3 := router.route_effectful(r2, "GET", "/memory", fn (c :: ctx.Ctx) -> [io, time, crypto, random, sql, fs_read, fs_write, net, concurrent, llm, proc, approval] resp.Response {
+    with_cors(handle_memory())
+  })
+  sf.mount_dir(r3, "/", web_dir)
 }
 
 # ── Entry point ───────────────────────────────────────────────────────────────
