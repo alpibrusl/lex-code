@@ -18,6 +18,28 @@ A Lex-native coding assistant — think Claude Code or Cursor, built entirely in
 install, first run, picking a mode, and the typed-issue workflow — before
 this README's full reference.
 
+## Why lex-code
+
+- **A result you don't have to trust, or read the diff to believe.**
+  `--issue=<id>` iterates against the type checker and the issue's own
+  acceptance examples, not a transcript — the run ends with one
+  machine-readable `[ISSUE_VERDICT]` line regardless of what the model
+  claims. See [Delegating to it from another agent](#delegating-to-it-from-another-agent-claude-code-etc).
+- **The sandbox is the language, not a prompt.** Every session runs
+  under an explicit `--allow-effects` capability grant enforced by the
+  Lex VM itself — the agent can't perform `net`/`fs_write`/etc. it
+  wasn't granted, full stop, not "was told not to."
+- **A second, outer sandbox layer is one flag away.** `--lex-os` runs
+  the whole session inside [lex-os](https://github.com/alpibrusl/lex-os)'s
+  host-level mediated perimeter (a real microVM on a KVM host) —
+  see [Running under lex-os](#running-under-lex-os).
+- **Provider-agnostic, including fully local.** `--ollama` runs
+  entirely on your own machine, no key, no cloud dependency — the same
+  workflow as every other provider flag (see [Providers](#providers)).
+- **It dogfoods its own guarantees.** lex-code is written entirely in
+  Lex, so its own CI runs the same type checker, minimum-bar gate, and
+  effect-row-minimality report against itself that it holds any task to.
+
 ## Install
 
 ```sh
@@ -31,12 +53,12 @@ repo's own `make install` below. Safe to re-run. macOS and Linux; on
 Windows, use WSL. Override the prefix with `LEX_CODE_PREFIX=~/.local`.
 
 ```sh
-# set a provider key, then run it
-export ANTHROPIC_API_KEY=sk-...
-lex-code "implement list.zip"
+# fully local, no key
+lex-code --ollama "implement list.zip"
 
-# or fully local, no key
-lex-code --ollama
+# or OpenCode Go
+export OPENCODE_API_KEY=...
+lex-code --opencode "implement list.zip"
 ```
 
 ## [Trust Without Comprehension](https://lexlang.org/manifesto) — live demo
@@ -63,20 +85,18 @@ does, for entry points other than the TUI) needs the same flag added
 by hand; see `bin/lex-code`'s own comment for the full story.
 
 ```sh
-# set provider key
-export ANTHROPIC_API_KEY=sk-...
-
-# build mode (default), interactive REPL
-./bin/lex-code
+# fully local, no key — build mode (default), interactive REPL
+./bin/lex-code --ollama
 
 # one-shot CLI mode (exits after the task)
-./bin/lex-code "implement list.zip"
+./bin/lex-code --ollama "implement list.zip"
 
 # plan mode
-./bin/lex-code --plan
+./bin/lex-code --plan --ollama
 
-# mistral provider
-./bin/lex-code --mistral
+# OpenCode Go provider
+export OPENCODE_API_KEY=...
+./bin/lex-code --opencode
 
 # bootstrap demo: impl → spec → test → review
 lex run src/bootstrap/run.lex
@@ -85,6 +105,37 @@ lex run src/bootstrap/run.lex
 lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
   src/server/web.lex serve_web
 ```
+
+## Delegating to it from another agent (Claude Code, etc.)
+
+`lex-code` is a plain CLI — any agent that can shell out (Claude Code's
+own Bash tool, a CI step, another script) can hand it a Lex-specific task
+directly, non-interactively, the same one-shot mode above:
+
+```sh
+lex-code --ollama "implement list.zip" > /tmp/lex-code.log 2>&1
+```
+
+That's fine for a quick delegated edit, but the transcript is prose — a
+calling agent shouldn't trust "looks like it worked" any more than a
+human should. For a result worth trusting without reading the diff
+yourself, hand it a
+[typed issue](#implementing-a-typed-issue) instead: it iterates against
+the type checker and the issue's own acceptance examples, and the run
+ends with one machine-readable line regardless of what the model claims:
+
+```sh
+lex issue create --title "digit_sum" --shape typed_delta \
+  --api 'digit_sum:(n :: Int) -> Int:added' \
+  --example 'digit_sum(1234) => 10' --example 'digit_sum(-56) => 11'
+
+lex-code --issue=<id> --ollama > /tmp/lex-code.log 2>&1
+grep '^\[ISSUE_VERDICT\]' /tmp/lex-code.log   # verified|failed|inconclusive|unavailable
+```
+
+A calling agent branches on that line, not on anything the model said —
+`verified` is backed by the type checker and the issue's examples
+actually passing, not by a transcript claiming success.
 
 ## Install from a checkout (what `install.sh` runs for you)
 
@@ -178,130 +229,35 @@ read-only toolset yet (#88).
 
 ## Providers
 
+lex-code can talk to eight provider backends (see `--help` for the full
+flag list — Anthropic, OpenAI, Google, Mistral, LiteLLM, vLLM, and Vertex
+are implemented in code alongside the two below), but only these two have
+actually been run end-to-end against this repo:
+
 | Flag | Provider | Model | Key required |
 |------|----------|-------|--------------|
-| *(default)* | Anthropic | claude-sonnet-4-6 | `ANTHROPIC_API_KEY` |
-| `--openai` | OpenAI | gpt-5.5 | `OPENAI_API_KEY` |
-| `--google` | Google | gemini-3.5-flash | `GOOGLE_API_KEY` |
-| `--mistral` | Mistral | mistral-large-latest | `MISTRAL_API_KEY` |
-| `--litellm` | LiteLLM proxy | `$LITELLM_MODEL` | none (proxy handles keys) |
-| `--ollama` | Ollama (local, native API) | `$OLLAMA_MODEL` | none |
-| `--vllm` | vLLM (local/remote) | `$VLLM_MODEL` | none |
+| `--ollama` | Ollama (local, native API) | `$OLLAMA_MODEL` (default `qwen3.8:27b-mlx`) | none |
 | `--opencode` | OpenCode Go plan (cloud, direct) | `$OPENCODE_MODEL` | `OPENCODE_API_KEY` |
 
 ### Ollama
 
-```sh
-ollama pull codellama   # or llama3, deepseek-coder, qwen2.5-coder, …
-lex run src/tui/main.lex --ollama
-```
-
-### vLLM
+Fully local, no key. Verified with the default model (`qwen3.8:27b-mlx`),
+including a full `--issue=<id>` run through to an `[ISSUE_VERDICT]\tverified`
+close (see [Delegating to it from another agent](#delegating-to-it-from-another-agent-claude-code-etc)).
 
 ```sh
-# start vLLM server
-python -m vllm.entrypoints.openai.api_server \
-  --model mistralai/Mistral-7B-Instruct-v0.3
-
-# run lex-code against it
-VLLM_MODEL=mistralai/Mistral-7B-Instruct-v0.3 \
-  lex run src/tui/main.lex --vllm "implement list.zip"
-
-# remote GPU box
-VLLM_BASE_URL=http://gpu-box:8000/v1/chat/completions \
-VLLM_MODEL=deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct \
-  lex run src/tui/main.lex --vllm
+ollama pull qwen3.8:27b-mlx   # or set OLLAMA_MODEL to whatever you have
+lex-code --ollama "implement list.zip"
 ```
-
-`VLLM_MODEL` defaults to `mistralai/Mistral-7B-Instruct-v0.3`.
-`VLLM_BASE_URL` defaults to `http://localhost:8000/v1/chat/completions`.
 
 ### OpenCode Go plan
 
-[OpenCode Go](https://opencode.ai/docs/zen) bundles cloud access to several open-weight coding models (DeepSeek, Qwen3, Kimi, GLM, MiniMax, MiMo) behind one subscription key. Two ways to reach it — same key either way:
+[OpenCode Go](https://opencode.ai/docs/zen) bundles cloud access to several
+open-weight coding models behind one subscription key.
 
 ```sh
-# native (direct to the Go endpoint, no proxy)
-export OPENCODE_API_KEY=$(cat ~/.credentials/opencode/key | tr -d '\n')
-lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
-  src/tui/main.lex main -- --opencode "implement list.zip"
-
-# override the default model (kimi-k2.7-code)
-OPENCODE_MODEL=qwen3.7-max \
-  lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
-  src/tui/main.lex main -- --opencode "implement list.zip"
-
-# via the LiteLLM proxy instead (shares one proxy + model list with lex-loom — see below)
-LITELLM_MODEL=deepseek-v4-flash \
-  lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
-  src/tui/main.lex main -- --litellm "implement list.zip"
-```
-
-`OPENCODE_MODEL` accepts any Go-plan model id (see `litellm/config.yaml`'s "OpenCode Go plan" section for the full list). `OPENCODE_BASE_URL` overrides the endpoint if you're routing through a local reasoning proxy instead of hitting `opencode.ai` directly.
-
-### LiteLLM (local models + OpenCode Go via proxy)
-
-[LiteLLM](https://github.com/BerriAI/litellm) is the recommended path for running local models, and the only path that gives OpenCode Go's thinking-mode models correct `merge_reasoning_content_in_choices` handling. It provides an OpenAI-compatible endpoint over any backend (Ollama, vLLM, OpenCode Go, MLX, …), which gives cleaner tool calling than the native Ollama wire format.
-
-This repo ships a ready-to-run proxy config at `litellm/config.yaml` + `litellm/docker-compose.yml` — kept in sync with [lex-loom](https://github.com/alpibrusl/lex-loom)'s own `litellm/` directory (same model list, same OpenCode Go entries) so both repos can point at one shared proxy instance.
-
-```sh
-# start the bundled proxy
-cd litellm
-ANTHROPIC_API_KEY=... OPENAI_API_KEY=... OPENCODE_API_KEY=... docker compose up -d
-cd ..
-
-# run lex-code against qwen3-coder:30b (recommended local model)
-LITELLM_MODEL=qwen3-coder:30b \
-  lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
-  src/tui/main.lex main
-
-# one-shot via the --litellm flag
-LITELLM_MODEL=qwen3-coder:30b \
-  lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
-  src/tui/main.lex main -- --litellm "implement list.zip"
-
-# OpenCode Go through the proxy instead of native --opencode
-LITELLM_MODEL=kimi-k2.7-code \
-  lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
-  src/tui/main.lex main -- --litellm "implement list.zip"
-
-# override the proxy URL (default: http://localhost:4000)
-LITELLM_BASE_URL=http://gpu-box:4000 \
-LITELLM_MODEL=qwen3-coder:30b \
-  lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
-  src/tui/main.lex main -- --litellm
-```
-
-`LITELLM_MODEL` is the model name as it appears in `litellm/config.yaml`'s `model_name` field.
-`LITELLM_BASE_URL` defaults to `http://localhost:4000`.
-
-Running against a standalone LiteLLM install instead of the bundled compose file works the same way — point `litellm --config <your-config.yaml> --port 4000` at any config with the model names you use.
-
-#### Local model compatibility
-
-Tested on [lex-code fizzbuzz bootstrap](src/bootstrap/fizzbuzz_lex.lex) — task: write `fizzbuzz.lex` with `fn fizzbuzz(n :: Int) -> List[Str]` + 4 unit tests, `lex check` clean, `run_all` returns 0.
-
-| Model | VRAM | Steps | Result | Notes |
-|-------|------|-------|--------|-------|
-| `qwen3-coder:30b` (Q4_K_M) | 45 GB | ~14 LLM rounds | ✅ passes | Best local choice. Correct tool use, proper Lex idioms after linter feedback. |
-| `gemma4:26b` (Q4) | 19 GB | — | ❌ fails | Thinking model: consumes 500–700 tokens on chain-of-thought before any output. Tool calls appear as embedded JSON in `content` instead of `tool_calls`. Generates Python instead of Lex under large context. |
-| `gemma4:latest` (9 B) | 10 GB | — | not tested | Lighter variant; same thinking-model caveats apply. |
-
-**Reliable patterns with `qwen3-coder:30b`:**
-
-```sh
-# Warm the model before a run (first call loads weights, subsequent calls are faster)
-curl -s http://localhost:4000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model":"qwen3-coder:30b","messages":[{"role":"user","content":"hi"}],"max_tokens":10,"stream":false}' \
-  > /dev/null
-
-LITELLM_MODEL=qwen3-coder:30b \
-  lex run --allow-effects env,io,net,llm,proc,sql,fs_write,time,approval \
-  src/bootstrap/fizzbuzz_lex.lex main
-# [fizzbuzz_lex] starting build via litellm
-# [fizzbuzz_lex] done — steps: 71
+export OPENCODE_API_KEY=...
+lex-code --opencode "implement list.zip"
 ```
 
 ```sh
@@ -1104,6 +1060,50 @@ Each agent mode has a `lex-spec` `Spec` value (in `src/permissions/rules.lex`) t
 allowlists its tool set. At construction time, `with_permission_gate` (from `lex-llm`)
 filters the tool list using the spec, so agents can only call the tools they’re
 authorised to use.
+
+## Running under lex-os
+
+The permission gate above and `--allow-effects` are both *inside* the Lex
+VM — real, but one process trusting itself. [lex-os](https://github.com/alpibrusl/lex-os)
+is a separate, host-level sandbox: a supervisor *outside* the process
+mediates a grant (filesystem/network/exec, each independently levelled)
+and, on a KVM host, actually runs the mediated command inside a real
+Firecracker microVM. The two boundaries stack — lex-os doesn't know or
+care what `--allow-effects` list lex-code passed itself internally.
+
+```sh
+lex-code --lex-os --ollama "implement list.zip"
+```
+
+This re-execs the same `lex-code` invocation as `lex-os exec --manifest
+lex-os/manifest.json -- lex-code ...` instead of running directly —
+`lex-os/manifest.json` (shipped in this repo, installed alongside the
+binary by `make install`) grants `filesystem: ReadWrite`, `network: Full`,
+`exec: Sandboxed`, matching what Build/Refactor/Test modes actually need.
+Override it with `LEX_OS_MANIFEST=/path/to/other.json`.
+
+**Prerequisite:** `lex-os` isn't installed by lex-code's own installer —
+it's a separate Rust project you build yourself:
+
+```sh
+git clone https://github.com/alpibrusl/lex-os
+cd lex-os && cargo build --release -p lex-os -p lex-os-guest
+# put target/release/{lex-os,lex-os-guest} on your PATH
+```
+
+Off a KVM host (most laptops), add `LEX_OS_SIMULATED=1` — lex-os's own
+in-process perimeter, which it's explicit about **not** being a security
+boundary, only the same grant-mediation logic running anywhere:
+
+```sh
+LEX_OS_SIMULATED=1 lex-code --lex-os --ollama "implement list.zip"
+```
+
+Verified end-to-end (simulated perimeter): a real `lex-code --ollama`
+session, mediated through `lex-os exec`, actually wrote a file and passed
+`lex check` — the audit chain recorded the mediated command, `exit_code:
+0`, and the file was genuinely on disk afterward, not just claimed in
+the transcript.
 
 ## Roadmap
 

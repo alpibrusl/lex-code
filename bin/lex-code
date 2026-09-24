@@ -20,5 +20,41 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LEX_CODE_EFFECTS="${LEX_CODE_EFFECTS:-approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time}"
 LEX_CODE_MAX_STEPS="${LEX_CODE_MAX_STEPS:-20000000000}"
+
+# `--lex-os`: re-invoke this same command mediated through `lex-os exec`
+# (see README's "Running under lex-os") instead of running directly —
+# lex-os is the OUTER, host-level sandbox; LEX_CODE_EFFECTS above is the
+# separate, INNER one the Lex VM itself enforces. Filtered out of "$@"
+# here with a shift/set-loop rather than string-splitting, since a real
+# task string routinely has spaces in it. `LEX_OS_SIMULATED=1` (default
+# unset) adds `--simulated`, since the real Firecracker perimeter needs a
+# KVM host and refuses rather than silently downgrading.
+lex_os_mode=0
+orig_count=$#
+i=0
+while [ "$i" -lt "$orig_count" ]; do
+  a="$1"
+  shift
+  if [ "$a" = "--lex-os" ]; then
+    lex_os_mode=1
+  else
+    set -- "$@" "$a"
+  fi
+  i=$((i + 1))
+done
+
+if [ "$lex_os_mode" = "1" ]; then
+  command -v lex-os >/dev/null 2>&1 || {
+    echo "lex-os not found on PATH — see README's 'Running under lex-os' for how to build it" >&2
+    exit 1
+  }
+  LEX_OS_MANIFEST="${LEX_OS_MANIFEST:-$SCRIPT_DIR/../lex-os/manifest.json}"
+  if [ "${LEX_OS_SIMULATED:-}" = "1" ]; then
+    exec lex-os exec --simulated --manifest "$LEX_OS_MANIFEST" -- "$0" "$@"
+  else
+    exec lex-os exec --manifest "$LEX_OS_MANIFEST" -- "$0" "$@"
+  fi
+fi
+
 exec lex run --max-steps "$LEX_CODE_MAX_STEPS" --allow-effects "$LEX_CODE_EFFECTS" \
   "$SCRIPT_DIR/../src/tui/main.lex" main -- "$@"
