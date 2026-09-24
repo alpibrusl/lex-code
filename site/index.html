@@ -161,6 +161,9 @@
 lex-code "--issue=$ISSUE_ID" --ollama > /tmp/lex-code.log 2>&1
 grep '^\[ISSUE_VERDICT\]' /tmp/lex-code.log
 # [ISSUE_VERDICT]  verified  &lt;issue_id&gt;</pre>
+        <div class="cast-frame" id="cast-issue"></div>
+        <p class="shot-caption">The typed-issue flow above, live and unedited — same issue,
+        same run, ending in the same <code>verified</code> line.</p>
       </div>
       <div>
         <p><b>Both commands above are copy-paste real</b> — run verbatim against this repo
@@ -174,10 +177,10 @@ grep '^\[ISSUE_VERDICT\]' /tmp/lex-code.log
         typed-issue workflow in depth: <a href="https://github.com/alpibrusl/lex-code#readme">the
         README</a>.</p>
         <a class="shot" href="https://github.com/alpibrusl/lex-code#web-frontend">
-          <img src="demo/webui.gif" width="760" height="486" loading="lazy" alt="Screen recording of the lex-code web UI: a real Ollama session implementing zip, then its full event Trail.">
+          <img src="demo/webui.gif" width="760" height="486" loading="lazy" alt="Screen recording of the lex-code web UI: a real Ollama session writing a password-strength check, its Trail, and the fact it remembered showing up in Memory.">
         </a>
-        <p class="shot-caption">Prefer a UI: the same session, in the web frontend, with a live
-        Trail tab.</p>
+        <p class="shot-caption">Prefer a UI: the same kind of session, with its live Trail — and
+        Memory, once something's worth remembering across sessions, right in the sidebar.</p>
       </div>
     </div>
   </section>
@@ -208,6 +211,10 @@ lex-code --opencode "..."</code>
   });
   AsciinemaPlayer.create('demo/friendly.cast', document.getElementById('cast-friendly'), {
     cols: 100, rows: 30, theme: 'monokai', fit: 'width', preload: true,
+    poster: 'npt:0:01'
+  });
+  AsciinemaPlayer.create('demo/issue.cast', document.getElementById('cast-issue'), {
+    cols: 100, rows: 24, theme: 'monokai', fit: 'width', preload: true,
     poster: 'npt:0:01'
   });
 </script>
