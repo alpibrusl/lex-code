@@ -188,6 +188,7 @@ fn existing(prev :: Map[Str, List[Float]], sig :: Str) -> Option[List[Float]] {
 # so a function that exists reads as a function that does not.
 fn build(path :: Str) -> [env, net, io, proc] Result[Int, Str] {
   let cfg := config_from_env()
+  let api_key := api_key_from_env()
   match docs_json(path) {
     Err(msg) => Err(str.concat("could not run `lex docs`: ", msg)),
     Ok(body) => {
@@ -195,7 +196,7 @@ fn build(path :: Str) -> [env, net, io, proc] Result[Int, Str] {
       if list.is_empty(docs) {
         Err(str.concat("no functions found under ", path))
       } else {
-        match reuse_or_embed(cfg, docs) {
+        match reuse_or_embed(cfg, api_key, docs) {
           Err(msg) => Err(msg),
           Ok(entries) => embed.write_index(cfg, entries),
         }
@@ -204,7 +205,17 @@ fn build(path :: Str) -> [env, net, io, proc] Result[Int, Str] {
   }
 }
 
-fn reuse_or_embed(cfg :: embed.Config, docs :: List[Doc]) -> [io, net] Result[List[embed.Entry], Str] {
+# Read once, here, and threaded down as a plain value — never folded into
+# `embed.Config` (see `embed_one`'s own comment for why: that record is
+# persisted verbatim into the index's cache-comparison header).
+fn api_key_from_env() -> [env] Str {
+  match env.get("LITELLM_API_KEY") {
+    None => "",
+    Some(k) => k,
+  }
+}
+
+fn reuse_or_embed(cfg :: embed.Config, api_key :: Str, docs :: List[Doc]) -> [io, net] Result[List[embed.Entry], Str] {
   match embed.read_index() {
     (prev_cfg, prev) => {
       let usable := if reusable(cfg, prev_cfg) {
@@ -212,7 +223,7 @@ fn reuse_or_embed(cfg :: embed.Config, docs :: List[Doc]) -> [io, net] Result[Li
       } else {
         map.new()
       }
-      match fold_docs(cfg, docs, usable, []) {
+      match fold_docs(cfg, api_key, docs, usable, []) {
         Err(m) => Err(m),
         Ok(rev) => Ok(list.reverse(rev)),
       }
@@ -250,20 +261,20 @@ fn reusable(cfg :: embed.Config, prev :: Option[embed.Config]) -> Bool
 # Accumulates reversed: `list.concat(acc, [e])` copies the whole list on
 # every append, which is the second half of the quadratic blowup above.
 # The caller reverses once.
-fn fold_docs(cfg :: embed.Config, docs :: List[Doc], usable :: Map[Str, List[Float]], acc :: List[embed.Entry]) -> [net] Result[List[embed.Entry], Str] {
+fn fold_docs(cfg :: embed.Config, api_key :: Str, docs :: List[Doc], usable :: Map[Str, List[Float]], acc :: List[embed.Entry]) -> [net] Result[List[embed.Entry], Str] {
   match list.head(docs) {
     None => Ok(acc),
-    Some(d) => match entry_for(cfg, d, usable) {
+    Some(d) => match entry_for(cfg, api_key, d, usable) {
       Err(msg) => Err(msg),
-      Ok(e) => fold_docs(cfg, list.tail(docs), usable, list.cons(e, acc)),
+      Ok(e) => fold_docs(cfg, api_key, list.tail(docs), usable, list.cons(e, acc)),
     },
   }
 }
 
-fn entry_for(cfg :: embed.Config, d :: Doc, usable :: Map[Str, List[Float]]) -> [net] Result[embed.Entry, Str] {
+fn entry_for(cfg :: embed.Config, api_key :: Str, d :: Doc, usable :: Map[Str, List[Float]]) -> [net] Result[embed.Entry, Str] {
   match existing(usable, d.sig) {
     Some(v) => Ok({ sig: d.sig, name: d.name, file: d.file, text: d.text, vec: v }),
-    None => match embed.embed_one(cfg, d.text) {
+    None => match embed.embed_one(cfg, api_key, d.text) {
       Err(msg) => Err(str.join(["embedding \"", d.name, "\" failed: ", msg], "")),
       Ok(v) => Ok({ sig: d.sig, name: d.name, file: d.file, text: d.text, vec: embed.truncate(v, cfg.dims) }),
     },
