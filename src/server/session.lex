@@ -279,6 +279,18 @@ fn with_memory(agent :: ag.AgentLoop, ctx :: Str) -> ag.AgentLoop {
   { name: agent.name, goal: prefix_goal(agent.goal, ctx), model: agent.model, provider: agent.provider, tools: agent.tools, options: agent.options, permission_spec: agent.permission_spec }
 }
 
+# A user-chosen model within the already-picked provider (the web UI's
+# model field) — swaps only ModelRef.model, keeping ModelRef.provider (and
+# everything else pick_agent set: goal, tools, options) exactly as that
+# provider's agent constructor already had it. None leaves the constructor's
+# own default (providers.ollama_model() and friends) untouched.
+fn with_model(agent :: ag.AgentLoop, model_override :: Option[Str]) -> ag.AgentLoop {
+  match model_override {
+    None => agent,
+    Some(m) => { name: agent.name, goal: agent.goal, model: { provider: agent.model.provider, model: m }, provider: agent.provider, tools: agent.tools, options: agent.options, permission_spec: agent.permission_spec },
+  }
+}
+
 # External tools are attached here rather than in the agent constructors,
 # for the same reason memory is: `tools.all_tools_for_mode` is pure, and
 # loading over the network would put `net` into all eight agent files and
@@ -347,6 +359,16 @@ fn run_turn(session :: Session, user_input :: Str) -> [env, net, llm, io, proc, 
 # — stands in for `derived` once the count agrees, since that is what a
 # full derivation would reconstruct anyway absent a divergence.
 fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time, approval] TurnResult {
+  run_turn_with_model(session, user_input, provider_tag, None)
+}
+
+# Same turn contract as run_turn_with_provider, plus an optional model
+# override within the chosen provider (see with_model) — the web UI's
+# model field, threaded through by web.lex's /a2a handler. The other
+# callers of run_turn_with_provider (CLI, graph pipeline nodes) have no use
+# for it yet, so that one keeps its existing arity and just passes None
+# here rather than every call site gaining a param none of them need.
+fn run_turn_with_model(session :: Session, user_input :: Str, provider_tag :: Str, model_override :: Option[Str]) -> [env, net, llm, io, proc, sql, time, approval] TurnResult {
   let started := time.now_ms()
   match evs.record_user(session.log, user_input) {
     Err(e) => refused_turn(session, str.concat("session log append failed: ", e)),
@@ -355,7 +377,8 @@ fn run_turn_with_provider(session :: Session, user_input :: Str, provider_tag ::
       match evs.event_count(session.log) {
         Err(e) => refused_turn(session, str.concat("session history count unavailable: ", e)),
         Ok(count) => if count == list.len(expected) {
-          let agent := with_mcp(with_memory(pick_agent(session.mode, provider_tag), session.memory), mcp_tools_for(session.mode))
+          let picked := with_model(pick_agent(session.mode, provider_tag), model_override)
+          let agent := with_mcp(with_memory(picked, session.memory), mcp_tools_for(session.mode))
           let __intent := record_intent(session.id, user_input, agent.model.provider, agent.model.model)
           let step_iter := ag.run_loop_traced(agent, expected, session.log, session.parent)
           let steps := iter.to_list(step_iter)

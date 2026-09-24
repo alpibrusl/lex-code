@@ -138,6 +138,17 @@ select {
   cursor: pointer;
 }
 
+#model-input {
+  background: #1a2033;
+  color: #e2e8f0;
+  border: 1px solid #2d3a56;
+  border-radius: 6px;
+  padding: 4px 8px;
+  width: 130px;
+}
+
+#model-input::placeholder { color: #64748b; }
+
 #clear-btn {
   background: transparent;
   color: #64748b;

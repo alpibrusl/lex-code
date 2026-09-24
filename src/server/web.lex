@@ -288,13 +288,19 @@ fn handle_a2a_body(body :: Str) -> [env, io, time, crypto, random, sql, fs_read,
       }
       let mode := mode_from_str(mode_str)
       let sid := session_id_for(j)
+      let model_str := str.trim(get_nested_str(j, "params", "model"))
+      let model_override := if str.is_empty(model_str) {
+        None
+      } else {
+        Some(model_str)
+      }
       if str.is_empty(input) {
         resp.json(json_error(req_id, "params.input is required"))
       } else {
         match sess.resume_session(sid, mode, prov) {
           Err(e) => resp.json(json_error(req_id, e)),
           Ok(session) => {
-            let turn := sess.run_turn_with_provider(session, input, prov)
+            let turn := sess.run_turn_with_model(session, input, prov, model_override)
             let steps_json := steps_to_json(turn.steps)
             resp.json(str.join(["{\"jsonrpc\":\"2.0\",\"id\":", req_id, ",\"result\":{\"session_id\":", jv.stringify(JStr(sid)), ",\"steps\":", steps_json, "}}"], ""))
           },

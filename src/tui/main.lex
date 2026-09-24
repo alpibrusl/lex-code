@@ -38,22 +38,99 @@ import "../server/graph" as graph
 #
 # Callers must not also walk the returned steps with this — the turn would
 # print twice. That is why repl and run_once discard the result's steps.
+#
+# A provider streams TextChunk deltas one small fragment at a time — often
+# a sub-word piece, never aligned to a sentence — and io.print always
+# appends a newline (std.io has no raw, newline-free write), so printing
+# each fragment as it arrives put one on almost every line: prose came out
+# as a vertical staircase instead of flowing, wrapped text. line_buf_path
+# is a scratch file (not the trail, not anything committed) that holds
+# whatever fragment hasn't reached a real "\n" yet; each new fragment is
+# appended there and only the complete line(s) it completes are printed,
+# so a paragraph reaches the terminal as the same lines the model actually
+# wrote, not one per fragment. A single fixed path is fine — only one
+# streaming turn is ever live in a process at a time.
+fn line_buf_path() -> Str {
+  "/tmp/lex-code-linebuf"
+}
+
+fn read_buf() -> [io] Str {
+  match io.read(line_buf_path()) {
+    Ok(s) => s,
+    Err(_) => "",
+  }
+}
+
+fn write_buf(text :: Str) -> [io] Nil {
+  match io.write(line_buf_path(), text) {
+    _ => (),
+  }
+}
+
+# Splits on "\n", prints every complete line, and returns the trailing
+# fragment (the part after the last "\n", possibly empty) to keep buffering.
+fn flush_complete_lines(text :: Str) -> [io] Str {
+  let parts := str.split(text, "\n")
+  if list.len(parts) <= 1 {
+    text
+  } else {
+    let rev := list.reverse(parts)
+    let complete := list.reverse(list.tail(rev))
+    let __printed := list.fold(complete, (), fn (acc :: Unit, line :: Str) -> [io] Unit {
+      io.print(line)
+    })
+    match list.head(rev) {
+      Some(r) => r,
+      None => "",
+    }
+  }
+}
+
+fn append_chunk(text :: Str) -> [io] Nil {
+  write_buf(flush_complete_lines(str.concat(read_buf(), text)))
+}
+
+# Prints whatever's pending even without a trailing "\n" — called right
+# before a tool marker or StepDone, each already its own line, so nothing
+# waits behind a paragraph that never happened to end in a newline.
+fn flush_remaining() -> [io] Nil {
+  let pending := read_buf()
+  if str.is_empty(pending) {
+    ()
+  } else {
+    let __printed := io.print(pending)
+    write_buf("")
+  }
+}
+
 fn print_step(step :: d.Step) -> [io] Nil {
   match step {
     StepDelta(delta) => match delta {
-      TextChunk(text) => io.print(text),
-      ToolCallBegin(_, name) => io.print(str.concat("\n[tool: ", str.concat(name, "]"))),
+      TextChunk(text) => append_chunk(text),
+      ToolCallBegin(_, name) => {
+        let __flushed := flush_remaining()
+        io.print(str.concat("\n[tool: ", str.concat(name, "]")))
+      },
       ToolArgChunk(_, _) => (),
       FinishDelta(_) => (),
       UsageDelta(_) => (),
     },
-    StepToolExec(name, _) => io.print(str.concat("[running: ", str.concat(name, "]"))),
-    StepToolResult(_, ok) => if ok {
-      io.print("[ok]")
-    } else {
-      io.print("[error]")
+    StepToolExec(name, _) => {
+      let __flushed := flush_remaining()
+      io.print(str.concat("[running: ", str.concat(name, "]")))
     },
-    StepDone(_) => io.print(""),
+    StepToolResult(_, ok) => {
+      let __flushed := flush_remaining()
+      if ok {
+        io.print("[ok]")
+      } else {
+        io.print("[error]")
+      }
+    },
+    StepDone(_) => {
+      let __flushed := flush_remaining()
+      io.print("")
+    },
   }
 }
 
@@ -66,6 +143,7 @@ fn repl(session :: sess.Session, provider_tag :: Str) -> [env, io, net, llm, pro
       if str.is_empty(input) {
         repl(session, provider_tag)
       } else {
+        let __reset := write_buf("")
         let result := sess.run_turn_streaming_with_provider(session, input, provider_tag, print_step)
         repl(result.session, provider_tag)
       }
@@ -98,6 +176,7 @@ fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str) -> [env, i
   match sess.new_session_persistent_with_provider(session_id, mode, provider_tag) {
     Err(e) => io.print(str.concat(str.concat("error: ", e), "\n")),
     Ok(session) => {
+      let __reset := write_buf("")
       let __printed := sess.run_turn_streaming_with_provider(session, task, provider_tag, print_step)
       io.print(str.join(["\n(trail: .lex/sessions/", session_id, ".db)\n"], ""))
     },
@@ -149,6 +228,7 @@ fn run_refine(issue_id :: Str, guidance :: Option[Str], provider_tag :: Str) -> 
       match sess.new_session_persistent_with_provider(session_id, Build, provider_tag) {
         Err(e) => io.print(str.concat(str.concat("error: ", e), "\n")),
         Ok(session) => {
+          let __reset := write_buf("")
           let __printed := sess.run_turn_streaming_with_provider(session, prompt, provider_tag, print_step)
           let listed := match proc.run("lex", ["issue", "proposals", issue_id]) {
             Err(e) => e,
@@ -176,6 +256,7 @@ fn run_issue(issue_id :: Str, guidance :: Option[Str], mode :: sess.AgentMode, p
         Ok(session) => {
           let __d := proc.run("mkdir", ["-p", ".lex/intent"])
           let __w := io.write(".lex/intent/issue", str.join([session_id, "\t", issue_id], ""))
+          let __reset := write_buf("")
           let __printed := sess.run_turn_streaming_with_provider(session, task, provider_tag, print_step)
           let verdict := match proc.run("lex", ["--output", "json", "issue", "verify", issue_id]) {
             Err(_) => "unavailable",
