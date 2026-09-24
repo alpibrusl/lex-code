@@ -73,6 +73,7 @@
 <header><div class="wrap">
   <a class="brand" href="/"><img src="logo.svg" alt=""> lex-code</a>
   <nav>
+    <a href="#different">vs. Cursor</a>
     <a href="#why">Why</a>
     <a href="#try">Try it</a>
     <a href="https://github.com/alpibrusl/lex-code#readme">Docs</a>
@@ -94,10 +95,26 @@
       <a href="https://github.com/alpibrusl/lex-code">View on GitHub</a>
     </div>
     <div class="install">curl -fsSL https://raw.githubusercontent.com/alpibrusl/lex-code/main/install.sh | bash</div>
-    <a class="shot" href="https://github.com/alpibrusl/lex-code#web-frontend">
-      <img src="demo/webui.gif" width="760" height="486" loading="lazy" alt="Screen recording of the lex-code web UI: a real Ollama session implementing zip, then its full event Trail.">
-    </a>
-    <p class="shot-caption">The web UI, recorded live: a real local (Ollama) session implementing <code>zip</code>, then its full event Trail.</p>
+    <div class="cast-frame" id="cast-friendly"></div>
+    <p class="shot-caption">A real, unedited run — the request is plain English, not Lex. No signature, no syntax, no prior Lex knowledge.</p>
+  </section>
+
+  <section class="block" id="different">
+    <h2>Why not just use Cursor, Copilot, or Claude Code directly?</h2>
+    <div class="pillars">
+      <div class="pillar"><h3>Different confidence signal</h3><p>Those tools end when the model
+        says it's done and the diff looks right to you. lex-code ends when <code>lex check</code>
+        passes and a declared acceptance does too — a result you can act on without reading the
+        diff, not a transcript claiming success.</p></div>
+      <div class="pillar"><h3>An enforced sandbox, not a polite one</h3><p>An editor assistant runs
+        with whatever access your editor has. lex-code's capability grant is enforced by the Lex
+        VM itself — an effect it wasn't granted, it cannot perform, full stop, not "was told not
+        to."</p></div>
+      <div class="pillar"><h3>Not a competing IDE</h3><p>It isn't trying to replace your daily
+        driver. It's a plain CLI any agent — Cursor, Claude Code, Codex, a CI step — can shell out
+        to specifically for Lex, the one thing it holds to a stricter bar than "the diff looks
+        plausible."</p></div>
+    </div>
   </section>
 
   <section class="block" id="why">
@@ -144,6 +161,9 @@
 lex-code "--issue=$ISSUE_ID" --ollama > /tmp/lex-code.log 2>&1
 grep '^\[ISSUE_VERDICT\]' /tmp/lex-code.log
 # [ISSUE_VERDICT]  verified  &lt;issue_id&gt;</pre>
+        <div class="cast-frame" id="cast-issue"></div>
+        <p class="shot-caption">The typed-issue flow above, live and unedited — same issue,
+        same run, ending in the same <code>verified</code> line.</p>
       </div>
       <div>
         <p><b>Both commands above are copy-paste real</b> — run verbatim against this repo
@@ -156,6 +176,11 @@ grep '^\[ISSUE_VERDICT\]' /tmp/lex-code.log
         <code>--verify</code>, <code>--bar</code>, <code>--multi</code>), the web UI, and the
         typed-issue workflow in depth: <a href="https://github.com/alpibrusl/lex-code#readme">the
         README</a>.</p>
+        <a class="shot" href="https://github.com/alpibrusl/lex-code#web-frontend">
+          <img src="demo/webui.gif" width="760" height="486" loading="lazy" alt="Screen recording of the lex-code web UI: a real Ollama session writing a password-strength check, its Trail, and the fact it remembered showing up in Memory.">
+        </a>
+        <p class="shot-caption">Prefer a UI: the same kind of session, with its live Trail — and
+        Memory, once something's worth remembering across sessions, right in the sidebar.</p>
       </div>
     </div>
   </section>
@@ -182,6 +207,14 @@ lex-code --opencode "..."</code>
 <script>
   AsciinemaPlayer.create('demo/zip.cast', document.getElementById('cast'), {
     cols: 100, rows: 30, theme: 'monokai', fit: 'width', preload: true,
+    poster: 'npt:0:01'
+  });
+  AsciinemaPlayer.create('demo/friendly.cast', document.getElementById('cast-friendly'), {
+    cols: 100, rows: 30, theme: 'monokai', fit: 'width', preload: true,
+    poster: 'npt:0:01'
+  });
+  AsciinemaPlayer.create('demo/issue.cast', document.getElementById('cast-issue'), {
+    cols: 100, rows: 24, theme: 'monokai', fit: 'width', preload: true,
     poster: 'npt:0:01'
   });
 </script>
