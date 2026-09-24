@@ -236,20 +236,50 @@ fn as_float(j :: jv.Json) -> Float
   }
 }
 
-fn embed_one(cfg :: Config, text :: Str) -> [net] Result[List[Float], Str] {
-  let hdrs := map.set(map.new(), "content-type", "application/json")
+# A litellm proxy with no real master key configured (this repo's bundled
+# `litellm/docker-compose.yml` default — see its own comment) still 401s a
+# request carrying NO Authorization header at all ("No api key passed
+# in."), even though it accepts any non-empty bearer token in that mode.
+# So the header is always sent; `placeholder_api_key` is what covers the
+# no-real-key default case.
+fn placeholder_api_key() -> Str {
+  "lex-code-local"
+}
+
+# `api_key` — LITELLM_API_KEY, read once by the caller (see
+# `index_build.lex`'s `main`) and threaded down rather than read here,
+# so it's never part of `Config` (which gets persisted verbatim into
+# `.lex/index.jsonl`'s header for cache-reuse comparisons — a field that
+# changes across otherwise-identical runs would spuriously invalidate the
+# index, and a credential has no business sitting in a committed-adjacent
+# file regardless). Confirmed live (2026-09-24): newer LiteLLM proxy
+# versions require a master key to even boot, and every request needs an
+# `Authorization` header regardless of whether a real key is configured —
+# this request had none, so every embed call 401'd against such a proxy.
+fn embed_one(cfg :: Config, api_key :: Str, text :: Str) -> [net] Result[List[Float], Str] {
+  let hdrs0 := map.set(map.new(), "content-type", "application/json")
+  let key := if str.is_empty(api_key) {
+    placeholder_api_key()
+  } else {
+    api_key
+  }
+  let hdrs := map.set(hdrs0, "authorization", str.concat("Bearer ", key))
   let req := { method: "POST", url: embed_url(cfg.base_url), headers: hdrs, body: Some(bytes.from_str(embed_body(cfg.model, text))), timeout_ms: Some(60000) }
   match http.send(req) {
     Err(_) => Err(str.join(["could not reach the embeddings endpoint at ", embed_url(cfg.base_url), " — is the LiteLLM proxy running?"], "")),
-    Ok(r) => if r.status >= 400 {
-      Err(str.join(["embeddings endpoint returned HTTP ", int.to_str(r.status), " — is \"", cfg.model, "\" in the proxy's model list?"], ""))
+    Ok(r) => if r.status == 401 {
+      Err("embeddings endpoint returned HTTP 401 — the proxy requires a matching LITELLM_API_KEY (its own master key); set that env var to the same value the proxy was started with")
     } else {
-      match body_str(r.body) {
-        Err(m) => Err(m),
-        Ok(text) => match parse_vec(text) {
-          None => Err("embeddings response had no data[0].embedding"),
-          Some(v) => Ok(v),
-        },
+      if r.status >= 400 {
+        Err(str.join(["embeddings endpoint returned HTTP ", int.to_str(r.status), " — is \"", cfg.model, "\" in the proxy's model list?"], ""))
+      } else {
+        match body_str(r.body) {
+          Err(m) => Err(m),
+          Ok(text) => match parse_vec(text) {
+            None => Err("embeddings response had no data[0].embedding"),
+            Some(v) => Ok(v),
+          },
+        }
       }
     },
   }

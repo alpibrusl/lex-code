@@ -70,13 +70,22 @@ fn k_of(args :: jv.Json) -> Int {
 # query is embedded with those rather than with anything configured here.
 # A cosine between vectors from two different models is a number with no
 # meaning, so this is the only correct source for that choice.
+#
+# `embed.placeholder_api_key()`, not `env.get("LITELLM_API_KEY")`: this
+# tool's row is fixed at `[net, io, proc]` (see this file's header
+# comment) and can't carry `env`. That's fine against the bundled
+# `litellm/docker-compose.yml` default (no real master key configured —
+# any non-empty bearer token is accepted), but means a query 401s against
+# a proxy someone has locked down with a real `LITELLM_API_KEY`, even
+# though `index_build.lex` (which does read env) can still authenticate
+# to build the index in the first place.
 fn search(query :: Str, k :: Int) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match embed.read_index() {
     (None, _) => Err(e.single("", "no_index", missing_index_msg())),
     (Some(cfg), entries) => if list.is_empty(entries) {
       Err(e.single("", "empty_index", missing_index_msg()))
     } else {
-      match embed.embed_one(cfg, query) {
+      match embed.embed_one(cfg, embed.placeholder_api_key(), query) {
         Err(msg) => Err(e.single("", "embed_failed", msg)),
         Ok(qvec) => Ok(JStr(render(query, embed.top_k(embed.score_all(entries, embed.truncate(qvec, cfg.dims)), k), cfg, git_head()))),
       }

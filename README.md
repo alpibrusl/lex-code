@@ -18,6 +18,10 @@ A Lex-native coding assistant — think Claude Code or Cursor, built entirely in
 install, first run, picking a mode, and the typed-issue workflow — before
 this README's full reference.
 
+Every major claim below has a runnable, verified check in
+[`examples/`](examples/README.md) — not a tutorial, a regression test you
+can run by hand.
+
 ## Why lex-code
 
 - **A result you don't have to trust, or read the diff to believe.**
@@ -107,6 +111,8 @@ lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,f
 ```
 
 ## Delegating to it from another agent (Claude Code, etc.)
+
+_Runnable: `examples/delegate_via_typed_issue.sh`_
 
 `lex-code` is a plain CLI — any agent that can shell out (Claude Code's
 own Bash tool, a CI step, another script) can hand it a Lex-specific task
@@ -241,6 +247,8 @@ actually been run end-to-end against this repo:
 
 ### Ollama
 
+_Runnable: `examples/providers/ollama.sh`_
+
 Fully local, no key. Verified with the default model (`qwen3.8:27b-mlx`),
 including a full `--issue=<id>` run through to an `[ISSUE_VERDICT]\tverified`
 close (see [Delegating to it from another agent](#delegating-to-it-from-another-agent-claude-code-etc)).
@@ -251,6 +259,8 @@ lex-code --ollama "implement list.zip"
 ```
 
 ### OpenCode Go plan
+
+_Runnable: `examples/providers/opencode_go.sh`_
 
 [OpenCode Go](https://opencode.ai/docs/zen) bundles cloud access to several
 open-weight coding models behind one subscription key.
@@ -424,6 +434,8 @@ being advertised to the model until the process restarted.
 
 ## Semantic search
 
+_Runnable: `examples/semantic_search/build_and_query.sh`_
+
 `grep` and `glob` match names. `semantic_search` matches intent — "validate an
 A2A envelope", "retry a failed HTTP call" — by ranking every function's
 signature, effects and examples against the query.
@@ -491,6 +503,8 @@ builds the index itself: a build makes one HTTP call per function, and
 
 ## Observability (OpenTelemetry)
 
+_Runnable: `examples/observability_stdout.sh`_
+
 Off by default. Point it at a collector and every turn arrives as a trace:
 
 ```sh
@@ -532,6 +546,8 @@ costs telemetry, never the turn.
 
 ### MCP (Model Context Protocol)
 
+_Runnable: `examples/mcp_server_smoke.sh`_
+
 `src/server/mcp_main.lex` exposes lex-code as a single `code` tool over
 MCP, so any MCP-speaking host — Claude Code, Cursor, Zed — can hand it
 a task. `mode` selects the agent strategy; the provider is a
@@ -555,6 +571,8 @@ The same port serves the A2A agent card at
 `mode` argument (`build|plan|explore|refactor|spec|test|review|bar`).
 
 ### Agent Client Protocol (ACP, Zed) — Phase 1
+
+_Runnable: `python3 examples/acp_server_smoke.py`_
 
 [Zed's Agent Client Protocol](https://zed.dev/acp) — a JSON-RPC-over-stdio standard for launching a
 coding agent as a subprocess (Zed, JetBrains, Neovim, and Emacs all speak it; opencode is one of the
@@ -677,6 +695,8 @@ lex-code
 
 ## Web Frontend
 
+_Runnable: `examples/web_frontend_smoke.sh`_
+
 `src/server/web.lex` is the backend: it serves the static files in
 `src/web/` **and** the `POST /a2a` endpoint the page calls, so one
 process is the whole thing — no separate static server needed.
@@ -700,6 +720,8 @@ in.
 
 ## Parallel Multi-Agent (`std.conc`)
 
+_Runnable: `examples/agent_modes/multi.sh`_
+
 The `--multi` TUI flag (and `run_parallel` in `src/server/multi_agent.lex`) spawns two
 actors via `std.conc.spawn` and runs Build + Test concurrently:
 
@@ -711,6 +733,8 @@ let test_steps := conc.ask(test_actor, Execute(test_task))
 ```
 
 ## Bootstrap Script
+
+_Runnable: `examples/bootstrap_custom_task.sh`_
 
 `src/bootstrap/run.lex` runs a multi-phase pipeline against a real task. It
 used to hardcode one — implement `list.zip`, in four fixed phases, with its
@@ -882,6 +906,8 @@ break a test that was passing before.
 
 ## Eval harness
 
+_Runnable: `examples/eval_harness_quick.sh`_
+
 Nothing else in this repo measures whether lex-code writes good Lex — CI
 checks types, formatting, doc-sync, unit tests, and that tools invoke real
 commands, all upstream of that question. `make eval` runs a small, fixed set
@@ -939,6 +965,8 @@ Not run in CI: it needs a provider — a key, or a local `litellm`/`ollama`/
 minutes. A CI job gated on a secret can come later.
 
 ## Minimum bar mode
+
+_Runnable: `examples/minimum_bar_probes.sh`_
 
 `--bar` walks a project against a checklist and reports where it stands.
 It never edits: the output is a work queue, in the order the gaps will
@@ -1002,6 +1030,8 @@ named in any workflow and names the file that disagrees.
 
 ## Independent verification mode
 
+_Runnable: `examples/agent_modes/verify.sh`_
+
 `--review` audits structure and trust — effects, attestations, SigIds,
 "is this well-scoped". `--verify` answers a different question: "does
 the implementation actually do what it claims", and it does not take
@@ -1048,7 +1078,7 @@ implementation directly can quietly fix around what it finds instead of
 reporting it.
 
 ```sh
-lex run src/tui/main.lex -- --verify "check src/abi.lex against the ABI spec"
+lex run src/tui/main.lex -- --verify "check src/bar/checks.lex's verdict_label function against its own examples{} block"
 
 # as a pipeline stage, after build and test:
 lex run src/tui/main.lex -- --multi --pipeline=impl_then_test_then_verify
@@ -1062,6 +1092,8 @@ filters the tool list using the spec, so agents can only call the tools they’r
 authorised to use.
 
 ## Running under lex-os
+
+_Runnable: `examples/lex_os/run_mediated.sh`_
 
 The permission gate above and `--allow-effects` are both *inside* the Lex
 VM — real, but one process trusting itself. [lex-os](https://github.com/alpibrusl/lex-os)

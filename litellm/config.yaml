@@ -9,9 +9,16 @@
 #    running docker compose, then use model names like claude-sonnet-4-6.
 #
 # 2. ChatGPT subscription (no API key needed):
-#    LiteLLM uses an OAuth device flow on first request — it prints a URL,
-#    you open it in a browser, and the token is cached in auth.json.
-#    Use model names prefixed with chatgpt/: chatgpt/gpt-5.3-chat-latest
+#    The chatgpt/* entries below are commented out by default — confirmed
+#    live (2026-09-24) that LiteLLM actually resolves the device-code OAuth
+#    flow at PROXY BOOT for every configured chatgpt/* model, not lazily
+#    "on first request" as this comment used to claim: the proxy prints the
+#    device code and the HTTP server never finishes starting (TCP connects,
+#    every request gets an empty reply) until that flow completes — which
+#    blocks the proxy for EVERY model, including totally unrelated ones like
+#    the embeddings entry semantic search needs. Uncomment the block below
+#    only if you're at a terminal ready to complete the device flow when you
+#    start the proxy.
 #
 # 3. Claude Code Max subscription:
 #    forward_client_headers_to_llm_api forwards the OAuth token that Claude
@@ -124,18 +131,20 @@ model_list:
       api_key: os.environ/OPENAI_API_KEY
 
   # ── ChatGPT subscription (device flow OAuth, no API key needed) ────────────
-  # First request prints a browser URL to authenticate. Token is cached.
-  - model_name: chatgpt/gpt-5.3-chat-latest
-    litellm_params:
-      model: chatgpt/gpt-5.3-chat-latest
-
-  - model_name: chatgpt/gpt-5.4
-    litellm_params:
-      model: chatgpt/gpt-5.4
-
-  - model_name: chatgpt/gpt-5.3-codex
-    litellm_params:
-      model: chatgpt/gpt-5.3-codex
+  # Commented out by default — see the header comment: this blocks proxy
+  # boot for every model until the device flow completes. Uncomment only if
+  # you're ready to complete it at container start.
+  # - model_name: chatgpt/gpt-5.3-chat-latest
+  #   litellm_params:
+  #     model: chatgpt/gpt-5.3-chat-latest
+  #
+  # - model_name: chatgpt/gpt-5.4
+  #   litellm_params:
+  #     model: chatgpt/gpt-5.4
+  #
+  # - model_name: chatgpt/gpt-5.3-codex
+  #   litellm_params:
+  #     model: chatgpt/gpt-5.3-codex
 
   # ── OpenCode Go plan ───────────────────────────────────────────────────────
   # Set OPENCODE_API_KEY=$(cat ~/.credentials/opencode/key) before compose up.

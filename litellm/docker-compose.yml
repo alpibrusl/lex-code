@@ -12,7 +12,24 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
-      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      # Both default to the same literal `embed.placeholder_api_key()`
+      # returns in src/embed.lex, so the bundled setup authenticates out
+      # of the box with zero configuration. Newer litellm:main-latest
+      # refuses to boot with no master key at all, AND (confirmed live
+      # 2026-09-24) rejects any bearer token that isn't either empty or
+      # an EXACT match for a real configured master key — even in
+      # `..._PERMIT_WEAK_OR_UNSET_...` mode, any non-matching token falls
+      # through to a virtual-key DB lookup that fails outright when no
+      # database is configured (this compose file has none). So an
+      # actual matching master key is the only default that works, not a
+      # permissive/no-auth mode. Set LITELLM_API_KEY yourself to rotate
+      # both sides together; note that semantic_search's QUERY tool always
+      # sends the literal default (`Tool.execute`'s fixed row can't read
+      # `env` to pick up a custom value — see its own header comment), so
+      # a custom key here means only index-BUILDING can still
+      # authenticate, not querying.
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-lex-code-local}
+      LITELLM_MASTER_KEY: ${LITELLM_API_KEY:-lex-code-local}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
