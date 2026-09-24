@@ -73,10 +73,10 @@
 <header><div class="wrap">
   <a class="brand" href="/"><img src="logo.svg" alt=""> lex-code</a>
   <nav>
-    <a href="#different">vs. Cursor</a>
     <a href="#why">Why</a>
     <a href="#issues">Issues</a>
     <a href="#try">Try it</a>
+    <a href="#different">Where it fits</a>
     <a href="https://github.com/alpibrusl/lex-code#readme">Docs</a>
     <a href="https://github.com/alpibrusl/lex-code">GitHub</a>
     <a href="https://lexlang.org">lexlang.org</a>
@@ -99,28 +99,6 @@
     <div class="install">curl -fsSL https://raw.githubusercontent.com/alpibrusl/lex-code/main/install.sh | bash</div>
     <div class="cast-frame" id="cast-friendly"></div>
     <p class="shot-caption">A real, unedited run — the request is plain English, not Lex. No signature, no syntax, no prior Lex knowledge.</p>
-  </section>
-
-  <section class="block" id="different">
-    <h2>Why not just use Cursor, Copilot, or Claude Code directly?</h2>
-    <p class="lead" style="margin-bottom:18px">Fair question, and the honest answer is scope: this
-    only writes Lex, a language you don't use. What it's arguing for isn't lex-code over your
-    daily driver — it's a different confidence signal, demonstrated somewhere it can be checked
-    for real rather than argued about in the abstract.</p>
-    <div class="pillars">
-      <div class="pillar"><h3>Different confidence signal</h3><p>Those tools end when the model
-        says it's done and the diff looks right to you. lex-code ends when <code>lex check</code>
-        passes and a declared acceptance does too — a result you can act on without reading the
-        diff, not a transcript claiming success.</p></div>
-      <div class="pillar"><h3>An enforced sandbox, not a polite one</h3><p>An editor assistant runs
-        with whatever access your editor has. lex-code's capability grant is enforced by the Lex
-        VM itself — an effect it wasn't granted, it cannot perform, full stop, not "was told not
-        to."</p></div>
-      <div class="pillar"><h3>Not a competing IDE</h3><p>It isn't trying to replace your daily
-        driver. It's a plain CLI any agent — Cursor, Claude Code, Codex, a CI step — can shell out
-        to specifically for Lex, the one thing it holds to a stricter bar than "the diff looks
-        plausible."</p></div>
-    </div>
   </section>
 
   <section class="block" id="why">
@@ -189,10 +167,8 @@ parent:  c32da6062f16626dc4d5e5e84783ca642d92f7cb8d0879a1dfd767614de760b0
       <div>
         <p>Fully local, no key:</p>
         <pre>lex-code --ollama "implement fn zip[A, B](xs :: List[A], ys :: List[B]) -> List[(A, B)]"</pre>
-        <div class="cast-frame" id="cast"></div>
-        <p class="shot-caption">A real, unedited recording of the command above — the same run
-        verified before this page shipped.</p>
-        <p>That's fine for a quick edit you'll read yourself. For a result you can act on
+        <p>That's fine for a quick edit you'll read yourself — see the hero recording above for
+        what that looks like live. For a result you can act on
         without reading the diff, hand it a typed issue instead — it closes by proof, not by a
         transcript claiming success:</p>
         <pre>ISSUE_ID=$(lex issue create --title "add zip" --shape typed_delta \
@@ -226,6 +202,28 @@ grep '^\[ISSUE_VERDICT\]' /tmp/lex-code.log
     </div>
   </section>
 
+  <section class="block" id="different">
+    <h2>Where this fits alongside what you already use</h2>
+    <p class="lead" style="margin-bottom:18px">Not an alternative to Cursor, Copilot, or Claude
+    Code — it only writes Lex, a language you don't use, so it isn't trying to be your daily
+    driver. What's worth naming is the confidence signal it's testing, demonstrated above rather
+    than argued about in the abstract.</p>
+    <div class="pillars">
+      <div class="pillar"><h3>A different confidence signal</h3><p>An editor assistant's turn
+        ends when the model says it's done and the diff looks right to you. lex-code's ends when
+        <code>lex check</code> passes and a declared acceptance does too — a result you can act
+        on without reading the diff, not a transcript claiming success.</p></div>
+      <div class="pillar"><h3>An enforced sandbox, not a polite one</h3><p>An editor assistant runs
+        with whatever access your editor has. lex-code's capability grant is enforced by the Lex
+        VM itself — an effect it wasn't granted, it cannot perform, full stop, not "was told not
+        to."</p></div>
+      <div class="pillar"><h3>Not a competing IDE</h3><p>It isn't trying to replace your daily
+        driver. It's a plain CLI any agent — Cursor, Claude Code, Codex, a CI step — can shell out
+        to specifically for Lex, the one thing it holds to a stricter bar than "the diff looks
+        plausible."</p></div>
+    </div>
+  </section>
+
   <section class="block">
     <h2>Providers</h2>
     <div class="providers">
@@ -246,10 +244,6 @@ lex-code --opencode "..."</code>
 
 <script src="https://cdn.jsdelivr.net/npm/asciinema-player@3/dist/bundle/asciinema-player.min.js"></script>
 <script>
-  AsciinemaPlayer.create('demo/zip.cast', document.getElementById('cast'), {
-    cols: 100, rows: 30, theme: 'monokai', fit: 'width', preload: true,
-    poster: 'npt:0:01'
-  });
   AsciinemaPlayer.create('demo/friendly.cast', document.getElementById('cast-friendly'), {
     cols: 100, rows: 30, theme: 'monokai', fit: 'width', preload: true,
     poster: 'npt:0:01'
