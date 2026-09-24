@@ -143,6 +143,24 @@ A calling agent branches on that line, not on anything the model said —
 `verified` is backed by the type checker and the issue's examples
 actually passing, not by a transcript claiming success.
 
+### A packaged skill for other agents
+
+[`skills/lex-code/SKILL.md`](skills/lex-code/SKILL.md) is this section,
+packaged for an agent to install and follow directly — install/provider
+selection/both delegation patterns, in ~80 lines, every command in it
+verified against this repo. For Claude Code: copy the directory into
+`~/.claude/skills/` (or a project's `.claude/skills/`) and it's picked
+up automatically:
+
+```sh
+mkdir -p ~/.claude/skills
+cp -r skills/lex-code ~/.claude/skills/lex-code
+```
+
+For Codex or any other agent that reads a plain instructions file rather
+than a skills directory, just point it at the same file — it carries no
+Claude-Code-specific tool syntax, only shell commands.
+
 ## Install from a checkout (what `install.sh` runs for you)
 
 Already have a clone, want a custom prefix, or don't want to pipe a
