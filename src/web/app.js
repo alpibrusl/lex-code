@@ -13,6 +13,17 @@ const provSelect   = document.getElementById('provider-select');
 const clearBtn     = document.getElementById('clear-btn');
 const sessionListEl = document.getElementById('session-list');
 const newSessionBtn = document.getElementById('new-session-btn');
+const tabButtons    = document.querySelectorAll('.tab-btn');
+const tabPanels = {
+  chat:   document.getElementById('chat-panel'),
+  trail:  document.getElementById('trail-panel'),
+  memory: document.getElementById('memory-panel'),
+};
+const trailListEl      = document.getElementById('trail-list');
+const trailRefreshBtn  = document.getElementById('trail-refresh-btn');
+const memoryListEl     = document.getElementById('memory-list');
+const memoryRefreshBtn = document.getElementById('memory-refresh-btn');
+let activeTab = 'chat';
 
 // A client-chosen session id lets us tail the run's trail live: the server
 // persists this turn's events to .lex/sessions/<id>.db, and GET /events
@@ -54,6 +65,7 @@ function startNewSession() {
   sessionId = randHex(8);
   lastSeq = 0;
   highlightActiveSession(sessionId);
+  if (activeTab === 'trail') loadTrail();
 }
 
 clearBtn.addEventListener('click', startNewSession);
@@ -140,6 +152,7 @@ async function switchToSession(id) {
     await pollEvents(feedEl, true);
   } while (lastSeq > before);
   highlightActiveSession(id);
+  if (activeTab === 'trail') loadTrail();
 }
 
 // Map a trail event to a one-line live-feed label, or null to ignore it.
@@ -262,6 +275,165 @@ inputEl.addEventListener('keydown', e => {
 });
 
 setMode(modeSelect.value);
+
+// ── Tabs — Chat / Trail / Memory ─────────────────────────────────────────────
+function switchTab(name) {
+  activeTab = name;
+  for (const btn of tabButtons) btn.classList.toggle('active', btn.dataset.tab === name);
+  for (const [k, el] of Object.entries(tabPanels)) el.classList.toggle('active', k === name);
+  if (name === 'trail') loadTrail();
+  if (name === 'memory') loadMemory();
+}
+
+for (const btn of tabButtons) {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+}
+
+// ── Trail tab — every event for the selected session, every kind ────────────
+// Unlike the live tool feed (which only ever shows cap.invoked/completed/
+// failed), this is a full, after-the-fact view: every row the session's
+// trail log holds, in order. `/events` still caps a single response at 300
+// rows, so a longer session needs the same paging loop `switchToSession`
+// already uses.
+function trailRowDetail(ev) {
+  if (ev.diff) return { html: window.renderDiffBlock(ev.diff) };
+  if (ev.label) return { text: ev.label };
+  if (ev.payload) {
+    // `payload` is the raw trail payload as a JSON *string* (see
+    // event_to_json in web.lex — it's not reliably valid JSON on its own,
+    // so the server always wraps it as a string). Pretty-print it when it
+    // itself parses as JSON; otherwise show it verbatim.
+    try {
+      return { text: JSON.stringify(JSON.parse(ev.payload), null, 2) };
+    } catch (e) {
+      return { text: ev.payload };
+    }
+  }
+  return { text: '' };
+}
+
+async function loadTrail() {
+  trailListEl.innerHTML = '';
+  let after = 0;
+  let rows = [];
+  for (;;) {
+    let j;
+    try {
+      const r = await fetch(`${SERVER_URL}/events?session=${sessionId}&after=${after}`);
+      j = await r.json();
+    } catch (e) {
+      break; // transient — show what we already have
+    }
+    rows = rows.concat(j.events || []);
+    const next = typeof j.last === 'number' ? j.last : after;
+    if (next <= after) break;
+    after = next;
+  }
+  if (rows.length === 0) {
+    const el = document.createElement('div');
+    el.className = 'trail-empty';
+    el.textContent = 'No trail events for this session yet';
+    trailListEl.appendChild(el);
+    return;
+  }
+  for (const ev of rows) {
+    const row = document.createElement('div');
+    row.className = 'trail-row';
+    const seq = document.createElement('span');
+    seq.className = 'trail-seq';
+    seq.textContent = '#' + ev.seq;
+    const ts = document.createElement('span');
+    ts.className = 'trail-ts';
+    ts.textContent = ev.ts ? new Date(ev.ts).toLocaleTimeString() : '';
+    const kind = document.createElement('span');
+    kind.className = 'trail-kind';
+    kind.textContent = ev.kind || '?';
+    const detail = document.createElement('span');
+    detail.className = 'trail-detail';
+    const d = trailRowDetail(ev);
+    if (d.html) { detail.innerHTML = d.html; } else { detail.textContent = d.text; }
+    row.appendChild(seq);
+    row.appendChild(ts);
+    row.appendChild(kind);
+    row.appendChild(detail);
+    trailListEl.appendChild(row);
+  }
+}
+
+trailRefreshBtn.addEventListener('click', loadTrail);
+
+// ── Memory tab — everything in .lex/project_memory.db ────────────────────────
+// Project-scoped, not session-scoped: the same list regardless of which
+// session is selected in the sidebar (see GET /memory / project_memory.lex).
+const MEMORY_KIND_ORDER = ['convention', 'tech_stack', 'known_issue', 'recent_change'];
+const MEMORY_KIND_LABEL = {
+  convention: 'Conventions',
+  tech_stack: 'Tech stack',
+  known_issue: 'Known issues',
+  recent_change: 'Recent changes',
+};
+
+async function loadMemory() {
+  memoryListEl.innerHTML = '';
+  let entries = [];
+  try {
+    const r = await fetch(`${SERVER_URL}/memory`);
+    const j = await r.json();
+    entries = j.entries || [];
+  } catch (e) {
+    // transient — leave the panel empty rather than throw
+  }
+  if (entries.length === 0) {
+    const el = document.createElement('div');
+    el.className = 'memory-empty';
+    el.textContent = 'No project memory stored yet';
+    memoryListEl.appendChild(el);
+    return;
+  }
+  const byKind = new Map();
+  for (const e of entries) {
+    if (!byKind.has(e.kind)) byKind.set(e.kind, []);
+    byKind.get(e.kind).push(e);
+  }
+  const kinds = [...byKind.keys()].sort((a, b) => {
+    const ai = MEMORY_KIND_ORDER.indexOf(a);
+    const bi = MEMORY_KIND_ORDER.indexOf(b);
+    if (ai === -1 && bi === -1) return a.localeCompare(b);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+  for (const kind of kinds) {
+    const header = document.createElement('div');
+    header.className = 'memory-group-header';
+    header.textContent = MEMORY_KIND_LABEL[kind] || kind;
+    memoryListEl.appendChild(header);
+    for (const e of byKind.get(kind)) {
+      const el = document.createElement('div');
+      el.className = 'memory-entry';
+      if (e.key) {
+        const key = document.createElement('div');
+        key.className = 'memory-entry-key';
+        key.textContent = e.key;
+        el.appendChild(key);
+      }
+      const content = document.createElement('div');
+      content.className = 'memory-entry-content';
+      content.textContent = e.content;
+      el.appendChild(content);
+      const metaParts = [e.ts, e.importance].filter(Boolean);
+      if (metaParts.length > 0) {
+        const meta = document.createElement('div');
+        meta.className = 'memory-entry-meta';
+        meta.textContent = metaParts.join(' · ');
+        el.appendChild(meta);
+      }
+      memoryListEl.appendChild(el);
+    }
+  }
+}
+
+memoryRefreshBtn.addEventListener('click', loadMemory);
 
 // ── Watch mode ──────────────────────────────────────────────────────────────
 // `?watch=<session-id>` (or `#watch=<id>`) attaches read-only to a session

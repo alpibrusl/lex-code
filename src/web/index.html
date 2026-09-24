@@ -43,11 +43,32 @@
         <button id="clear-btn">Clear</button>
       </div>
     </header>
-    <div id="messages"></div>
-    <footer>
-      <textarea id="input" rows="3" placeholder="Ask lex-code…"></textarea>
-      <button id="send-btn">Send</button>
-    </footer>
+    <div id="tabs">
+      <button class="tab-btn active" data-tab="chat">Chat</button>
+      <button class="tab-btn" data-tab="trail">Trail</button>
+      <button class="tab-btn" data-tab="memory">Memory</button>
+    </div>
+    <div id="chat-panel" class="tab-panel active">
+      <div id="messages"></div>
+      <footer>
+        <textarea id="input" rows="3" placeholder="Ask lex-code…"></textarea>
+        <button id="send-btn">Send</button>
+      </footer>
+    </div>
+    <div id="trail-panel" class="tab-panel">
+      <div id="trail-header">
+        <span>Full event trail for the selected session</span>
+        <button id="trail-refresh-btn">↻ Refresh</button>
+      </div>
+      <div id="trail-list"></div>
+    </div>
+    <div id="memory-panel" class="tab-panel">
+      <div id="memory-header">
+        <span>Project memory (.lex/project_memory.db)</span>
+        <button id="memory-refresh-btn">↻ Refresh</button>
+      </div>
+      <div id="memory-list"></div>
+    </div>
   </div>
 </div>
 <script src="markdown.js"></script>
