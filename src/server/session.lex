@@ -130,6 +130,17 @@ fn pick_agent(mode :: AgentMode, provider_tag :: Str) -> [env] ag.AgentLoop {
       Bar => bar_a.vllm_agent(),
       Verify => verify_a.vllm_agent(),
     },
+    "lex-gpu" => match mode {
+      Build => build_agent.lex_gpu_agent(),
+      Plan => plan_agent.lex_gpu_agent(),
+      Explore => explore_agent.lex_gpu_agent(),
+      Refactor => refactor_agent.lex_gpu_agent(),
+      Spec => spec_a.lex_gpu_agent(),
+      Test => test_a.lex_gpu_agent(),
+      Review => review_a.lex_gpu_agent(),
+      Bar => bar_a.lex_gpu_agent(),
+      Verify => verify_a.lex_gpu_agent(),
+    },
     "vertex" => match mode {
       Build => build_agent.vertex_agent(),
       Plan => plan_agent.google_agent(),

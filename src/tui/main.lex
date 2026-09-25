@@ -538,10 +538,14 @@ fn select_provider_tag(argv :: List[Str]) -> Str
               if has_flag(argv, "--vllm") {
                 "vllm"
               } else {
-                if has_flag(argv, "--opencode") {
-                  "opencode"
+                if has_flag(argv, "--lex-gpu") {
+                  "lex-gpu"
                 } else {
-                  "litellm"
+                  if has_flag(argv, "--opencode") {
+                    "opencode"
+                  } else {
+                    "litellm"
+                  }
                 }
               }
             }

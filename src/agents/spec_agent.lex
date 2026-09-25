@@ -35,6 +35,11 @@ fn vllm_agent() -> [env] ag.AgentLoop {
   ag.with_permission_gate(base, rules.spec_permission())
 }
 
+fn lex_gpu_agent() -> [env] ag.AgentLoop {
+  let base := { name: "spec", goal: sp.system(), model: prov.make_model_ref("lex-gpu", providers.lex_gpu_model()), provider: providers.lex_gpu_local(), tools: tools.tools_for_spec(rules.spec_permission()), options: { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None }, permission_spec: None }
+  ag.with_permission_gate(base, rules.spec_permission())
+}
+
 fn openai_agent() -> [env] ag.AgentLoop {
   let base := { name: "spec", goal: sp.system(), model: prov.gpt4o(), provider: providers.openai(), tools: tools.tools_for_spec(rules.spec_permission()), options: { temperature: None, top_p: None, max_steps: Some(30), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.spec_permission())
