@@ -134,19 +134,19 @@
     <p>Work as a declared, checkable contract instead of a paragraph of prose — an API shape and
     the examples that prove it, the acceptance a run either closes against or doesn't. Real
     output, the same issue used in "Try it" below:</p>
-    <pre>$ lex issue show aea6613fc9e96953bb1c89fb3c45ac7200f62a379acdee2a47e29bab4c938ced
+    <pre>$ lex issue show 72fa4f17455dfb8d7624412a4449444cc85c747b09c2db423df32679e8f743ae
 {
   "acceptance": {
     "api": [
-      { "kind": "added", "name": "zip",
-        "signature": "(xs :: List[A], ys :: List[B]) -> List[(A, B)]" }
+      { "kind": "added", "name": "quote_for", "signature": "(topic :: Str) -> Str" },
+      { "kind": "added", "name": "main",      "signature": "() -> [net] Nil" }
     ],
-    "examples": [ "zip([1,2],[\"a\",\"b\"]) => [(1,\"a\"),(2,\"b\")]" ],
+    "examples": [ "quote_for(\"courage\") => \"Do one thing every day that scares you.\"" ],
     "shape": "typed_delta"
   },
-  "created_at": 1790252464,
-  "issue_id": "aea6613fc9e96953bb1c89fb3c45ac7200f62a379acdee2a47e29bab4c938ced",
-  "title": "add zip"
+  "body": "Add a tiny REST API on port 8931: GET /health -> {\"ok\":true}, GET /quote/:topic -> a short quote for that topic as JSON, anything else -> 404. Check this project's own dependencies (lex.toml) for something that already does routing/responses before hand-rolling it.",
+  "issue_id": "72fa4f17455dfb8d7624412a4449444cc85c747b09c2db423df32679e8f743ae",
+  "title": "add quote api"
 }</pre>
     <p>Issues live in Lex's own op-log VCS: every accepted change is a content-addressed,
     hash-chained op, and <code>lex issue verify</code> checks the acceptance against HEAD, not a
@@ -174,23 +174,30 @@ parent:  c32da6062f16626dc4d5e5e84783ca642d92f7cb8d0879a1dfd767614de760b0
         what that looks like live. For a result you can act on
         without reading the diff, hand it a typed issue instead — it closes by proof, not by a
         transcript claiming success:</p>
-        <pre>ISSUE_ID=$(lex issue create --title "add zip" --shape typed_delta \
-  --api 'zip:(xs :: List[A], ys :: List[B]) -> List[(A, B)]' \
-  --example 'zip([1,2],["a","b"]) => [(1,"a"),(2,"b")]')
+        <pre>ISSUE_ID=$(lex issue create --title "add quote api" --shape typed_delta \
+  --body 'Add a tiny REST API on port 8931: GET /health, GET /quote/:topic (JSON),
+          else 404. Check lex.toml for something that already does routing
+          before hand-rolling it.' \
+  --api 'quote_for:(topic :: Str) -> Str' \
+  --api 'main:() -> [net] Nil' \
+  --example 'quote_for("courage") => "Do one thing every day that scares you."')
 
-lex-code "--issue=$ISSUE_ID" --ollama > /tmp/lex-code.log 2>&1
-grep '^\[ISSUE_VERDICT\]' /tmp/lex-code.log
-# [ISSUE_VERDICT]  verified  &lt;issue_id&gt;
-
-awk '/^fn zip/,/^}/' src/list_lex.lex   # what actually got written</pre>
+lex-code "--issue=$ISSUE_ID" --ollama          # streams what the agent does
+# [ISSUE_VERDICT]  verified  &lt;issue_id&gt;</pre>
         <div class="cast-frame" id="cast-issue"></div>
-        <p class="shot-caption">The typed-issue flow above, live and unedited — same issue,
-        same run, ending in the same <code>verified</code> line, then the actual function it
-        wrote, not just the verdict.</p>
+        <p class="shot-caption">A real, unedited run on a fresh clone: about sixteen minutes of a
+        local model, played with idle gaps capped at two seconds. Then the code it wrote, the
+        server it started, and real <code>curl</code> answers.</p>
       </div>
       <div>
-        <p><b>Both commands above are copy-paste real</b> — run verbatim against this repo
-        before shipping this page, closing <code>verified</code>.</p>
+        <p><b>Nobody told it which package to use.</b> The prompt says only "check
+        <code>lex.toml</code> before hand-rolling it". The agent read this project's
+        dependencies, found <a href="https://github.com/alpibrusl/lex-web">lex-web</a>, read its
+        source, and built the routes on its router — <code>/quote/:topic</code> included — then
+        closed the issue against the declared signatures and example.</p>
+        <p>One honest wrinkle: the run command in the recording grants many effects. Importing
+        lex-web's router widens what the program needs at runtime well beyond its declared
+        <code>[net]</code>, and we're narrowing that.</p>
         <p>No key, no waitlist, no account: the install script above sets up the Lex toolchain
         too if you don't already have it, then you're running a real session in under a
         minute.</p>
@@ -279,7 +286,7 @@ lex-code --opencode "..."</code>
     poster: 'npt:0:01'
   });
   AsciinemaPlayer.create('demo/issue.cast', document.getElementById('cast-issue'), {
-    cols: 100, rows: 24, theme: 'monokai', fit: 'width', preload: true,
+    cols: 100, rows: 30, theme: 'monokai', fit: 'width', preload: true,
     poster: 'npt:0:01'
   });
 </script>
