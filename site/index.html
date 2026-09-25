@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>lex-code — an experiment in verified AI coding</title>
-<meta name="description" content="An experiment in verified-by-construction AI coding: closed against the type checker and a declared acceptance, not a transcript claiming success. Built first in Lex — a language with no users but us, because you can't fake a type checker.">
+<meta name="description" content="An experiment in verified-by-construction AI coding: closed against the type checker and a declared acceptance, not a transcript claiming success. Built first in Lex, a young language this project pushes hardest right now — and one anyone can build with.">
 <link rel="canonical" href="https://code.lexlang.org/">
 <link rel="icon" href="logo.svg" type="image/svg+xml">
 <meta property="og:title" content="lex-code — an experiment in verified AI coding">
@@ -90,8 +90,10 @@
     <p class="lead">Not something to switch to tomorrow — a real look at whether "trust the
     result, not the diff" actually works. Point it at a task in plain English; it writes real
     <a href="https://lexlang.org">Lex</a> and closes the turn against the type checker and a
-    declared acceptance, not a transcript claiming success. Built first in Lex — a language
-    with no users but us — because you can't fake out a type checker.</p>
+    declared acceptance, not a transcript claiming success. Built first in Lex — right now
+    this project is the language's most serious real-world user, which is exactly the point:
+    you can't fake out a type checker. It's not closed off — the language is open for
+    anyone to build with too.</p>
     <div class="cta">
       <a class="primary" href="#try">See it run</a>
       <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/TUTORIAL.md">Read the tutorial</a>
@@ -178,10 +180,13 @@ parent:  c32da6062f16626dc4d5e5e84783ca642d92f7cb8d0879a1dfd767614de760b0
 
 lex-code "--issue=$ISSUE_ID" --ollama > /tmp/lex-code.log 2>&1
 grep '^\[ISSUE_VERDICT\]' /tmp/lex-code.log
-# [ISSUE_VERDICT]  verified  &lt;issue_id&gt;</pre>
+# [ISSUE_VERDICT]  verified  &lt;issue_id&gt;
+
+awk '/^fn zip/,/^}/' src/list_lex.lex   # what actually got written</pre>
         <div class="cast-frame" id="cast-issue"></div>
         <p class="shot-caption">The typed-issue flow above, live and unedited — same issue,
-        same run, ending in the same <code>verified</code> line.</p>
+        same run, ending in the same <code>verified</code> line, then the actual function it
+        wrote, not just the verdict.</p>
       </div>
       <div>
         <p><b>Both commands above are copy-paste real</b> — run verbatim against this repo
