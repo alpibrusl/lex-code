@@ -253,15 +253,35 @@ read-only toolset yet (#88).
 
 ## Providers
 
-lex-code can talk to eight provider backends (see `--help` for the full
-flag list — Anthropic, OpenAI, Google, Mistral, LiteLLM, vLLM, and Vertex
-are implemented in code alongside the two below), but only these two have
-actually been run end-to-end against this repo:
+lex-code can talk to ten provider backends (see `--help` for the full
+flag list — Anthropic, OpenAI, Google, Mistral, LiteLLM, vLLM, lex-gpu and
+Vertex are implemented in code alongside the two below), but only these two
+have actually been run end-to-end against this repo:
 
 | Flag | Provider | Model | Key required |
 |------|----------|-------|--------------|
 | `--ollama` | Ollama (local, native API) | `$OLLAMA_MODEL` (default `qwen3.8:27b-mlx`) | none |
 | `--opencode` | OpenCode Go plan (cloud, direct) | `$OPENCODE_MODEL` | `OPENCODE_API_KEY` |
+
+### lex-gpu
+
+`--lex-gpu` points at [lex-gpu](https://github.com/alpibrusl/lex-gpu)'s
+server, which answers OpenAI chat completions from its own compiled Metal
+and CUDA kernels rather than llama.cpp or MLX. No key; `$LEX_GPU_BASE_URL`
+overrides the default `http://127.0.0.1:8080`.
+
+```sh
+cargo run --release -p lex-rt --example serve -- --model qwen3.8:27b-mlx
+lex-code --lex-gpu --explore "what does src/agents/build.lex do?"
+```
+
+**Chat only, for now.** lex-gpu accepts a `tools` list and drops it, so the
+model is never told the tools exist and its replies carry no `tool_calls` —
+the agent loop gets an answer and never dispatches a tool, which for a
+coding agent means it will describe work rather than do it. The wiring is
+here so that it starts working the moment lex-gpu renders `tools` into its
+prompt and splits `<think>` out of `content`; neither needs a change on
+this side.
 
 ### Ollama
 
