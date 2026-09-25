@@ -803,7 +803,7 @@ fn dispatch(inv :: Invocation, mode :: sess.AgentMode, provider_tag :: Str) -> [
       io.print(str.concat("lex-code — Lex-specialized coding assistant", "\n"))
       io.print(str.concat("modes:     --plan | --explore | --refactor | --spec | --test | --review | --verify | --bar | --multi", "\n"))
       io.print(str.join(["pipelines: --pipeline=", str.join(graph.preset_names(), " | --pipeline="), "\n           --pipeline=build,spec,test|review   (\",\" in order, \"|\" at once)", "\n"], ""))
-      io.print(str.concat("providers: --mistral | --openai | --google | --vertex | --litellm | --ollama | --vllm | --opencode  (default: anthropic)", "\n"))
+      io.print(str.concat("providers: --mistral | --openai | --google | --vertex | --litellm | --ollama | --vllm | --lex-gpu | --opencode  (default: anthropic)", "\n"))
       io.print(str.concat("one-shot:  lex run src/tui/main.lex -- [flags] \"your task\"", "\n"))
       io.print(str.concat("issue:     --issue=<id> [\"extra guidance\"]   implement a typed issue from its acceptance, then verify it", "\n"))
       io.print(str.concat("refine:    --refine=<id>                      propose a typed acceptance for a free_form issue (you approve it)", "\n"))

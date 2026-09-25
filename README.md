@@ -253,7 +253,7 @@ read-only toolset yet (#88).
 
 ## Providers
 
-lex-code can talk to nine provider backends (see `--help` for the full
+lex-code can talk to ten provider backends (see `--help` for the full
 flag list — Anthropic, OpenAI, Google, Mistral, LiteLLM, vLLM, lex-gpu and
 Vertex are implemented in code alongside the two below), but only these two
 have actually been run end-to-end against this repo:
