@@ -30,6 +30,10 @@ fn id_of(made :: List[(Str, Str)], key :: Str) -> Str
   })
 }
 
+# Each unit is filed a second after the last: an issue's created_at has
+# one-second resolution, so units filed together tie and the board falls back
+# to id order, which is arbitrary (and put the hardest unit first). The pause
+# keeps the plan's dependency order as the board's order.
 fn file_units(units :: List[plan.PlanUnit], project :: Str, made :: List[(Str, Str)]) -> [proc] Result[List[(Str, Str)], Str] {
   match list.head(units) {
     None => Ok(made),
@@ -42,10 +46,6 @@ fn file_units(units :: List[plan.PlanUnit], project :: Str, made :: List[(Str, S
         Ok(out) => if out.exit_code != 0 {
           Err(str.join(["filing `", u.key, "` failed: ", str.trim(str.concat(out.stdout, out.stderr))], ""))
         } else {
-          # An issue's created_at has one-second resolution, so units filed in
-          # the same second tie and the board falls back to id order — which
-          # is arbitrary, and put the hardest unit first. A second between
-          # creations keeps the plan's dependency order as the board's order.
           let __tick := proc.run("sleep", ["1"])
           file_units(list.tail(units), project, list.concat(made, [(u.key, str.trim(out.stdout))]))
         },
