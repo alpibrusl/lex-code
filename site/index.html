@@ -134,18 +134,18 @@
     <p>Work as a declared, checkable contract instead of a paragraph of prose — an API shape and
     the examples that prove it, the acceptance a run either closes against or doesn't. Real
     output, the same issue used in "Try it" below:</p>
-    <pre>$ lex issue show 72fa4f17455dfb8d7624412a4449444cc85c747b09c2db423df32679e8f743ae
+    <pre>$ lex issue show 629023e8563d78327c3b1dcee14396eaa67d8bf45e04d023642b0651c915d8fb
 {
   "acceptance": {
     "api": [
       { "kind": "added", "name": "quote_for", "signature": "(topic :: Str) -> Str" },
-      { "kind": "added", "name": "main",      "signature": "() -> [net] Nil" }
+      { "kind": "added", "name": "serve",     "signature": "() -> [net] Nil" }
     ],
     "examples": [ "quote_for(\"courage\") => \"Do one thing every day that scares you.\"" ],
     "shape": "typed_delta"
   },
-  "body": "Add a tiny REST API on port 8931: GET /health -> {\"ok\":true}, GET /quote/:topic -> a short quote for that topic as JSON, anything else -> 404. Check this project's own dependencies (lex.toml) for something that already does routing/responses before hand-rolling it.",
-  "issue_id": "72fa4f17455dfb8d7624412a4449444cc85c747b09c2db423df32679e8f743ae",
+  "body": "Add a tiny REST API on port 8931: GET /health -> {\"ok\":true}, GET /quote/:topic -> a short quote for that topic as JSON, anything else -> 404. This is an empty project: before hand-rolling routing, look through the lex-* packages under github.com/alpibrusl for one to build on.",
+  "issue_id": "629023e8563d78327c3b1dcee14396eaa67d8bf45e04d023642b0651c915d8fb",
   "title": "add quote api"
 }</pre>
     <p>Issues live in Lex's own op-log VCS: every accepted change is a content-addressed,
@@ -168,36 +168,39 @@ parent:  c32da6062f16626dc4d5e5e84783ca642d92f7cb8d0879a1dfd767614de760b0
     <h2>Try it</h2>
     <div class="two-col">
       <div>
-        <p>Fully local, no key:</p>
-        <pre>lex-code --ollama "implement fn zip[A, B](xs :: List[A], ys :: List[B]) -> List[(A, B)]"</pre>
-        <p>That's fine for a quick edit you'll read yourself — see the hero recording above for
-        what that looks like live. For a result you can act on
-        without reading the diff, hand it a typed issue instead — it closes by proof, not by a
-        transcript claiming success:</p>
-        <pre>ISSUE_ID=$(lex issue create --title "add quote api" --shape typed_delta \
+        <p>Fully local, no key — the recording at the top is exactly this:</p>
+        <pre>lex-code --ollama "write a function that tells me if a word reads the same backwards, like radar"</pre>
+        <p>That's fine for a quick edit you'll read yourself. For something you want to trust
+        without reading the diff, start a project and hand it a typed issue — it closes by
+        proof, not by a transcript claiming success. Here, from an empty directory:</p>
+        <pre>mkdir quotes &amp;&amp; cd quotes &amp;&amp; lex init
+
+ISSUE_ID=$(lex issue create --title "add quote api" --shape typed_delta \
   --body 'Add a tiny REST API on port 8931: GET /health, GET /quote/:topic (JSON),
-          else 404. Check lex.toml for something that already does routing
-          before hand-rolling it.' \
+          else 404. Empty project: before hand-rolling routing, look through the
+          lex-* packages under github.com/alpibrusl for one to build on.' \
   --api 'quote_for:(topic :: Str) -> Str' \
-  --api 'main:() -> [net] Nil' \
+  --api 'serve:() -> [net] Nil' \
   --example 'quote_for("courage") => "Do one thing every day that scares you."')
 
 lex-code "--issue=$ISSUE_ID" --ollama          # streams what the agent does
 # [ISSUE_VERDICT]  verified  &lt;issue_id&gt;</pre>
         <div class="cast-frame" id="cast-issue"></div>
-        <p class="shot-caption">A real, unedited run on a fresh clone: about sixteen minutes of a
-        local model, played with idle gaps capped at two seconds. Then the code it wrote, the
-        server it started, and real <code>curl</code> answers.</p>
+        <p class="shot-caption">A real, unedited run from an empty <code>lex init</code>
+        project: about twenty minutes of a local model, played with idle gaps capped at two
+        seconds. Then the outline of what it wrote, the server started with exactly
+        <code>--allow-effects net</code>, and real <code>curl</code> answers.</p>
       </div>
       <div>
-        <p><b>Nobody told it which package to use.</b> The prompt says only "check
-        <code>lex.toml</code> before hand-rolling it". The agent read this project's
-        dependencies, found <a href="https://github.com/alpibrusl/lex-web">lex-web</a>, read its
-        source, and built the routes on its router — <code>/quote/:topic</code> included — then
+        <p><b>It started from nothing.</b> No dependencies, no code. The prompt says where the
+        Lex ecosystem lives, not which package to use. The agent searched the package catalog
+        with its <code>find_packages</code> tool, read
+        <a href="https://github.com/alpibrusl/lex-web">lex-web</a>, and decided the standard
+        library's own router was enough for something this small — so the service depends on
+        nothing and needs exactly the <code>[net]</code> effect its signature declares. Then it
         closed the issue against the declared signatures and example.</p>
-        <p>One honest wrinkle: the run command in the recording grants many effects. Importing
-        lex-web's router widens what the program needs at runtime well beyond its declared
-        <code>[net]</code>, and we're narrowing that.</p>
+        <p>That look-then-decide step is what to watch. It's one run of a local model, not a
+        benchmark: a bigger task, or another run, might well pull a package in.</p>
         <p>No key, no waitlist, no account: the install script above sets up the Lex toolchain
         too if you don't already have it, then you're running a real session in under a
         minute.</p>
@@ -242,9 +245,11 @@ curl -fsSL https://raw.githubusercontent.com/alpibrusl/lex-code/main/skills/lex-
   <section class="block" id="different">
     <h2>Where this fits alongside what you already use</h2>
     <p class="lead" style="margin-bottom:18px">Not an alternative to Cursor, Copilot, or Claude
-    Code — it only writes Lex, a language you don't use, so it isn't trying to be your daily
-    driver. What's worth naming is the confidence signal it's testing, demonstrated above rather
-    than argued about in the abstract.</p>
+    Code — it writes Lex, a language you probably don't use yet, so it isn't trying to be your
+    daily driver. It's a specialist your daily driver can call. What's worth naming is the
+    confidence signal it's testing, demonstrated above rather than argued about in the
+    abstract — and if it appeals, <a href="https://lexlang.org">Lex itself</a> is open to build
+    with.</p>
     <div class="pillars">
       <div class="pillar"><h3>A different confidence signal</h3><p>An editor assistant's turn
         ends when the model says it's done and the diff looks right to you. lex-code's ends when
@@ -292,7 +297,7 @@ lex-code --opencode "..."</code>
 </script>
 
 <footer><div class="wrap">
-  Part of the <a href="https://lexlang.org">Lex</a> project.
+  Part of the <a href="https://lexlang.org">Lex</a> project — <a href="https://lexlang.org">build with it</a>.
   <a href="https://github.com/alpibrusl/lex-code">GitHub</a> ·
   <a href="https://github.com/alpibrusl/lex-code/blob/main/LICENSE">EUPL-1.2</a>
 </div></footer>
