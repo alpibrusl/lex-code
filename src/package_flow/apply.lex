@@ -134,7 +134,6 @@ fn compile_check(p :: plan.Plan) -> [proc, io] Result[List[Str], Str] {
   }
 }
 
-
 # Every check there is, in order: structure, consistency rules, then the
 # real checker on the stub module. Err carries all the problems found.
 fn full_check(text :: Str) -> [proc, io] Result[plan.Plan, List[Str]] {
@@ -150,3 +149,4 @@ fn full_check(text :: Str) -> [proc, io] Result[plan.Plan, List[Str]] {
     },
   }
 }
+
