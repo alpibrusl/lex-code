@@ -365,7 +365,7 @@ fn fetch_board(project :: Str) -> [proc] Result[pb.Board, Str] {
 # issue's verified function); nothing else re-checks them. The board then
 # offers any regressed issue again.
 fn regression_pass(project :: Str) -> [proc, io] Nil {
-  match proc.run("lex", ["issue", "verify", "--project", project]) {
+  match proc.run("lex", ["issue", "verify", "--project", project, "--verified-only"]) {
     Err(e) => io.print(str.concat("regression pass unavailable: ", e)),
     Ok(out) => io.print(str.join(["[REGRESSION]\n", str.trim(str.concat(out.stdout, out.stderr))], "")),
   }
