@@ -118,7 +118,7 @@ fn json_cmd(rest :: List[Str]) -> List[Str]
 # older than the command a tool calls answers "error: unknown command
 # `issue`", and none of the six phrases matched it.
 fn refusal_words() -> List[Str] {
-  ["unknown flag", "unknown `lex", "subcommand:", "unexpected arg", "unexpected `--", "usage:", "unknown command"]
+  ["unknown flag", "unknown `lex", "unknown pkg subcommand", "subcommand:", "unexpected arg", "unexpected `--", "usage:", "unknown command"]
 }
 
 fn is_usage_error(text :: Str) -> Bool
@@ -129,6 +129,7 @@ fn is_usage_error(text :: Str) -> Bool
     is_usage_error("error: unexpected `--output`") => true,
     is_usage_error("error: usage: lex op {show|log}") => true,
     is_usage_error("error: unknown command `issue`. try `lex help`") => true,
+    is_usage_error("error: unknown pkg subcommand `search`; try: init, add, install") => true,
     is_usage_error("<root>: error: unexpected arg `5` [cli_failed]") => true,
     is_usage_error("output\nerror: unexpected `--output`") => true,
     is_usage_error("| `-> T` | return type | `: T` (Lex error: missing return arrow) |") => false,
