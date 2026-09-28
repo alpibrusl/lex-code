@@ -417,3 +417,13 @@ fn render_plan(plan :: Plan) -> Str {
   }
 }
 
+# Sent back to the planner when validation rejects its plan. The problems are
+# the checker's own, so the fix is mechanical: repair the file, do not redraw it.
+fn repair_prompt(errs :: List[Str], path :: Str) -> Str
+  examples {
+    repair_prompt(["a is wrong"], "p.json") => "Your plan in p.json was rejected by automatic validation. Repair exactly these problems and rewrite the same file; keep everything that was not flagged:\n  - a is wrong\n\nThe rules in the original task still apply. Reply with one line: the number of units."
+  }
+{
+  str.join(["Your plan in ", path, " was rejected by automatic validation. Repair exactly these problems and rewrite the same file; keep everything that was not flagged:\n  - ", str.join(errs, "\n  - "), "\n\nThe rules in the original task still apply. Reply with one line: the number of units."], "")
+}
+

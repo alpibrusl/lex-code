@@ -224,3 +224,12 @@ fn module_guidance(project :: Str) -> Str
   str.join(["This package is ONE module: src/", project, ".lex. Put every function in that one file — create it if it does not exist — and leave every function already in it exactly as it is. Do not create any other .lex file under src/: the store tracks a single module, so a second file would silently drop the first file's functions and un-verify earlier issues. Adding a function must not change or remove another."], "")
 }
 
+# What every issue is told when the tool has already written the module.
+fn scaffold_guidance(project :: Str) -> Str
+  examples {
+    scaffold_guidance("textkit") => "src/textkit.lex already exists and is the whole package: every shared type and every function is there with its FINAL signature over a placeholder body that calls itself. Your task is to replace the body of the function(s) this issue declares — nothing else. Do not change any signature. Leave every other function exactly as it is. You may add private helper functions below them. Do not create any other .lex file under src/."
+  }
+{
+  str.join(["src/", project, ".lex already exists and is the whole package: every shared type and every function is there with its FINAL signature over a placeholder body that calls itself. Your task is to replace the body of the function(s) this issue declares — nothing else. Do not change any signature. Leave every other function exactly as it is. You may add private helper functions below them. Do not create any other .lex file under src/."], "")
+}
+

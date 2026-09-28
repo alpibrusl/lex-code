@@ -12,6 +12,8 @@ import "std.process" as proc
 
 import "std.io" as io
 
+import "std.int" as int
+
 import "lex-schema/json_value" as jv
 
 import "../issue_contract" as ic
@@ -145,6 +147,61 @@ fn full_check(text :: Str) -> [proc, io] Result[plan.Plan, List[Str]] {
         Ok(p)
       } else {
         Err(errs)
+      },
+    },
+  }
+}
+
+fn write_if_changed(path :: Str, old :: Str, new :: Str) -> [io] Nil {
+  if old == new {
+    ()
+  } else {
+    let __w := io.write(path, new)
+    ()
+  }
+}
+
+# The starting point of every task, written by the tool instead of a model:
+# lex.toml with the plan's packages (installed), and src/<project>.lex with
+# every shared type and every function's final signature over a placeholder
+# body, published to the store head. An agent then only replaces bodies — it
+# cannot drift from a signature, forget a dependency, or drop a function by
+# rewriting the module. Applying twice leaves existing work alone.
+fn write_scaffold(p :: plan.Plan) -> [proc, io] Result[Str, Str] {
+  let file := str.join(["src/", p.project, ".lex"], "")
+  let toml := match io.read("lex.toml") {
+    Err(_) => "",
+    Ok(t) => t,
+  }
+  let __toml := write_if_changed("lex.toml", toml, chk.toml_with_packages(toml, p.packages))
+  let installed := if list.is_empty(p.packages) {
+    Ok("")
+  } else {
+    match proc.run("lex", ["pkg", "install"]) {
+      Err(e) => Err(e),
+      Ok(o) => if o.exit_code == 0 {
+        Ok("")
+      } else {
+        Err(str.concat("lex pkg install failed: ", str.trim(str.concat(o.stdout, o.stderr))))
+      },
+    }
+  }
+  match installed {
+    Err(e) => Err(e),
+    Ok(_) => match io.read(file) {
+      Ok(_) => Ok(str.join(["kept the existing ", file], "")),
+      Err(_) => {
+        let __d := proc.run("mkdir", ["-p", "src"])
+        let __w := io.write(file, chk.scaffold_source(p))
+        match proc.run("lex", ["publish", file, "--activate"]) {
+          Err(e) => Err(e),
+          Ok(o) => if o.exit_code == 0 {
+            let __mark := io.write(str.join([".lex/plans/", p.project, ".scaffold"], ""), file)
+            Ok(str.join(["wrote and published ", file, " — ", int.to_str(list.len(chk.scaffold_chunks(p))), " chunks (types, signatures)"], ""))
+          } else {
+            Err(str.concat("publishing the scaffold failed: ", str.trim(str.concat(o.stdout, o.stderr))))
+          },
+        }
       },
     },
   }

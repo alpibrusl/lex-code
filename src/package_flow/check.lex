@@ -389,7 +389,9 @@ fn example_fn(n :: Int, e :: Str) -> Str
   str.join(["fn __example_", int.to_str(n), "() -> Bool {\n  (", example_call(e), ") == (", example_expected(e), ")\n}\n\n"], "")
 }
 
-fn stub_chunks(p :: plan.Plan) -> List[Chunk] {
+# Header, shared types and every function with its final signature — the
+# module every task starts from.
+fn scaffold_chunks(p :: plan.Plan) -> List[Chunk] {
   let header := [{ label: "imports", text: "import \"std.str\" as str\n\nimport \"std.list\" as list\n\nimport \"std.int\" as int\n\n" }]
   let types := list.map(p.types, fn (t :: plan.TypeDecl) -> Chunk {
     { label: str.concat("type ", t.name), text: str.concat(t.decl, "\n\n") }
@@ -399,6 +401,10 @@ fn stub_chunks(p :: plan.Plan) -> List[Chunk] {
       { label: str.join(["unit `", u.key, "` signature of `", a.name, "`"], ""), text: stub_fn(a) }
     }))
   })
+  list.concat(list.concat(header, types), fns)
+}
+
+fn example_chunks(p :: plan.Plan) -> List[Chunk] {
   let numbered := list.fold(p.units, ([], 0), fn (acc :: (List[Chunk], Int), u :: plan.PlanUnit) -> (List[Chunk], Int) {
     match acc {
       (chunks, n) => {
@@ -411,10 +417,51 @@ fn stub_chunks(p :: plan.Plan) -> List[Chunk] {
       },
     }
   })
-  let checks := match numbered {
+  match numbered {
     (cs, _) => cs,
   }
-  list.concat(list.concat(list.concat(header, types), fns), checks)
+}
+
+fn stub_chunks(p :: plan.Plan) -> List[Chunk] {
+  list.concat(scaffold_chunks(p), example_chunks(p))
+}
+
+# The scaffold as a file: no example checkers, nothing that is not final.
+fn scaffold_source(p :: plan.Plan) -> Str {
+  str.join(list.map(scaffold_chunks(p), fn (c :: Chunk) -> Str {
+    c.text
+  }), "")
+}
+
+# lex.toml with the plan's packages added under [dependencies]. A package
+# already listed is left alone, so applying twice changes nothing.
+fn toml_with_packages(toml :: Str, pkgs :: List[plan.Pkg]) -> Str
+  examples {
+    toml_with_packages("[package]\nname = \"x\"\n\n[dependencies]\n# note\n", [{ name: "lex-web", git: "https://g/lex-web" }]) => "[package]\nname = \"x\"\n\n[dependencies]\nlex-web = { git = \"https://g/lex-web\" }\n# note\n",
+    toml_with_packages("[dependencies]\nlex-web = { git = \"u\" }\n", [{ name: "lex-web", git: "u" }]) => "[dependencies]\nlex-web = { git = \"u\" }\n",
+    toml_with_packages("[package]\n", []) => "[package]\n"
+  }
+{
+  let lines := str.split(toml, "\n")
+  let missing := list.filter(pkgs, fn (k :: plan.Pkg) -> Bool {
+    not list.fold(lines, false, fn (acc :: Bool, l :: Str) -> Bool {
+      acc or str.starts_with(str.trim(l), str.concat(k.name, " "))
+    })
+  })
+  if list.is_empty(missing) {
+    toml
+  } else {
+    let added := list.map(missing, fn (k :: plan.Pkg) -> Str {
+      str.join([k.name, " = { git = \"", k.git, "\" }"], "")
+    })
+    str.join(list.fold(lines, [], fn (acc :: List[Str], l :: Str) -> List[Str] {
+      if str.trim(l) == "[dependencies]" {
+        list.concat(list.concat(acc, [l]), added)
+      } else {
+        list.concat(acc, [l])
+      }
+    }), "\n")
+  }
 }
 
 # The whole stub module and, for each chunk, the line it starts on — so a
