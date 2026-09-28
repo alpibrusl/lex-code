@@ -187,7 +187,16 @@ fn contract_prompt(issue :: jv.Json) -> Str {
     ""
   } else {
     str.join(["\n", body, "\n"], "")
-  }, "\n", refined, acceptance_section(acc), closing], "")
+  }, "\n", refined, acceptance_section(acc), discovery_step(), closing], "")
+}
+
+# The step that keeps an agent from hand-rolling what already ships as a
+# package. A typed contract reads like a self-contained function to write, so
+# a model goes straight to `write`; this puts the look-first step in the task
+# itself, where it is followed, rather than in a guideline it never opens. It
+# names no package — `find_packages` (lex pkg search) decides what exists.
+fn discovery_step() -> Str {
+  "\nBefore you write any code: decide which capabilities this issue needs beyond plain functions (HTTP routing or serving, request validation, auth, a database layer, logging, a protocol adapter) and call `find_packages` for each, by what it does. If a package exists, add the dependency line it prints to `lex.toml`, run `lex pkg install`, read the package's README/`src/` (installed source lives in `~/.lex/packages/<name>/` — do not search the whole disk for it), and build on it instead of hand-rolling. The stdlib is the primitive layer (e.g. `net.serve_routed` is string-in/string-out: no status codes, path params or validation); a package is the framework layer on top, so if one provides what you would otherwise build on the primitive, use it. Do not rule a package out from its one-line description: install it and read what it actually exposes before judging (a package often has a pure or lower-level entry point that fits a pure-signature contract). Hand-roll only when the search is empty or, after reading it, the package cannot do the job.\n"
 }
 
 # `--refine=<id>`: the agent's half of #956. It does the spec labor —
