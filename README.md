@@ -251,6 +251,52 @@ put; the gate judges it against the latest approved proposal
 mode with a prompt that forbids implementing; there is no dedicated
 read-only toolset yet (#88).
 
+### Building a whole package
+
+One issue is one function. A package is a **project** of typed issues with
+`--dep` edges between them, and three commands take it from a sentence to a
+verified module. Requires `lex issue next` and `lex issue verify --project`
+(lex-lang 0.11.75+).
+
+```sh
+lex init && lex-code --package "a small text-utilities package: slugify, word_count, wrap, ..." --name=textkit
+#   an agent draws the issue graph into .lex/plans/textkit.json — nothing is filed yet
+lex-code --package-apply=textkit               # after you have read the plan: file it
+lex-code --project=textkit --ollama            # drive it to done
+```
+
+The plan is JSON — units, each with signatures, examples and `deps` — and it
+is checked before it can be filed (every example must call a declared
+function, no cycles, a pure function needs an example, a function is declared
+by exactly one unit). Filing is deterministic on purpose: an LLM does not get
+to decide, unreviewed, what "done" means.
+
+The driver loops: `lex issue next` → run one issue → verify → **re-verify
+everything that had verified**. That last step is the point: an agent turn that
+rewrites a file can silently drop another issue's function, and nothing else
+would notice. A regressed issue simply comes back on the board.
+
+| flag | meaning |
+|---|---|
+| `--max-attempts=N` | attempts per issue before it is given up on (default 4) |
+| `--fallback=TAG` `--switch-after=N` | after N failures on an issue, hand it to another provider, e.g. `--ollama --fallback=opencode` (default 2) |
+| `--max-turns=N` | budget for the whole run (default 40) |
+| `--no-harden` | skip the closing turn that writes property tests |
+
+It ends with machine-readable lines: `[PROJECT_VERDICT]  done|stuck|budget|error|provider_error`
+and `[PACKAGE_GATE]  pass|fail|none` (`lex test` over `tests/`). Verified is
+necessary, not sufficient — an issue's examples are a finite list and code can
+satisfy them without being right — which is why the run ends by asking for
+round-trip and property tests and running them.
+
+**A package is one module.** The store's head tracks a single module: publish
+a second `.lex` file and the first file's functions drop out of it, and their
+issues read "absent at head". So every issue is told to put its code in
+`src/<project>.lex`. Units split the work, not the files.
+
+A provider that returns nothing (a rate limit, a rejected key) stops the run
+with the provider named instead of burning attempts; verified issues are kept.
+
 ## Providers
 
 lex-code can talk to ten provider backends (see `--help` for the full

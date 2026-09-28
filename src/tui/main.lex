@@ -26,6 +26,12 @@ import "std.process" as proc
 
 import "../issue_contract" as ic
 
+import "../package_flow/plan" as pplan
+
+import "../package_flow/board" as pb
+
+import "../package_flow/apply" as papply
+
 import "../server/session" as sess
 
 import "../server/multi_agent" as multi
@@ -101,6 +107,29 @@ fn flush_remaining() -> [io] Nil {
     let __printed := io.print(pending)
     write_buf("")
   }
+}
+
+# Did the model do anything at all — say something, or call a tool? A turn
+# that produced neither means the provider returned nothing (a rejected key, an
+# exhausted quota, a dropped connection): retrying it instantly cannot help.
+fn produced_output(steps :: List[d.Step]) -> Bool
+  examples {
+    produced_output([]) => false,
+    produced_output([StepToolExec("read", "{}")]) => true,
+    produced_output([StepDelta(TextChunk("  "))]) => false,
+    produced_output([StepDelta(TextChunk("done"))]) => true
+  }
+{
+  list.fold(steps, false, fn (acc :: Bool, s :: d.Step) -> Bool {
+    acc or match s {
+      StepToolExec(_, _) => true,
+      StepDelta(delta) => match delta {
+        TextChunk(t) => not str.is_empty(str.trim(t)),
+        _ => false,
+      },
+      _ => false,
+    }
+  })
 }
 
 fn print_step(step :: d.Step) -> [io] Nil {
@@ -241,9 +270,12 @@ fn run_refine(issue_id :: Str, guidance :: Option[Str], provider_tag :: Str) -> 
   }
 }
 
-fn run_issue(issue_id :: Str, guidance :: Option[Str], mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
+fn run_issue_verdict(issue_id :: Str, guidance :: Option[Str], mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
   match fetch_issue(issue_id) {
-    Err(e) => io.print(str.join(["error: ", e, "\n"], "")),
+    Err(e) => {
+      let __err := io.print(str.join(["error: ", e, "\n"], ""))
+      "unavailable"
+    },
     Ok(issue) => {
       let contract := ic.contract_prompt(issue)
       let task := match guidance {
@@ -252,24 +284,207 @@ fn run_issue(issue_id :: Str, guidance :: Option[Str], mode :: sess.AgentMode, p
       }
       let session_id := cli_session_id()
       match sess.new_session_persistent_with_provider(session_id, mode, provider_tag) {
-        Err(e) => io.print(str.concat(str.concat("error: ", e), "\n")),
+        Err(e) => {
+          let __err := io.print(str.concat(str.concat("error: ", e), "\n"))
+          "unavailable"
+        },
         Ok(session) => {
           let __d := proc.run("mkdir", ["-p", ".lex/intent"])
           let __w := io.write(".lex/intent/issue", str.join([session_id, "\t", issue_id], ""))
           let __reset := write_buf("")
-          let __printed := sess.run_turn_streaming_with_provider(session, task, provider_tag, print_step)
-          let verdict := match proc.run("lex", ["--output", "json", "issue", "verify", issue_id]) {
-            Err(_) => "unavailable",
-            Ok(v) => match ic.verdict_of(v.stdout) {
-              None => "unavailable",
-              Some(word) => word,
-            },
+          let turn := sess.run_turn_streaming_with_provider(session, task, provider_tag, print_step)
+          let verdict := if produced_output(turn.steps) {
+            match proc.run("lex", ["--output", "json", "issue", "verify", issue_id]) {
+              Err(_) => "unavailable",
+              Ok(v) => match ic.verdict_of(v.stdout) {
+                None => "unavailable",
+                Some(word) => word,
+              },
+            }
+          } else {
+            "no_response"
           }
-          io.print(str.join(["\n(trail: .lex/sessions/", session_id, ".db)\n[ISSUE_VERDICT]\t", verdict, "\t", issue_id, "\n"], ""))
+          let __trail := io.print(str.join(["\n(trail: .lex/sessions/", session_id, ".db)"], ""))
+          verdict
         },
       }
     },
   }
+}
+
+fn run_issue(issue_id :: Str, guidance :: Option[Str], mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
+  let verdict := run_issue_verdict(issue_id, guidance, mode, provider_tag)
+  io.print(str.join(["[ISSUE_VERDICT]\t", verdict, "\t", issue_id, "\n"], ""))
+}
+
+# ---- Whole packages: plan a graph of typed issues, file it, drive it -------------
+#
+#   lex-code --package "<brief>" --name=P   an agent draws the issue graph into
+#                                           .lex/plans/P.json; nothing is filed
+#   lex-code --package-apply=P              file that reviewed plan as issues
+#   lex-code --project=P                    drive the project to done
+#
+# A package is a project of typed issues with dependency edges. The plan is
+# reviewed by a human before anything is filed, and filing is deterministic —
+# an LLM does not get to decide unreviewed what "done" means.
+fn plan_path(name :: Str) -> Str {
+  str.join([".lex/plans/", name, ".json"], "")
+}
+
+# One free-standing agent turn (a Build session, no issue bound to it).
+fn run_task_turn(task :: Str, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
+  let session_id := cli_session_id()
+  match sess.new_session_persistent_with_provider(session_id, Build, provider_tag) {
+    Err(e) => io.print(str.concat(str.concat("error: ", e), "\n")),
+    Ok(session) => {
+      let __reset := write_buf("")
+      let __printed := sess.run_turn_streaming_with_provider(session, task, provider_tag, print_step)
+      io.print(str.join(["\n(trail: .lex/sessions/", session_id, ".db)"], ""))
+    },
+  }
+}
+
+fn run_package_plan(brief :: Str, name :: Str, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
+  let path := plan_path(name)
+  let __d := proc.run("mkdir", ["-p", ".lex/plans"])
+  let __rm := proc.run("rm", ["-f", path])
+  let __turn := run_task_turn(pplan.plan_prompt(brief, name, path), provider_tag)
+  match io.read(path) {
+    Err(_) => io.print(str.join(["\nno plan was written to ", path, " — run again, or write it by hand (shape: see src/package_flow/plan.lex)\n[PLAN]\tmissing\t", name], "")),
+    Ok(text) => match pplan.check_plan(text) {
+      Err(errs) => io.print(str.join(["\nthe plan has problems — fix ", path, " (or re-run) and check it with --package-apply=", name, ":\n  - ", str.join(errs, "\n  - "), "\n[PLAN]\tinvalid\t", name], "")),
+      Ok(plan) => io.print(str.join(["\nplan for `", name, "` — ", int.to_str(list.len(plan.units)), " units, in dependency order:\n", pplan.render_plan(plan), "\n\nreview ", path, ", then:  lex-code --package-apply=", name, "\n[PLAN]\tvalid\t", name], "")),
+    },
+  }
+}
+
+fn run_package_apply(name :: Str) -> [proc, io, fs_read] Nil {
+  let path := plan_path(name)
+  match io.read(path) {
+    Err(_) => io.print(str.join(["error: no plan at ", path, " — create one with: lex-code --package \"<brief>\" --name=", name, "\n"], "")),
+    Ok(text) => match pplan.check_plan(text) {
+      Err(errs) => io.print(str.join(["error: the plan is not fit to file:\n  - ", str.join(errs, "\n  - "), "\n"], "")),
+      Ok(plan) => match papply.apply_plan(plan) {
+        Err(e) => io.print(str.join(["error: ", e, "\n"], "")),
+        Ok(made) => io.print(str.join(["filed ", int.to_str(list.len(made)), " issues under project `", name, "`:\n", str.join(list.map(made, fn (p :: (Str, Str)) -> Str {
+          match p {
+            (k, id) => str.join(["  ", id, "  ", k], ""),
+          }
+        }), "\n"), "\n\ndrive it:  lex-code --project=", name, " --ollama   (add --fallback=opencode to hand a stuck issue to a stronger model)\n"], "")),
+      },
+    },
+  }
+}
+
+fn fetch_board(project :: Str) -> [proc] Result[pb.Board, Str] {
+  match proc.run("lex", ["--output", "json", "issue", "next", "--project", project]) {
+    Err(e) => Err(e),
+    Ok(out) => if out.exit_code != 0 {
+      Err(str.trim(str.concat(out.stdout, out.stderr)))
+    } else {
+      pb.parse_board(out.stdout)
+    },
+  }
+}
+
+# Re-verify every issue of the project. Closing one issue can quietly break
+# an earlier one (an agent turn that rewrites a file whole can drop another
+# issue's verified function); nothing else re-checks them. The board then
+# offers any regressed issue again.
+fn regression_pass(project :: Str) -> [proc, io] Nil {
+  match proc.run("lex", ["issue", "verify", "--project", project, "--verified-only"]) {
+    Err(e) => io.print(str.concat("regression pass unavailable: ", e)),
+    Ok(out) => io.print(str.join(["[REGRESSION]\n", str.trim(str.concat(out.stdout, out.stderr))], "")),
+  }
+}
+
+fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_after :: Int, max_attempts :: Int, attempts :: List[(Str, Int)], fuel :: Int) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
+  if fuel <= 0 {
+    "budget"
+  } else {
+    match fetch_board(project) {
+      Err(e) => {
+        let __err := io.print(str.concat("error: ", e))
+        "error"
+      },
+      Ok(board) => {
+        let __progress := io.print(str.join(["\n[PROJECT] ", project, "  ", int.to_str(board.verified), "/", int.to_str(board.total), " verified, ", int.to_str(list.len(board.ready)), " ready"], ""))
+        match pb.decide(board, attempts, primary, fallback, switch_after, max_attempts) {
+          PkgDone => "done",
+          PkgStuck(why) => {
+            let __why := io.print(str.concat("[PROJECT] stuck: ", why))
+            "stuck"
+          },
+          PkgRun(id, tag) => {
+            let tried := pb.attempts_of(attempts, id)
+            let __start := io.print(str.join(["[PROJECT] issue ", id, " — attempt ", int.to_str(tried + 1), " on ", tag], ""))
+            let verdict := run_issue_verdict(id, Some(pb.module_guidance(project)), Build, tag)
+            let __v := io.print(str.join(["[PROJECT] issue ", id, " → ", verdict], ""))
+            if verdict == "no_response" {
+              let __why := io.print(str.join(["[PROJECT] the provider (", tag, ") returned nothing — stopping instead of burning attempts. Check the key, the quota and the network, then run again: verified issues are kept."], ""))
+              "provider_error"
+            } else {
+              let __reg := if verdict == "verified" {
+                regression_pass(project)
+              } else {
+                io.print("")
+              }
+              project_loop(project, primary, fallback, switch_after, max_attempts, pb.bump_attempts(attempts, id), fuel - 1)
+            }
+          },
+        }
+      },
+    }
+  }
+}
+
+# The whole-package gate: verified issues are necessary, not sufficient — a
+# codec whose `integer_to_hex` was a lookup table of its own examples passed
+# every issue. `lex test` (property/round-trip tests in tests/) is the check
+# a table cannot pass.
+fn package_gate() -> [proc, io] Str {
+  let has_tests := match proc.run("sh", ["-c", "ls tests/test_*.lex >/dev/null 2>&1 && echo yes || echo no"]) {
+    Err(_) => "no",
+    Ok(o) => str.trim(o.stdout),
+  }
+  if has_tests == "yes" {
+    match proc.run("lex", ["test", "--allow-effects", "crypto,fs_read,fs_write,io,random,sql,time", "tests"]) {
+      Err(_) => "unavailable",
+      Ok(o) => if o.exit_code == 0 {
+        "pass"
+      } else {
+        let __out := io.print(str.trim(str.concat(o.stdout, o.stderr)))
+        "fail"
+      },
+    }
+  } else {
+    "none"
+  }
+}
+
+fn harden_prompt(project :: Str) -> Str {
+  str.join(["Every issue of project `", project, "` is verified, but verified is not the same as correct: an issue's examples are a finite list, and code can satisfy them without being right (by hard-coding them, or by getting an edge nobody wrote an example for wrong).\n\nWrite tests/test_", project, ".lex containing property-style tests for the package's public functions: round-trips (encode then decode returns the input, over a range of inputs), metamorphic relations, and the boundaries between cases. Include a run_all() that returns 0 when every test passes. Then run `lex test --allow-effects crypto,fs_read,fs_write,io,random,sql,time tests` and fix the SOURCE (never weaken a test) until it passes. Do not change any function's signature."], "")
+}
+
+fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
+  let fallback := pb.flag_value(argv, "--fallback=")
+  let switch_after := pb.flag_int(argv, "--switch-after=", 2)
+  let max_attempts := pb.flag_int(argv, "--max-attempts=", 4)
+  let fuel := pb.flag_int(argv, "--max-turns=", 40)
+  let status := project_loop(project, primary, fallback, switch_after, max_attempts, [], fuel)
+  let __final := regression_pass(project)
+  let gate := if status == "done" {
+    if has_flag(argv, "--no-harden") {
+      package_gate()
+    } else {
+      let __h := io.print("\n[PROJECT] every issue verified — hardening: property tests")
+      let __t := run_task_turn(harden_prompt(project), primary)
+      package_gate()
+    }
+  } else {
+    "skipped"
+  }
+  io.print(str.join(["[PROJECT_VERDICT]\t", status, "\t", project, "\n[PACKAGE_GATE]\t", gate, "\t", project, "\n"], ""))
 }
 
 # `--once --multi --pipeline=NAME "task"` — a graph pipeline run non-
@@ -773,19 +988,36 @@ fn plan_invocation(argv :: List[Str]) -> Invocation
 }
 
 fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random, concurrent] Nil {
-  let inv := plan_invocation(io.argv())
+  let argv := io.argv()
+  let inv := plan_invocation(argv)
   let provider_tag := inv.provider
   let mode := inv.mode
-  if inv.regenerate {
-    regenerate(provider_tag)
-  } else {
-    match inv.refine {
-      Some(issue_id) => run_refine(issue_id, inv.task, provider_tag),
-      None => match inv.issue {
-        Some(issue_id) => run_issue(issue_id, inv.task, mode, provider_tag),
-        None => dispatch(inv, mode, provider_tag),
+  match pb.flag_value(argv, "--package-apply=") {
+    Some(name) => run_package_apply(name),
+    None => match pb.flag_value(argv, "--project=") {
+      Some(project) => run_project(project, argv, provider_tag),
+      None => if has_flag(argv, "--package") {
+        match inv.task {
+          None => io.print("usage: lex-code --package \"<what the package should do>\" --name=<project>"),
+          Some(brief) => match pb.flag_value(argv, "--name=") {
+            None => io.print("usage: lex-code --package \"<what the package should do>\" --name=<project>"),
+            Some(name) => run_package_plan(brief, name, provider_tag),
+          },
+        }
+      } else {
+        if inv.regenerate {
+          regenerate(provider_tag)
+        } else {
+          match inv.refine {
+            Some(issue_id) => run_refine(issue_id, inv.task, provider_tag),
+            None => match inv.issue {
+              Some(issue_id) => run_issue(issue_id, inv.task, mode, provider_tag),
+              None => dispatch(inv, mode, provider_tag),
+            },
+          }
+        }
       },
-    }
+    },
   }
 }
 
@@ -807,6 +1039,9 @@ fn dispatch(inv :: Invocation, mode :: sess.AgentMode, provider_tag :: Str) -> [
       io.print(str.concat("one-shot:  lex run src/tui/main.lex -- [flags] \"your task\"", "\n"))
       io.print(str.concat("issue:     --issue=<id> [\"extra guidance\"]   implement a typed issue from its acceptance, then verify it", "\n"))
       io.print(str.concat("refine:    --refine=<id>                      propose a typed acceptance for a free_form issue (you approve it)", "\n"))
+      io.print(str.concat("package:   --package \"<brief>\" --name=P   draw a graph of typed issues into .lex/plans/P.json (nothing filed)", "\n"))
+      io.print(str.concat("           --package-apply=P                  file that reviewed plan as issues", "\n"))
+      io.print(str.concat("           --project=P [--fallback=TAG]       drive the project to done, escalating a stuck issue to TAG", "\n"))
       io.print(str.concat("Ctrl-D to exit", "\n"))
       if inv.multi {
         match resolve_pipeline(inv.pipeline) {
