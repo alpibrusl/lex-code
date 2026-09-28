@@ -109,6 +109,29 @@ fn flush_remaining() -> [io] Nil {
   }
 }
 
+# Did the model do anything at all — say something, or call a tool? A turn
+# that produced neither means the provider returned nothing (a rejected key, an
+# exhausted quota, a dropped connection): retrying it instantly cannot help.
+fn produced_output(steps :: List[d.Step]) -> Bool
+  examples {
+    produced_output([]) => false,
+    produced_output([StepToolExec("read", "{}")]) => true,
+    produced_output([StepDelta(TextChunk("  "))]) => false,
+    produced_output([StepDelta(TextChunk("done"))]) => true
+  }
+{
+  list.fold(steps, false, fn (acc :: Bool, s :: d.Step) -> Bool {
+    acc or match s {
+      StepToolExec(_, _) => true,
+      StepDelta(delta) => match delta {
+        TextChunk(t) => not str.is_empty(str.trim(t)),
+        _ => false,
+      },
+      _ => false,
+    }
+  })
+}
+
 fn print_step(step :: d.Step) -> [io] Nil {
   match step {
     StepDelta(delta) => match delta {
@@ -269,13 +292,17 @@ fn run_issue_verdict(issue_id :: Str, guidance :: Option[Str], mode :: sess.Agen
           let __d := proc.run("mkdir", ["-p", ".lex/intent"])
           let __w := io.write(".lex/intent/issue", str.join([session_id, "\t", issue_id], ""))
           let __reset := write_buf("")
-          let __printed := sess.run_turn_streaming_with_provider(session, task, provider_tag, print_step)
-          let verdict := match proc.run("lex", ["--output", "json", "issue", "verify", issue_id]) {
-            Err(_) => "unavailable",
-            Ok(v) => match ic.verdict_of(v.stdout) {
-              None => "unavailable",
-              Some(word) => word,
-            },
+          let turn := sess.run_turn_streaming_with_provider(session, task, provider_tag, print_step)
+          let verdict := if produced_output(turn.steps) {
+            match proc.run("lex", ["--output", "json", "issue", "verify", issue_id]) {
+              Err(_) => "unavailable",
+              Ok(v) => match ic.verdict_of(v.stdout) {
+                None => "unavailable",
+                Some(word) => word,
+              },
+            }
+          } else {
+            "no_response"
           }
           let __trail := io.print(str.join(["\n(trail: .lex/sessions/", session_id, ".db)"], ""))
           verdict
@@ -393,12 +420,17 @@ fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_
             let __start := io.print(str.join(["[PROJECT] issue ", id, " — attempt ", int.to_str(tried + 1), " on ", tag], ""))
             let verdict := run_issue_verdict(id, Some(pb.module_guidance(project)), Build, tag)
             let __v := io.print(str.join(["[PROJECT] issue ", id, " → ", verdict], ""))
-            let __reg := if verdict == "verified" {
-              regression_pass(project)
+            if verdict == "no_response" {
+              let __why := io.print(str.join(["[PROJECT] the provider (", tag, ") returned nothing — stopping instead of burning attempts. Check the key, the quota and the network, then run again: verified issues are kept."], ""))
+              "provider_error"
             } else {
-              io.print("")
+              let __reg := if verdict == "verified" {
+                regression_pass(project)
+              } else {
+                io.print("")
+              }
+              project_loop(project, primary, fallback, switch_after, max_attempts, pb.bump_attempts(attempts, id), fuel - 1)
             }
-            project_loop(project, primary, fallback, switch_after, max_attempts, pb.bump_attempts(attempts, id), fuel - 1)
           },
         }
       },
