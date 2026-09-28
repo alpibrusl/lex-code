@@ -211,3 +211,16 @@ fn flag_int(argv :: List[Str], prefix :: Str, default :: Int) -> Int
   }
 }
 
+# What every issue of a project is told, on top of its contract. A package is
+# ONE module: the store's head tracks a single module, so publishing a second
+# file silently removes the first file's functions from it (an issue that had
+# verified then reads "absent at head"). The units split the work, not the
+# files.
+fn module_guidance(project :: Str) -> Str
+  examples {
+    module_guidance("textkit") => "This package is ONE module: src/textkit.lex. Put every function in that one file — create it if it does not exist — and leave every function already in it exactly as it is. Do not create any other .lex file under src/: the store tracks a single module, so a second file would silently drop the first file's functions and un-verify earlier issues. Adding a function must not change or remove another."
+  }
+{
+  str.join(["This package is ONE module: src/", project, ".lex. Put every function in that one file — create it if it does not exist — and leave every function already in it exactly as it is. Do not create any other .lex file under src/: the store tracks a single module, so a second file would silently drop the first file's functions and un-verify earlier issues. Adding a function must not change or remove another."], "")
+}
+

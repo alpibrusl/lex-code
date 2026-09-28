@@ -391,7 +391,7 @@ fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_
           PkgRun(id, tag) => {
             let tried := pb.attempts_of(attempts, id)
             let __start := io.print(str.join(["[PROJECT] issue ", id, " — attempt ", int.to_str(tried + 1), " on ", tag], ""))
-            let verdict := run_issue_verdict(id, None, Build, tag)
+            let verdict := run_issue_verdict(id, Some(pb.module_guidance(project)), Build, tag)
             let __v := io.print(str.join(["[PROJECT] issue ", id, " → ", verdict], ""))
             let __reg := if verdict == "verified" {
               regression_pass(project)
