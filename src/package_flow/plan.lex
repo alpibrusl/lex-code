@@ -31,7 +31,17 @@ type Api = { name :: Str, signature :: Str }
 
 type PlanUnit = { key :: Str, title :: Str, body :: Str, api :: List[Api], examples :: List[Str], deps :: List[Str] }
 
-type Plan = { project :: Str, units :: List[PlanUnit] }
+# A type every unit shares, declared once: `decl` is the whole Lex declaration.
+type TypeDecl = { name :: Str, decl :: Str }
+
+# A package the project depends on — goes into lex.toml, written by the tool.
+type Pkg = { name :: Str, git :: Str }
+
+# Rules stated once for the whole project and enforced on every unit.
+# error_type: when non-empty, every `Result[T, E]` a unit returns must have E equal to it.
+type Policy = { error_type :: Str }
+
+type Plan = { project :: Str, types :: List[TypeDecl], packages :: List[Pkg], policy :: Policy, units :: List[PlanUnit] }
 
 fn has(xs :: List[Str], s :: Str) -> Bool
   examples {
@@ -65,15 +75,35 @@ fn parse_unit(j :: jv.Json) -> PlanUnit {
   { key: ic.field_text(j, "key"), title: ic.field_text(j, "title"), body: ic.field_text(j, "body"), api: list.map(ic.field_list(j, "api"), parse_api), examples: ic.texts(ic.field_list(j, "examples")), deps: ic.texts(ic.field_list(j, "deps")) }
 }
 
+fn parse_type(j :: jv.Json) -> TypeDecl {
+  { name: ic.field_text(j, "name"), decl: ic.field_text(j, "decl") }
+}
+
+fn parse_pkg(j :: jv.Json) -> Pkg {
+  { name: ic.field_text(j, "name"), git: ic.field_text(j, "git") }
+}
+
+fn parse_policy(j :: jv.Json) -> Policy {
+  match jv.get_field(j, "policy") {
+    None => { error_type: "" },
+    Some(p) => { error_type: ic.field_text(p, "error_type") },
+  }
+}
+
+fn empty_plan(project :: Str) -> Plan {
+  { project: project, types: [], packages: [], policy: { error_type: "" }, units: [] }
+}
+
 fn parse_plan(text :: Str) -> Result[Plan, Str]
   examples {
     parse_plan("not json") => Err("the plan is not valid JSON"),
-    parse_plan("{\"project\": \"p\", \"units\": []}") => Ok({ project: "p", units: [] })
+    parse_plan("{\"project\": \"p\", \"units\": []}") => Ok(empty_plan("p")),
+    parse_plan("{\"project\": \"p\", \"policy\": {\"error_type\": \"Str\"}, \"packages\": [{\"name\": \"lex-web\", \"git\": \"https://x\"}], \"types\": [{\"name\": \"T\", \"decl\": \"type T = Int\"}], \"units\": []}") => Ok({ project: "p", types: [{ name: "T", decl: "type T = Int" }], packages: [{ name: "lex-web", git: "https://x" }], policy: { error_type: "Str" }, units: [] })
   }
 {
   match jv.parse(str.trim(text)) {
     Err(_) => Err("the plan is not valid JSON"),
-    Ok(j) => Ok({ project: ic.field_text(j, "project"), units: list.map(ic.field_list(j, "units"), parse_unit) }),
+    Ok(j) => Ok({ project: ic.field_text(j, "project"), types: list.map(ic.field_list(j, "types"), parse_type), packages: list.map(ic.field_list(j, "packages"), parse_pkg), policy: parse_policy(j), units: list.map(ic.field_list(j, "units"), parse_unit) }),
   }
 }
 

@@ -351,9 +351,22 @@ fn run_package_plan(brief :: Str, name :: Str, provider_tag :: Str) -> [env, io,
   let __turn := run_task_turn(pplan.plan_prompt(brief, name, path), provider_tag)
   match io.read(path) {
     Err(_) => io.print(str.join(["\nno plan was written to ", path, " — run again, or write it by hand (shape: see src/package_flow/plan.lex)\n[PLAN]\tmissing\t", name], "")),
-    Ok(text) => match pplan.check_plan(text) {
+    Ok(text) => match papply.full_check(text) {
       Err(errs) => io.print(str.join(["\nthe plan has problems — fix ", path, " (or re-run) and check it with --package-apply=", name, ":\n  - ", str.join(errs, "\n  - "), "\n[PLAN]\tinvalid\t", name], "")),
       Ok(plan) => io.print(str.join(["\nplan for `", name, "` — ", int.to_str(list.len(plan.units)), " units, in dependency order:\n", pplan.render_plan(plan), "\n\nreview ", path, ", then:  lex-code --package-apply=", name, "\n[PLAN]\tvalid\t", name], "")),
+    },
+  }
+}
+
+# `--package-check=P`: everything a plan must pass before it is filed, with
+# no model involved. Exit-style last line for scripts: [PLAN_CHECK] ok|invalid.
+fn run_package_check(name :: Str) -> [proc, io] Nil {
+  let path := plan_path(name)
+  match io.read(path) {
+    Err(_) => io.print(str.join(["error: no plan at ", path, "\n[PLAN_CHECK]\tmissing\t", name], "")),
+    Ok(text) => match papply.full_check(text) {
+      Err(errs) => io.print(str.join(["the plan does not pass:\n  - ", str.join(errs, "\n  - "), "\n[PLAN_CHECK]\tinvalid\t", name], "")),
+      Ok(plan) => io.print(str.join(["plan `", name, "`: ", int.to_str(list.len(plan.units)), " units — structure, consistency rules and the type checker all pass\n[PLAN_CHECK]\tok\t", name], "")),
     },
   }
 }
@@ -362,7 +375,7 @@ fn run_package_apply(name :: Str) -> [proc, io, fs_read] Nil {
   let path := plan_path(name)
   match io.read(path) {
     Err(_) => io.print(str.join(["error: no plan at ", path, " — create one with: lex-code --package \"<brief>\" --name=", name, "\n"], "")),
-    Ok(text) => match pplan.check_plan(text) {
+    Ok(text) => match papply.full_check(text) {
       Err(errs) => io.print(str.join(["error: the plan is not fit to file:\n  - ", str.join(errs, "\n  - "), "\n"], "")),
       Ok(plan) => match papply.apply_plan(plan) {
         Err(e) => io.print(str.join(["error: ", e, "\n"], "")),
@@ -992,31 +1005,38 @@ fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, ap
   let inv := plan_invocation(argv)
   let provider_tag := inv.provider
   let mode := inv.mode
-  match pb.flag_value(argv, "--package-apply=") {
-    Some(name) => run_package_apply(name),
-    None => match pb.flag_value(argv, "--project=") {
-      Some(project) => run_project(project, argv, provider_tag),
-      None => if has_flag(argv, "--package") {
-        match inv.task {
+  match pb.flag_value(argv, "--package-check=") {
+    Some(name) => run_package_check(name),
+    None => match pb.flag_value(argv, "--package-apply=") {
+      Some(name) => run_package_apply(name),
+      None => run_main_rest(argv, inv, provider_tag, mode),
+    },
+  }
+}
+
+fn run_main_rest(argv :: List[Str], inv :: Invocation, provider_tag :: Str, mode :: sess.AgentMode) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random, concurrent] Nil {
+  match pb.flag_value(argv, "--project=") {
+    Some(project) => run_project(project, argv, provider_tag),
+    None => if has_flag(argv, "--package") {
+      match inv.task {
+        None => io.print("usage: lex-code --package \"<what the package should do>\" --name=<project>"),
+        Some(brief) => match pb.flag_value(argv, "--name=") {
           None => io.print("usage: lex-code --package \"<what the package should do>\" --name=<project>"),
-          Some(brief) => match pb.flag_value(argv, "--name=") {
-            None => io.print("usage: lex-code --package \"<what the package should do>\" --name=<project>"),
-            Some(name) => run_package_plan(brief, name, provider_tag),
+          Some(name) => run_package_plan(brief, name, provider_tag),
+        },
+      }
+    } else {
+      if inv.regenerate {
+        regenerate(provider_tag)
+      } else {
+        match inv.refine {
+          Some(issue_id) => run_refine(issue_id, inv.task, provider_tag),
+          None => match inv.issue {
+            Some(issue_id) => run_issue(issue_id, inv.task, mode, provider_tag),
+            None => dispatch(inv, mode, provider_tag),
           },
         }
-      } else {
-        if inv.regenerate {
-          regenerate(provider_tag)
-        } else {
-          match inv.refine {
-            Some(issue_id) => run_refine(issue_id, inv.task, provider_tag),
-            None => match inv.issue {
-              Some(issue_id) => run_issue(issue_id, inv.task, mode, provider_tag),
-              None => dispatch(inv, mode, provider_tag),
-            },
-          }
-        }
-      },
+      }
     },
   }
 }
@@ -1040,6 +1060,7 @@ fn dispatch(inv :: Invocation, mode :: sess.AgentMode, provider_tag :: Str) -> [
       io.print(str.concat("issue:     --issue=<id> [\"extra guidance\"]   implement a typed issue from its acceptance, then verify it", "\n"))
       io.print(str.concat("refine:    --refine=<id>                      propose a typed acceptance for a free_form issue (you approve it)", "\n"))
       io.print(str.concat("package:   --package \"<brief>\" --name=P   draw a graph of typed issues into .lex/plans/P.json (nothing filed)", "\n"))
+      io.print(str.concat("           --package-check=P                  validate a plan: structure, consistency, real type check", "\n"))
       io.print(str.concat("           --package-apply=P                  file that reviewed plan as issues", "\n"))
       io.print(str.concat("           --project=P [--fallback=TAG]       drive the project to done, escalating a stuck issue to TAG", "\n"))
       io.print(str.concat("Ctrl-D to exit", "\n"))
