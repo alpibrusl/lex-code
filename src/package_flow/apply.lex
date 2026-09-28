@@ -207,3 +207,49 @@ fn write_scaffold(p :: plan.Plan) -> [proc, io] Result[Str, Str] {
   }
 }
 
+type HardenResult = { calls_checked :: Int, failing :: List[Str] }
+
+# Write tests/test_<project>.lex from the plan's invariants (nothing a model
+# wrote), run it, and return the calls that came back false. Every invariant
+# is fully specified by the plan, so there is nothing here to ask a model for.
+fn harden(p :: plan.Plan) -> [proc, io] Result[HardenResult, Str] {
+  if list.fold(p.units, 0, fn (acc :: Int, u :: plan.PlanUnit) -> Int {
+    acc + list.len(u.invariants)
+  }) == 0 {
+    Ok({ calls_checked: 0, failing: [] })
+  } else {
+    let path := str.join(["tests/test_", p.project, ".lex"], "")
+    let __d := proc.run("mkdir", ["-p", "tests"])
+    let __w := io.write(path, chk.harden_source(p))
+    let effects := "io"
+    match proc.run("lex", ["--output", "json", "run", "--allow-effects", effects, path, "failing_calls"]) {
+      Err(e) => Err(e),
+      Ok(o) => if o.exit_code != 0 {
+        Err(str.concat("running the hardening harness failed: ", str.trim(str.concat(o.stdout, o.stderr))))
+      } else {
+        match jv.parse(str.trim(o.stdout)) {
+          Err(_) => Err(str.concat("hardening harness did not return JSON: ", str.trim(o.stdout))),
+          Ok(env) => match jv.get_field(env, "data") {
+            None => Err(str.concat("hardening harness returned no data: ", str.trim(o.stdout))),
+            Some(data) => match jv.get_field(data, "result") {
+              None => Err(str.concat("hardening harness result had no `result` field: ", str.trim(o.stdout))),
+              Some(j) => Ok({ calls_checked: combos_total(p), failing: ic.texts(match jv.as_list(j) {
+                None => [],
+                Some(xs) => xs,
+              }) }),
+            },
+          },
+        }
+      },
+    }
+  }
+}
+
+fn combos_total(p :: plan.Plan) -> Int {
+  list.fold(p.units, 0, fn (acc :: Int, u :: plan.PlanUnit) -> Int {
+    list.fold(u.invariants, acc, fn (acc2 :: Int, i :: plan.Invariant) -> Int {
+      acc2 + list.len(chk.combos(i.params))
+    })
+  })
+}
+

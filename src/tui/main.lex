@@ -563,8 +563,84 @@ fn package_gate() -> [proc, io] Str {
   }
 }
 
-fn harden_prompt(project :: Str) -> Str {
-  str.join(["Every issue of project `", project, "` is verified, but verified is not the same as correct: an issue's examples are a finite list, and code can satisfy them without being right (by hard-coding them, or by getting an edge nobody wrote an example for wrong).\n\nWrite tests/test_", project, ".lex containing property-style tests for the package's public functions: round-trips (encode then decode returns the input, over a range of inputs), metamorphic relations, and the boundaries between cases. Include a run_all() that returns 0 when every test passes. Then run `lex test --allow-effects crypto,fs_read,fs_write,io,random,sql,time tests` and fix the SOURCE (never weaken a test) until it passes. Do not change any function's signature."], "")
+# Hardening, deterministic: verified issues are necessary, not sufficient — a
+# codec whose `integer_to_hex` was a lookup table of its own examples passed
+# every issue, and a function whose examples all happen to avoid a run of
+# separators can still double a hyphen. Nobody writes the check by hand and
+# nobody is asked to: it comes straight from the plan's own invariants
+# (papply.harden), each one already validated the same way a signature is.
+# A violation becomes a `failing_example` issue in the same project — fixed
+# is exactly what the ordinary build loop already means — never a human
+# reading a report.
+fn file_invariant_issue(project :: Str, call :: Str) -> [proc] Result[Str, Str] {
+  match proc.run("lex", ["issue", "create", "--title", str.concat("invariant: ", call), "--shape", "failing_example", "--example", str.concat(call, " => true"), "--project", project]) {
+    Err(e) => Err(e),
+    Ok(o) => if o.exit_code == 0 {
+      Ok(str.trim(o.stdout))
+    } else {
+      Err(str.trim(str.concat(o.stdout, o.stderr)))
+    },
+  }
+}
+
+fn file_invariant_issues(project :: Str, failing :: List[Str]) -> [proc, io] Int {
+  list.len(list.filter(list.map(failing, fn (call :: Str) -> [proc, io] Bool {
+    match file_invariant_issue(project, call) {
+      Err(e) => {
+        let __w := io.print(str.join(["  could not file `", call, "`: ", e], ""))
+        false
+      },
+      Ok(_) => true,
+    }
+  }), fn (ok :: Bool) -> Bool {
+    ok
+  }))
+}
+
+# Check the plan's invariants; if any fail, file them and give the ordinary
+# build loop `harden_fuel` more turns to fix them, then check again.
+# `rounds_left` bounds that to a fixed number of round trips.
+fn harden_round(project :: Str, plan :: pplan.Plan, primary :: Str, fallback :: Option[Str], switch_after :: Int, max_attempts :: Int, guidance :: Str, rounds_left :: Int, harden_fuel :: Int) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
+  match papply.harden(plan) {
+    Err(e) => {
+      let __err := io.print(str.concat("hardening unavailable: ", e))
+      "unavailable"
+    },
+    Ok(r) => if list.is_empty(r.failing) {
+      if r.calls_checked == 0 {
+        "none"
+      } else {
+        let __ok := io.print(str.join(["[PROJECT] hardening: ", int.to_str(r.calls_checked), " invariant checks, all hold"], ""))
+        "pass"
+      }
+    } else {
+      if rounds_left <= 0 {
+        let __gv := io.print(str.join(["[PROJECT] hardening: gave up after the round budget, still failing:\n  ", str.join(r.failing, "\n  ")], ""))
+        "fail"
+      } else {
+        let __rep := io.print(str.join(["\n[PROJECT] hardening found ", int.to_str(list.len(r.failing)), " violation(s) out of ", int.to_str(r.calls_checked), " checks — filing them as issues:"], ""))
+        let filed := file_invariant_issues(project, r.failing)
+        let status2 := project_loop(project, primary, fallback, switch_after, max_attempts, [], harden_fuel, guidance)
+        let __reg := regression_pass(project)
+        if status2 == "done" {
+          harden_round(project, plan, primary, fallback, switch_after, max_attempts, guidance, rounds_left - 1, harden_fuel)
+        } else {
+          let __st := io.print(str.join(["[PROJECT] hardening: fixing the violations did not finish (", status2, ")"], ""))
+          "fail"
+        }
+      }
+    },
+  }
+}
+
+fn harden(project :: Str, primary :: Str, fallback :: Option[Str], switch_after :: Int, max_attempts :: Int, guidance :: Str, argv :: List[Str]) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
+  match io.read(plan_path(project)) {
+    Err(_) => package_gate(),
+    Ok(text) => match pplan.parse_plan(text) {
+      Err(_) => package_gate(),
+      Ok(plan) => harden_round(project, plan, primary, fallback, switch_after, max_attempts, guidance, pb.flag_int(argv, "--harden-rounds=", 3), pb.flag_int(argv, "--harden-turns=", 10)),
+    },
+  }
 }
 
 fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
@@ -587,9 +663,7 @@ fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, n
     if has_flag(argv, "--no-harden") {
       package_gate()
     } else {
-      let __h := io.print("\n[PROJECT] every issue verified — hardening: property tests")
-      let __t := run_task_turn(harden_prompt(project), primary)
-      package_gate()
+      harden(project, primary, fallback, switch_after, max_attempts, guidance, argv)
     }
   } else {
     "skipped"
@@ -1163,6 +1237,7 @@ fn dispatch(inv :: Invocation, mode :: sess.AgentMode, provider_tag :: Str) -> [
       io.print(str.concat("package:   --package \"<brief>\" --name=P   draw a graph of typed issues into .lex/plans/P.json (nothing filed)", "\n"))
       io.print(str.concat("           --package \"<brief>\" --name=P --auto   plan, check, scaffold, file and drive — no human step", "\n"))
       io.print(str.concat("           --package-check=P                  validate a plan: structure, consistency, real type check", "\n"))
+      io.print(str.concat("  hardening: --no-harden | --harden-rounds=N | --harden-turns=N   invariants are checked and violations fixed automatically by default", "\n"))
       io.print(str.concat("           --package-apply=P                  file that reviewed plan as issues", "\n"))
       io.print(str.concat("           --project=P [--fallback=TAG]       drive the project to done, escalating a stuck issue to TAG", "\n"))
       io.print(str.concat("Ctrl-D to exit", "\n"))

@@ -29,7 +29,18 @@ import "../issue_contract" as ic
 
 type Api = { name :: Str, signature :: Str }
 
-type PlanUnit = { key :: Str, title :: Str, body :: Str, api :: List[Api], examples :: List[Str], deps :: List[Str] }
+type Param = { name :: Str, ty :: Str }
+
+# A property of the unit's own functions, checked over many inputs instead of
+# a few hand-picked examples — what would have caught a bug like slugify
+# doubling a hyphen, which every hand-picked example missed. `expr` is a Lex
+# boolean expression using `params`' names and calling the unit's functions;
+# it becomes a real function (`inv_<unit>_<name>`), so it is validated exactly
+# like a signature — by compiling it — and, once dependencies are built,
+# evaluated for real over a fixed corpus. No model writes or runs it.
+type Invariant = { name :: Str, params :: List[Param], expr :: Str }
+
+type PlanUnit = { key :: Str, title :: Str, body :: Str, api :: List[Api], examples :: List[Str], invariants :: List[Invariant], deps :: List[Str] }
 
 # A type every unit shares, declared once: `decl` is the whole Lex declaration.
 type TypeDecl = { name :: Str, decl :: Str }
@@ -71,8 +82,16 @@ fn parse_api(j :: jv.Json) -> Api {
   { name: ic.field_text(j, "name"), signature: ic.field_text(j, "signature") }
 }
 
+fn parse_param(j :: jv.Json) -> Param {
+  { name: ic.field_text(j, "name"), ty: ic.field_text(j, "type") }
+}
+
+fn parse_invariant(j :: jv.Json) -> Invariant {
+  { name: ic.field_text(j, "name"), params: list.map(ic.field_list(j, "params"), parse_param), expr: ic.field_text(j, "expr") }
+}
+
 fn parse_unit(j :: jv.Json) -> PlanUnit {
-  { key: ic.field_text(j, "key"), title: ic.field_text(j, "title"), body: ic.field_text(j, "body"), api: list.map(ic.field_list(j, "api"), parse_api), examples: ic.texts(ic.field_list(j, "examples")), deps: ic.texts(ic.field_list(j, "deps")) }
+  { key: ic.field_text(j, "key"), title: ic.field_text(j, "title"), body: ic.field_text(j, "body"), api: list.map(ic.field_list(j, "api"), parse_api), examples: ic.texts(ic.field_list(j, "examples")), invariants: list.map(ic.field_list(j, "invariants"), parse_invariant), deps: ic.texts(ic.field_list(j, "deps")) }
 }
 
 fn parse_type(j :: jv.Json) -> TypeDecl {
@@ -179,7 +198,7 @@ fn is_effectful(sig :: Str) -> Bool
 # The keys of the units that declare a function of this name.
 fn declared_by(units :: List[PlanUnit], name :: Str) -> List[Str]
   examples {
-    declared_by([{ key: "a", title: "A", body: "", api: [{ name: "f", signature: "() -> Int" }], examples: [], deps: [] }, { key: "b", title: "B", body: "", api: [{ name: "f", signature: "() -> Int" }], examples: [], deps: [] }], "f") => ["a", "b"],
+    declared_by([{ key: "a", title: "A", body: "", api: [{ name: "f", signature: "() -> Int" }], examples: [], invariants: [], deps: [] }, { key: "b", title: "B", body: "", api: [{ name: "f", signature: "() -> Int" }], examples: [], invariants: [], deps: [] }], "f") => ["a", "b"],
     declared_by([], "f") => []
   }
 {
@@ -374,7 +393,7 @@ fn check_plan(text :: Str) -> Result[Plan, List[Str]]
 # an example, as `lex issue create` allows.
 fn create_argv(u :: PlanUnit, project :: Str, dep_ids :: List[Str]) -> List[Str]
   examples {
-    create_argv({ key: "k", title: "T", body: "B", api: [{ name: "f", signature: "(n :: Int) -> Int" }], examples: ["f(1) => 1"], deps: [] }, "p", ["abc"]) => ["issue", "create", "--title", "T", "--shape", "typed_delta", "--project", "p", "--body", "B", "--api", "f:(n :: Int) -> Int", "--example", "f(1) => 1", "--dep", "abc"]
+    create_argv({ key: "k", title: "T", body: "B", api: [{ name: "f", signature: "(n :: Int) -> Int" }], examples: ["f(1) => 1"], invariants: [], deps: [] }, "p", ["abc"]) => ["issue", "create", "--title", "T", "--shape", "typed_delta", "--project", "p", "--body", "B", "--api", "f:(n :: Int) -> Int", "--example", "f(1) => 1", "--dep", "abc"]
   }
 {
   let head := ["issue", "create", "--title", u.title, "--shape", "typed_delta", "--project", project, "--body", u.body]
@@ -396,7 +415,7 @@ fn create_argv(u :: PlanUnit, project :: Str, dep_ids :: List[Str]) -> List[Str]
 # satisfy it with a lookup table — the properties go in tests/, later), and
 # an integration unit that exercises the composed public function.
 fn plan_prompt(brief :: Str, project :: Str, path :: Str) -> Str {
-  str.join(["Plan a Lex package as a graph of typed issues. Do NOT write the package itself.\n\nThe package: ", brief, "\n\nWrite ONE file, ", path, ", containing only JSON of this shape:\n\n  { \"project\": \"", project, "\",\n    \"units\": [\n      { \"key\": \"short_snake_name\", \"title\": \"one line\", \"body\": \"what it must do and the edge cases, in prose\",\n        \"api\": [ { \"name\": \"fn_name\", \"signature\": \"(x :: Int) -> Str\" } ],\n        \"examples\": [ \"fn_name(1) => \\\"one\\\"\" ],\n        \"deps\": [ \"key_of_a_unit_this_needs_first\" ] } ] }\n\nRules — each one exists because a package built without it went wrong:\n", "1. One unit = one function the size of a screen (helpers may share its unit). If you cannot state its contract in two sentences, split it.\n", "2. Signatures are the contract. Write them in Lex: `(a :: Int, b :: Str) -> Result[Int, Str]`; an effectful one puts its row after the arrow: `() -> [net] Nil`. Every function that any example calls must be declared as an api entry of some unit.\n", "3. deps are real: a unit lists the units whose functions it calls. Foundations first; no cycles.\n", "4. Give each pure function at least three examples, and make them pin the edges (empty, zero, boundary, the case the obvious implementation gets wrong). Examples run at check time, so an effectful function carries none.\n", "5. If the package composes its functions into ONE entry point, make that the last unit (deps = what it composes) with examples that run the whole thing end to end. If its public functions each stand alone, add no integration unit. Either way every function is declared by exactly ONE unit — never list a function in two units.\n", "6. The package is ONE module, src/", project, ".lex: units split the work, not the files, so never plan a separate file per unit.\n", "7. Before drawing anything, look at what already exists: read lex.toml and use the find_packages tool — depend on an existing package instead of planning to rebuild it.\n\nWhen the file is written, reply with one line: the number of units. Do not implement anything."], "")
+  str.join(["Plan a Lex package as a graph of typed issues. Do NOT write the package itself.\n\n", "The package: ", brief, "\n\n", "Write ONE file, ", path, ", containing only JSON of this shape:\n\n", "  { \"project\": \"", project, "\",\n", "    \"units\": [\n", "      { \"key\": \"short_snake_name\", \"title\": \"one line\", \"body\": \"what it must do and the edge cases, in prose\",\n", "        \"api\": [ { \"name\": \"fn_name\", \"signature\": \"(x :: Int) -> Str\" } ],\n", "        \"examples\": [ \"fn_name(1) => \\\"one\\\"\" ],\n", "        \"invariants\": [ { \"name\": \"short_snake_name\", \"params\": [ { \"name\": \"x\", \"type\": \"Int\" } ], \"expr\": \"a Lex boolean expression using the param names and calling this unit's functions\" } ],\n", "        \"deps\": [ \"key_of_a_unit_this_needs_first\" ] } ] }\n\n", "Rules — each one exists because a package built without it went wrong:\n", "1. One unit = one function the size of a screen (helpers may share its unit). If you cannot state its contract in two sentences, split it.\n", "2. Signatures are the contract. Write them in Lex: `(a :: Int, b :: Str) -> Result[Int, Str]`; an effectful one puts its row after the arrow: `() -> [net] Nil`. Every function that any example calls must be declared as an api entry of some unit.\n", "3. deps are real: a unit lists the units whose functions it calls. Foundations first; no cycles.\n", "4. Give each pure function at least three examples, and make them pin the edges (empty, zero, boundary, the case the obvious implementation gets wrong). Examples run at check time, so an effectful function carries none.\n", "5. Give each pure function 1-2 invariants — a property checked over many inputs, not a few hand-picked ones (this is what catches a bug like a slugifier that doubles a hyphen on a run of separators, which every example happened to miss). `invariants` uses the shape shown above. Only Str, Int and Bool params have a corpus to check against.\n", "6. If the package composes its functions into ONE entry point, make that the last unit (deps = what it composes) with examples that run the whole thing end to end. If its public functions each stand alone, add no integration unit. Either way every function is declared by exactly ONE unit — never list a function in two units.\n", "7. The package is ONE module, src/", project, ".lex: units split the work, not the files, so never plan a separate file per unit.\n", "8. Before drawing anything, look at what already exists: read lex.toml and use the find_packages tool — depend on an existing package instead of planning to rebuild it.\n\n", "When the file is written, reply with one line: the number of units. Do not implement anything."], "")
 }
 
 # One line per unit, in dependency order, for a human to review before
