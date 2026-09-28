@@ -146,6 +146,22 @@ fn is_effectful(sig :: Str) -> Bool
   str.contains(sig, "-> [")
 }
 
+# The keys of the units that declare a function of this name.
+fn declared_by(units :: List[PlanUnit], name :: Str) -> List[Str]
+  examples {
+    declared_by([{ key: "a", title: "A", body: "", api: [{ name: "f", signature: "() -> Int" }], examples: [], deps: [] }, { key: "b", title: "B", body: "", api: [{ name: "f", signature: "() -> Int" }], examples: [], deps: [] }], "f") => ["a", "b"],
+    declared_by([], "f") => []
+  }
+{
+  list.map(list.filter(units, fn (u :: PlanUnit) -> Bool {
+    has(list.map(u.api, fn (a :: Api) -> Str {
+      a.name
+    }), name)
+  }), fn (u :: PlanUnit) -> Str {
+    u.key
+  })
+}
+
 fn unit_keys(units :: List[PlanUnit]) -> List[Str] {
   list.map(units, fn (u :: PlanUnit) -> Str {
     u.key
@@ -288,7 +304,7 @@ fn validate(plan :: Plan) -> List[Str] {
     str.join(["two units share the key `", k, "`"], "")
   })
   let dup_api_err := list.map(duplicates(names), fn (n :: Str) -> Str {
-    str.join(["`", n, "` is declared by more than one unit"], "")
+    str.join(["`", n, "` is declared by more than one unit (", str.join(declared_by(plan.units, n), ", "), ") — declare it in exactly one"], "")
   })
   let per_unit := list.fold(plan.units, [], fn (acc :: List[Str], u :: PlanUnit) -> List[Str] {
     list.concat(acc, unit_errors(u, keys, names))
@@ -350,7 +366,7 @@ fn create_argv(u :: PlanUnit, project :: Str, dep_ids :: List[Str]) -> List[Str]
 # satisfy it with a lookup table — the properties go in tests/, later), and
 # an integration unit that exercises the composed public function.
 fn plan_prompt(brief :: Str, project :: Str, path :: Str) -> Str {
-  str.join(["Plan a Lex package as a graph of typed issues. Do NOT write the package itself.\n\nThe package: ", brief, "\n\nWrite ONE file, ", path, ", containing only JSON of this shape:\n\n  { \"project\": \"", project, "\",\n    \"units\": [\n      { \"key\": \"short_snake_name\", \"title\": \"one line\", \"body\": \"what it must do and the edge cases, in prose\",\n        \"api\": [ { \"name\": \"fn_name\", \"signature\": \"(x :: Int) -> Str\" } ],\n        \"examples\": [ \"fn_name(1) => \\\"one\\\"\" ],\n        \"deps\": [ \"key_of_a_unit_this_needs_first\" ] } ] }\n\nRules — each one exists because a package built without it went wrong:\n", "1. One unit = one function the size of a screen (helpers may share its unit). If you cannot state its contract in two sentences, split it.\n", "2. Signatures are the contract. Write them in Lex: `(a :: Int, b :: Str) -> Result[Int, Str]`; an effectful one puts its row after the arrow: `() -> [net] Nil`. Every function that any example calls must be declared as an api entry of some unit.\n", "3. deps are real: a unit lists the units whose functions it calls. Foundations first; no cycles.\n", "4. Give each pure function at least three examples, and make them pin the edges (empty, zero, boundary, the case the obvious implementation gets wrong). Examples run at check time, so an effectful function carries none.\n", "5. Add a final `integration` unit whose api is the package's public entry point, depending on the units it composes, with examples that run the whole thing end to end.\n", "6. Before drawing anything, look at what already exists: read lex.toml and use the find_packages tool — depend on an existing package instead of planning to rebuild it.\n\nWhen the file is written, reply with one line: the number of units. Do not implement anything."], "")
+  str.join(["Plan a Lex package as a graph of typed issues. Do NOT write the package itself.\n\nThe package: ", brief, "\n\nWrite ONE file, ", path, ", containing only JSON of this shape:\n\n  { \"project\": \"", project, "\",\n    \"units\": [\n      { \"key\": \"short_snake_name\", \"title\": \"one line\", \"body\": \"what it must do and the edge cases, in prose\",\n        \"api\": [ { \"name\": \"fn_name\", \"signature\": \"(x :: Int) -> Str\" } ],\n        \"examples\": [ \"fn_name(1) => \\\"one\\\"\" ],\n        \"deps\": [ \"key_of_a_unit_this_needs_first\" ] } ] }\n\nRules — each one exists because a package built without it went wrong:\n", "1. One unit = one function the size of a screen (helpers may share its unit). If you cannot state its contract in two sentences, split it.\n", "2. Signatures are the contract. Write them in Lex: `(a :: Int, b :: Str) -> Result[Int, Str]`; an effectful one puts its row after the arrow: `() -> [net] Nil`. Every function that any example calls must be declared as an api entry of some unit.\n", "3. deps are real: a unit lists the units whose functions it calls. Foundations first; no cycles.\n", "4. Give each pure function at least three examples, and make them pin the edges (empty, zero, boundary, the case the obvious implementation gets wrong). Examples run at check time, so an effectful function carries none.\n", "5. If the package composes its functions into ONE entry point, make that the last unit (deps = what it composes) with examples that run the whole thing end to end. If its public functions each stand alone, add no integration unit. Either way every function is declared by exactly ONE unit — never list a function in two units.\n", "6. Before drawing anything, look at what already exists: read lex.toml and use the find_packages tool — depend on an existing package instead of planning to rebuild it.\n\nWhen the file is written, reply with one line: the number of units. Do not implement anything."], "")
 }
 
 # One line per unit, in dependency order, for a human to review before
