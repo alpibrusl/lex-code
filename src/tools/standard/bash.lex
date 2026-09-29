@@ -108,8 +108,20 @@ fn timeout_secs() -> Int {
   300
 }
 
+# A single slow call is unremarkable — a network hiccup, a genuinely
+# heavy command. A *cluster* of calls landing near the timeout ceiling
+# is the exact pattern that cost 4.5 real hours before anyone noticed
+# (`--session-health=` audits this after the fact; this is the same
+# check made as each call happens, so it doesn't take a session ending
+# before it's visible). 80%, not 100%: the warning should fire before a
+# call actually times out, so a truly ordinary-but-heavy command still
+# gets its result, with a heads-up alongside it.
+fn warn_threshold_secs(timeout :: Int) -> Int {
+  timeout * 80 / 100
+}
+
 fn watchdog_script(timeout :: Int) -> Str {
-  str.join(["flag=$(mktemp)\n", "rm -f \"$flag\"\n", "bash -c \"$1\" &\n", "child=$!\n", "(\n", "  sleep ", int.to_str(timeout), "\n", "  touch \"$flag\"\n", "  kill_tree() {\n", "    local pid=$1\n", "    local c\n", "    for c in $(pgrep -P \"$pid\" 2>/dev/null); do\n", "      kill_tree \"$c\"\n", "    done\n", "    kill -KILL \"$pid\" 2>/dev/null\n", "  }\n", "  kill_tree \"$child\"\n", ") </dev/null >/dev/null 2>&1 &\n", "watchdog=$!\n", "wait \"$child\" 2>/dev/null\n", "status=$?\n", "kill \"$watchdog\" 2>/dev/null\n", "wait \"$watchdog\" 2>/dev/null\n", "if [ -f \"$flag\" ]; then\n", "  echo \"[lex-code bash tool] command exceeded ", int.to_str(timeout), "s and was killed\" >&2\n", "fi\n", "rm -f \"$flag\"\n", "exit \"$status\"\n"], "")
+  str.join(["start=$(date +%s)\n", "flag=$(mktemp)\n", "rm -f \"$flag\"\n", "bash -c \"$1\" &\n", "child=$!\n", "(\n", "  sleep ", int.to_str(timeout), "\n", "  touch \"$flag\"\n", "  kill_tree() {\n", "    local pid=$1\n", "    local c\n", "    for c in $(pgrep -P \"$pid\" 2>/dev/null); do\n", "      kill_tree \"$c\"\n", "    done\n", "    kill -KILL \"$pid\" 2>/dev/null\n", "  }\n", "  kill_tree \"$child\"\n", ") </dev/null >/dev/null 2>&1 &\n", "watchdog=$!\n", "wait \"$child\" 2>/dev/null\n", "status=$?\n", "kill \"$watchdog\" 2>/dev/null\n", "wait \"$watchdog\" 2>/dev/null\n", "elapsed=$(( $(date +%s) - start ))\n", "if [ -f \"$flag\" ]; then\n", "  echo \"[lex-code bash tool] command exceeded ", int.to_str(timeout), "s and was killed\" >&2\n", "elif [ \"$elapsed\" -ge ", int.to_str(warn_threshold_secs(timeout)), " ]; then\n", "  echo \"[lex-code bash tool] WARNING: this call took ${elapsed}s (>=", int.to_str(warn_threshold_secs(timeout)), "s, most of the ", int.to_str(timeout), "s timeout) -- if ordinary calls keep landing this high, something is wrong beyond normal latency; check --session-health\" >&2\n", "fi\n", "rm -f \"$flag\"\n", "exit \"$status\"\n"], "")
 }
 
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
