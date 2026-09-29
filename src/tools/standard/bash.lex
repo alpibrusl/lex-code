@@ -41,20 +41,60 @@ fn truncate_output(s :: Str) -> Str {
   }
 }
 
+# Reproduced live: a build agent, mid repair-loop, tried to find a
+# validator's exact wording by running `grep -rl "..." ~` — an unbounded
+# recursive grep over the whole home directory, no `--exclude-dir`, no
+# size cap. `std.process.run` has no timeout of its own (`wait` on a
+# `spawn`ed handle is just as blocking), so that one tool call froze the
+# entire turn — and the `--auto` run behind it — for hours with nothing
+# to show for it, not even partial output: the truncation above only
+# bounds a result that comes back at all. This is the other half of that
+# fix: a hard wall-clock backstop around every `bash` call, mechanical
+# rather than a prompt asking the model to be careful what it greps.
+#
+# No stdlib primitive does this (`spawn`'s `read_*_line` and `wait` all
+# block), and relying on GNU `timeout`/`gtimeout` is not an option — this
+# machine has neither installed, so that would leave zero protection on
+# the exact host the hang happened on. Implemented in bash itself
+# instead: `set -m` gives the backgrounded command its own process
+# group, so a watcher can `kill` that whole group (the command and
+# anything it spawned, e.g. a stuck `grep`) if the deadline passes, not
+# just its immediate PID. The child's command is passed as a positional
+# parameter (`"$1"`), never interpolated into the script text, so nothing
+# about the command string can break the wrapper's own quoting no matter
+# what the model's command contains. A flag file records whether the
+# watchdog actually fired, so the model is told plainly when its own
+# command was killed for taking too long, rather than seeing a bare 137.
+#
+# No `[env]` knob for this: `execute` fills `Tool.execute`'s field,
+# whose row `lex-llm/tool` fixes at exactly `[io, net, proc]` — adding
+# an effect here to read an override is the library-widening move
+# `agent-guidelines` says not to make for one call site. Hardcoded.
+fn timeout_secs() -> Int {
+  300
+}
+
+fn watchdog_script(timeout :: Int) -> Str {
+  str.join(["flag=$(mktemp)\n", "set -m\n", "bash -c \"$1\" &\n", "child=$!\n", "(sleep ", int.to_str(timeout), "; touch \"$flag\"; kill -KILL -- -$child 2>/dev/null) &\n", "watchdog=$!\n", "wait \"$child\" 2>/dev/null\n", "status=$?\n", "kill \"$watchdog\" 2>/dev/null\n", "wait \"$watchdog\" 2>/dev/null\n", "if [ -f \"$flag\" ]; then\n", "  echo \"[lex-code bash tool] command exceeded ", int.to_str(timeout), "s and was killed\" >&2\n", "fi\n", "rm -f \"$flag\"\n", "exit \"$status\"\n"], "")
+}
+
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "command") {
     None => Err(e.single("", "missing_field", "command is required")),
-    Some(cmd) => match proc.run("bash", ["-c", cmd]) {
-      Err(msg) => Err(e.single("", "proc_error", msg)),
-      Ok(out) => {
-        let combined := str.concat(truncate_output(out.stdout), truncate_output(out.stderr))
-        Ok(JStr(combined))
-      },
+    Some(cmd) => {
+      let secs := timeout_secs()
+      match proc.run("bash", ["-c", watchdog_script(secs), "bash", cmd]) {
+        Err(msg) => Err(e.single("", "proc_error", msg)),
+        Ok(out) => {
+          let combined := str.concat(truncate_output(out.stdout), truncate_output(out.stderr))
+          Ok(JStr(combined))
+        },
+      }
     },
   }
 }
 
 fn tool() -> t.Tool {
-  t.define("bash", "Run a bash command and return combined stdout and stderr.", params(), execute)
+  t.define("bash", "Run a bash command and return combined stdout and stderr. Killed if it runs longer than 300s.", params(), execute)
 }
 
