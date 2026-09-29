@@ -117,17 +117,48 @@ fn produced_output(steps :: List[d.Step]) -> Bool
     produced_output([]) => false,
     produced_output([StepToolExec("read", "{}")]) => true,
     produced_output([StepDelta(TextChunk("  "))]) => false,
-    produced_output([StepDelta(TextChunk("done"))]) => true
+    produced_output([StepDelta(TextChunk("done"))]) => true,
+    produced_output([StepDelta(TextChunk("[provider error: HTTP 429: Go usage limit exceeded]"))]) => false
   }
 {
   list.fold(steps, false, fn (acc :: Bool, s :: d.Step) -> Bool {
     acc or match s {
       StepToolExec(_, _) => true,
       StepDelta(delta) => match delta {
-        TextChunk(t) => not str.is_empty(str.trim(t)),
+        TextChunk(t) => not str.is_empty(str.trim(t)) and not str.starts_with(str.trim(t), "[provider error:"),
         _ => false,
       },
       _ => false,
+    }
+  })
+}
+
+# A streamed turn's last line has no trailing newline, so it sits in the line
+# buffer until another step flushes it — and after the final step there is no
+# other step. A provider error ("[provider error: HTTP 429: ...]") is exactly
+# such a last line, so a rate-limited run printed nothing and looked hung.
+fn run_turn_flushed(session :: sess.Session, task :: Str, provider_tag :: Str) -> [env, net, llm, io, proc, sql, time, approval, stream] sess.TurnResult {
+  let turn := sess.run_turn_streaming_with_provider(session, task, provider_tag, print_step)
+  let __flushed := flush_remaining()
+  turn
+}
+
+# Prompt and completion tokens a turn used, summed over its provider calls.
+fn turn_usage(steps :: List[d.Step]) -> (Int, Int)
+  examples {
+    turn_usage([]) => (0, 0),
+    turn_usage([StepDelta(UsageDelta(10, 2, 12)), StepDelta(TextChunk("x")), StepDelta(UsageDelta(30, 5, 35))]) => (40, 7)
+  }
+{
+  list.fold(steps, (0, 0), fn (acc :: (Int, Int), s :: d.Step) -> (Int, Int) {
+    match s {
+      StepDelta(delta) => match delta {
+        UsageDelta(p, c, _) => match acc {
+          (ap, ac) => (ap + p, ac + c),
+        },
+        _ => acc,
+      },
+      _ => acc,
     }
   })
 }
@@ -173,7 +204,7 @@ fn repl(session :: sess.Session, provider_tag :: Str) -> [env, io, net, llm, pro
         repl(session, provider_tag)
       } else {
         let __reset := write_buf("")
-        let result := sess.run_turn_streaming_with_provider(session, input, provider_tag, print_step)
+        let result := run_turn_flushed(session, input, provider_tag)
         repl(result.session, provider_tag)
       }
     },
@@ -206,7 +237,7 @@ fn run_once(task :: Str, mode :: sess.AgentMode, provider_tag :: Str) -> [env, i
     Err(e) => io.print(str.concat(str.concat("error: ", e), "\n")),
     Ok(session) => {
       let __reset := write_buf("")
-      let __printed := sess.run_turn_streaming_with_provider(session, task, provider_tag, print_step)
+      let __printed := run_turn_flushed(session, task, provider_tag)
       io.print(str.join(["\n(trail: .lex/sessions/", session_id, ".db)\n"], ""))
     },
   }
@@ -258,7 +289,7 @@ fn run_refine(issue_id :: Str, guidance :: Option[Str], provider_tag :: Str) -> 
         Err(e) => io.print(str.concat(str.concat("error: ", e), "\n")),
         Ok(session) => {
           let __reset := write_buf("")
-          let __printed := sess.run_turn_streaming_with_provider(session, prompt, provider_tag, print_step)
+          let __printed := run_turn_flushed(session, prompt, provider_tag)
           let listed := match proc.run("lex", ["issue", "proposals", issue_id]) {
             Err(e) => e,
             Ok(o) => str.trim(str.concat(o.stdout, o.stderr)),
@@ -292,7 +323,7 @@ fn run_issue_verdict(issue_id :: Str, guidance :: Option[Str], mode :: sess.Agen
           let __d := proc.run("mkdir", ["-p", ".lex/intent"])
           let __w := io.write(".lex/intent/issue", str.join([session_id, "\t", issue_id], ""))
           let __reset := write_buf("")
-          let turn := sess.run_turn_streaming_with_provider(session, task, provider_tag, print_step)
+          let turn := run_turn_flushed(session, task, provider_tag)
           let verdict := if produced_output(turn.steps) {
             match proc.run("lex", ["--output", "json", "issue", "verify", issue_id]) {
               Err(_) => "unavailable",
@@ -303,6 +334,9 @@ fn run_issue_verdict(issue_id :: Str, guidance :: Option[Str], mode :: sess.Agen
             }
           } else {
             "no_response"
+          }
+          let __usage := match turn_usage(turn.steps) {
+            (p, c) => io.print(str.join(["[USAGE]\t", int.to_str(p), "\t", int.to_str(c), "\t", issue_id], "")),
           }
           let __trail := io.print(str.join(["\n(trail: .lex/sessions/", session_id, ".db)"], ""))
           verdict
@@ -338,7 +372,7 @@ fn run_task_turn(task :: Str, provider_tag :: Str) -> [env, io, net, llm, proc, 
     Err(e) => io.print(str.concat(str.concat("error: ", e), "\n")),
     Ok(session) => {
       let __reset := write_buf("")
-      let __printed := sess.run_turn_streaming_with_provider(session, task, provider_tag, print_step)
+      let __printed := run_turn_flushed(session, task, provider_tag)
       io.print(str.join(["\n(trail: .lex/sessions/", session_id, ".db)"], ""))
     },
   }
