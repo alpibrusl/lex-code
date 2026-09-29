@@ -10,7 +10,17 @@ import "std.list" as list
 
 import "std.process" as proc
 
+import "std.io" as io
+
+import "std.int" as int
+
+import "lex-schema/json_value" as jv
+
+import "../issue_contract" as ic
+
 import "./plan" as plan
+
+import "./check" as chk
 
 fn id_of(made :: List[(Str, Str)], key :: Str) -> Str
   examples {
@@ -59,6 +69,141 @@ fn apply_plan(p :: plan.Plan) -> [proc] Result[List[(Str, Str)], Str] {
   match plan.ordered(p) {
     Err(e) => Err(e),
     Ok(units) => file_units(units, p.project, []),
+  }
+}
+
+# ---- layer 1: let the real checker judge the plan ---------------------
+fn error_line(j :: jv.Json) -> Int {
+  match jv.get_field(j, "position") {
+    None => 0,
+    Some(pos) => match jv.get_field(pos, "line") {
+      None => 0,
+      Some(l) => match jv.as_int(l) {
+        None => 0,
+        Some(n) => n,
+      },
+    },
+  }
+}
+
+# One checker error, told in the plan's terms.
+fn describe_error(j :: jv.Json, labels :: List[(Int, Str)]) -> Str {
+  let kind := ic.field_text(j, "kind")
+  let expected := ic.field_text(j, "expected")
+  let got := ic.field_text(j, "got")
+  let detail := if str.is_empty(expected) {
+    ""
+  } else {
+    str.join([" (expected ", expected, ", got ", got, ")"], "")
+  }
+  let ctx := str.join(ic.texts(ic.field_list(j, "context")), ", ")
+  str.join([chk.label_at(labels, error_line(j)), ": ", kind, detail, if str.is_empty(ctx) {
+    ""
+  } else {
+    str.concat(" in ", ctx)
+  }], "")
+}
+
+# Write the stub module and run `lex check` on it. Ok([]) = the contracts
+# are well-typed and every example fits its signature.
+fn compile_check(p :: plan.Plan) -> [proc, io] Result[List[Str], Str] {
+  let prog := chk.stub_program(p)
+  let path := str.join([".lex/plans/", p.project, ".stub.lex"], "")
+  let __dir := proc.run("mkdir", ["-p", ".lex/plans"])
+  let __w := io.write(path, prog.source)
+  match proc.run("lex", ["check", path]) {
+    Err(e) => Err(e),
+    Ok(out) => if out.exit_code == 0 {
+      Ok([])
+    } else {
+      let lines := str.split(str.concat(out.stdout, out.stderr), "\n")
+      let errs := list.fold(lines, [], fn (acc :: List[Str], l :: Str) -> List[Str] {
+        if str.starts_with(str.trim(l), "{") {
+          match jv.parse(str.trim(l)) {
+            Err(_) => acc,
+            Ok(j) => list.concat(acc, [describe_error(j, prog.labels)]),
+          }
+        } else {
+          acc
+        }
+      })
+      if list.is_empty(errs) {
+        Err(str.concat("lex check failed: ", str.trim(str.concat(out.stdout, out.stderr))))
+      } else {
+        Ok(errs)
+      }
+    },
+  }
+}
+
+# Every check there is, in order: structure, consistency rules, then the
+# real checker on the stub module. Err carries all the problems found.
+fn full_check(text :: Str) -> [proc, io] Result[plan.Plan, List[Str]] {
+  match chk.check_text(text) {
+    Err(errs) => Err(errs),
+    Ok(p) => match compile_check(p) {
+      Err(e) => Err([e]),
+      Ok(errs) => if list.is_empty(errs) {
+        Ok(p)
+      } else {
+        Err(errs)
+      },
+    },
+  }
+}
+
+fn write_if_changed(path :: Str, old :: Str, new :: Str) -> [io] Nil {
+  if old == new {
+    ()
+  } else {
+    let __w := io.write(path, new)
+    ()
+  }
+}
+
+# The starting point of every task, written by the tool instead of a model:
+# lex.toml with the plan's packages (installed), and src/<project>.lex with
+# every shared type and every function's final signature over a placeholder
+# body, published to the store head. An agent then only replaces bodies — it
+# cannot drift from a signature, forget a dependency, or drop a function by
+# rewriting the module. Applying twice leaves existing work alone.
+fn write_scaffold(p :: plan.Plan) -> [proc, io] Result[Str, Str] {
+  let file := str.join(["src/", p.project, ".lex"], "")
+  let toml := match io.read("lex.toml") {
+    Err(_) => "",
+    Ok(t) => t,
+  }
+  let __toml := write_if_changed("lex.toml", toml, chk.toml_with_packages(toml, p.packages))
+  let installed := if list.is_empty(p.packages) {
+    Ok("")
+  } else {
+    match proc.run("lex", ["pkg", "install"]) {
+      Err(e) => Err(e),
+      Ok(o) => if o.exit_code == 0 {
+        Ok("")
+      } else {
+        Err(str.concat("lex pkg install failed: ", str.trim(str.concat(o.stdout, o.stderr))))
+      },
+    }
+  }
+  match installed {
+    Err(e) => Err(e),
+    Ok(_) => match io.read(file) {
+      Ok(_) => Ok(str.join(["kept the existing ", file], "")),
+      Err(_) => {
+        let __d := proc.run("mkdir", ["-p", "src"])
+        let __w := io.write(file, chk.scaffold_source(p))
+        match proc.run("lex", ["publish", file, "--activate"]) {
+          Err(e) => Err(e),
+          Ok(o) => if o.exit_code == 0 {
+            let __mark := io.write(str.join([".lex/plans/", p.project, ".scaffold"], ""), file)
+            Ok(str.join(["wrote and published ", file, " — ", int.to_str(list.len(chk.scaffold_chunks(p))), " chunks (types, signatures)"], ""))
+          } else {
+            Err(str.concat("publishing the scaffold failed: ", str.trim(str.concat(o.stdout, o.stderr))))
+          },
+        }
+      },
+    },
   }
 }
 

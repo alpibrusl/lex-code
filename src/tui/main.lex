@@ -378,16 +378,87 @@ fn run_task_turn(task :: Str, provider_tag :: Str) -> [env, io, net, llm, proc, 
   }
 }
 
-fn run_package_plan(brief :: Str, name :: Str, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
+# Ask the planner for a plan, check it, and while the check rejects it send the
+# problems back — up to `tries` rounds. Ok = a plan that passed every check.
+fn plan_loop(name :: Str, provider_tag :: Str, tries :: Int, prompt :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Result[pplan.Plan, List[Str]] {
+  let path := plan_path(name)
+  let __turn := run_task_turn(prompt, provider_tag)
+  let checked := match io.read(path) {
+    Err(_) => Err(["no plan was written to the plan file"]),
+    Ok(text) => papply.full_check(text),
+  }
+  match checked {
+    Ok(plan) => Ok(plan),
+    Err(errs) => if tries <= 1 {
+      Err(errs)
+    } else {
+      let __again := io.print(str.join(["\n[PLAN] rejected by validation (", int.to_str(list.len(errs)), " problems) — sending them back to the planner, ", int.to_str(tries - 1), " tries left"], ""))
+      plan_loop(name, provider_tag, tries - 1, pplan.repair_prompt(errs, path))
+    },
+  }
+}
+
+fn fresh_plan_prompt(brief :: Str, name :: Str) -> [proc] Str {
   let path := plan_path(name)
   let __d := proc.run("mkdir", ["-p", ".lex/plans"])
   let __rm := proc.run("rm", ["-f", path])
-  let __turn := run_task_turn(pplan.plan_prompt(brief, name, path), provider_tag)
+  pplan.plan_prompt(brief, name, path)
+}
+
+fn run_package_plan(brief :: Str, name :: Str, provider_tag :: Str, tries :: Int) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
+  let path := plan_path(name)
+  match plan_loop(name, provider_tag, tries, fresh_plan_prompt(brief, name)) {
+    Err(errs) => io.print(str.join(["\nthe plan does not pass validation — fix ", path, " (or re-run) and check it with --package-check=", name, ":\n  - ", str.join(errs, "\n  - "), "\n[PLAN]\tinvalid\t", name], "")),
+    Ok(plan) => io.print(str.join(["\nplan for `", name, "` — ", int.to_str(list.len(plan.units)), " units, in dependency order, all checks pass:\n", pplan.render_plan(plan), "\n\nfile it:  lex-code --package-apply=", name, "\n[PLAN]\tvalid\t", name], "")),
+  }
+}
+
+# `--auto`: brief in, verified package out, nobody in between. Plan (repaired
+# until it passes validation), scaffold and file it, then drive it to done.
+fn run_package_auto(brief :: Str, name :: Str, argv :: List[Str], provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
+  let tries := pb.flag_int(argv, "--plan-tries=", 3)
+  match plan_loop(name, provider_tag, tries, fresh_plan_prompt(brief, name)) {
+    Err(errs) => io.print(str.join(["\n[AUTO] stopped at planning — no plan passed validation:\n  - ", str.join(errs, "\n  - "), "\n[PROJECT_VERDICT]\tno_plan\t", name], "")),
+    Ok(plan) => match apply_checked_plan(plan) {
+      Err(e) => io.print(str.join(["\n[AUTO] stopped at filing: ", e, "\n[PROJECT_VERDICT]\tno_scaffold\t", name], "")),
+      Ok(report) => {
+        let __r := io.print(str.join(["\n[AUTO] plan passed every check; ", report], ""))
+        run_project(name, argv, provider_tag)
+      },
+    },
+  }
+}
+
+# `--package-check=P`: everything a plan must pass before it is filed, with
+# no model involved. Exit-style last line for scripts: [PLAN_CHECK] ok|invalid.
+fn run_package_check(name :: Str) -> [proc, io] Nil {
+  let path := plan_path(name)
   match io.read(path) {
-    Err(_) => io.print(str.join(["\nno plan was written to ", path, " — run again, or write it by hand (shape: see src/package_flow/plan.lex)\n[PLAN]\tmissing\t", name], "")),
-    Ok(text) => match pplan.check_plan(text) {
-      Err(errs) => io.print(str.join(["\nthe plan has problems — fix ", path, " (or re-run) and check it with --package-apply=", name, ":\n  - ", str.join(errs, "\n  - "), "\n[PLAN]\tinvalid\t", name], "")),
-      Ok(plan) => io.print(str.join(["\nplan for `", name, "` — ", int.to_str(list.len(plan.units)), " units, in dependency order:\n", pplan.render_plan(plan), "\n\nreview ", path, ", then:  lex-code --package-apply=", name, "\n[PLAN]\tvalid\t", name], "")),
+    Err(_) => io.print(str.join(["error: no plan at ", path, "\n[PLAN_CHECK]\tmissing\t", name], "")),
+    Ok(text) => match papply.full_check(text) {
+      Err(errs) => io.print(str.join(["the plan does not pass:\n  - ", str.join(errs, "\n  - "), "\n[PLAN_CHECK]\tinvalid\t", name], "")),
+      Ok(plan) => io.print(str.join(["plan `", name, "`: ", int.to_str(list.len(plan.units)), " units — structure, consistency rules and the type checker all pass\n[PLAN_CHECK]\tok\t", name], "")),
+    },
+  }
+}
+
+fn filed_report(name :: Str, note :: Str, made :: List[(Str, Str)]) -> Str {
+  let rows := str.join(list.map(made, fn (p :: (Str, Str)) -> Str {
+    match p {
+      (k, id) => str.join(["  ", id, "  ", k], ""),
+    }
+  }), "\n")
+  str.join([note, "\nfiled ", int.to_str(list.len(made)), " issues under project `", name, "`:\n", rows, "\n\ndrive it:  lex-code --project=", name, " --ollama   (add --fallback=opencode to hand a stuck issue to a stronger model)\n"], "")
+}
+
+# File a plan that passes every check: the tool writes the scaffold (lex.toml,
+# shared types, the stubbed module) and files the issues. Ok carries the report.
+fn apply_checked_plan(plan :: pplan.Plan) -> [proc, io] Result[Str, Str] {
+  match papply.write_scaffold(plan) {
+    Err(e) => Err(str.concat("scaffold: ", e)),
+    Ok(note) => match papply.apply_plan(plan) {
+      Err(e) => Err(e),
+      Ok(made) => Ok(filed_report(plan.project, note, made)),
     },
   }
 }
@@ -396,15 +467,11 @@ fn run_package_apply(name :: Str) -> [proc, io, fs_read] Nil {
   let path := plan_path(name)
   match io.read(path) {
     Err(_) => io.print(str.join(["error: no plan at ", path, " — create one with: lex-code --package \"<brief>\" --name=", name, "\n"], "")),
-    Ok(text) => match pplan.check_plan(text) {
+    Ok(text) => match papply.full_check(text) {
       Err(errs) => io.print(str.join(["error: the plan is not fit to file:\n  - ", str.join(errs, "\n  - "), "\n"], "")),
-      Ok(plan) => match papply.apply_plan(plan) {
+      Ok(plan) => match apply_checked_plan(plan) {
         Err(e) => io.print(str.join(["error: ", e, "\n"], "")),
-        Ok(made) => io.print(str.join(["filed ", int.to_str(list.len(made)), " issues under project `", name, "`:\n", str.join(list.map(made, fn (p :: (Str, Str)) -> Str {
-          match p {
-            (k, id) => str.join(["  ", id, "  ", k], ""),
-          }
-        }), "\n"), "\n\ndrive it:  lex-code --project=", name, " --ollama   (add --fallback=opencode to hand a stuck issue to a stronger model)\n"], "")),
+        Ok(report) => io.print(report),
       },
     },
   }
@@ -432,7 +499,7 @@ fn regression_pass(project :: Str) -> [proc, io] Nil {
   }
 }
 
-fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_after :: Int, max_attempts :: Int, attempts :: List[(Str, Int)], fuel :: Int) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
+fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_after :: Int, max_attempts :: Int, attempts :: List[(Str, Int)], fuel :: Int, guidance :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
   if fuel <= 0 {
     "budget"
   } else {
@@ -452,7 +519,7 @@ fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_
           PkgRun(id, tag) => {
             let tried := pb.attempts_of(attempts, id)
             let __start := io.print(str.join(["[PROJECT] issue ", id, " — attempt ", int.to_str(tried + 1), " on ", tag], ""))
-            let verdict := run_issue_verdict(id, Some(pb.module_guidance(project)), Build, tag)
+            let verdict := run_issue_verdict(id, Some(guidance), Build, tag)
             let __v := io.print(str.join(["[PROJECT] issue ", id, " → ", verdict], ""))
             if verdict == "no_response" {
               let __why := io.print(str.join(["[PROJECT] the provider (", tag, ") returned nothing — stopping instead of burning attempts. Check the key, the quota and the network, then run again: verified issues are kept."], ""))
@@ -463,7 +530,7 @@ fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_
               } else {
                 io.print("")
               }
-              project_loop(project, primary, fallback, switch_after, max_attempts, pb.bump_attempts(attempts, id), fuel - 1)
+              project_loop(project, primary, fallback, switch_after, max_attempts, pb.bump_attempts(attempts, id), fuel - 1, guidance)
             }
           },
         }
@@ -505,7 +572,16 @@ fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, n
   let switch_after := pb.flag_int(argv, "--switch-after=", 2)
   let max_attempts := pb.flag_int(argv, "--max-attempts=", 4)
   let fuel := pb.flag_int(argv, "--max-turns=", 40)
-  let status := project_loop(project, primary, fallback, switch_after, max_attempts, [], fuel)
+  let scaffolded := match proc.run("sh", ["-c", str.join(["test -f .lex/plans/", project, ".scaffold && echo yes || echo no"], "")]) {
+    Err(_) => false,
+    Ok(o) => str.trim(o.stdout) == "yes",
+  }
+  let guidance := if scaffolded {
+    pb.scaffold_guidance(project)
+  } else {
+    pb.module_guidance(project)
+  }
+  let status := project_loop(project, primary, fallback, switch_after, max_attempts, [], fuel, guidance)
   let __final := regression_pass(project)
   let gate := if status == "done" {
     if has_flag(argv, "--no-harden") {
@@ -1026,31 +1102,42 @@ fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, ap
   let inv := plan_invocation(argv)
   let provider_tag := inv.provider
   let mode := inv.mode
-  match pb.flag_value(argv, "--package-apply=") {
-    Some(name) => run_package_apply(name),
-    None => match pb.flag_value(argv, "--project=") {
-      Some(project) => run_project(project, argv, provider_tag),
-      None => if has_flag(argv, "--package") {
-        match inv.task {
+  match pb.flag_value(argv, "--package-check=") {
+    Some(name) => run_package_check(name),
+    None => match pb.flag_value(argv, "--package-apply=") {
+      Some(name) => run_package_apply(name),
+      None => run_main_rest(argv, inv, provider_tag, mode),
+    },
+  }
+}
+
+fn run_main_rest(argv :: List[Str], inv :: Invocation, provider_tag :: Str, mode :: sess.AgentMode) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random, concurrent] Nil {
+  match pb.flag_value(argv, "--project=") {
+    Some(project) => run_project(project, argv, provider_tag),
+    None => if has_flag(argv, "--package") {
+      match inv.task {
+        None => io.print("usage: lex-code --package \"<what the package should do>\" --name=<project>"),
+        Some(brief) => match pb.flag_value(argv, "--name=") {
           None => io.print("usage: lex-code --package \"<what the package should do>\" --name=<project>"),
-          Some(brief) => match pb.flag_value(argv, "--name=") {
-            None => io.print("usage: lex-code --package \"<what the package should do>\" --name=<project>"),
-            Some(name) => run_package_plan(brief, name, provider_tag),
+          Some(name) => if has_flag(argv, "--auto") {
+            run_package_auto(brief, name, argv, provider_tag)
+          } else {
+            run_package_plan(brief, name, provider_tag, pb.flag_int(argv, "--plan-tries=", 3))
+          },
+        },
+      }
+    } else {
+      if inv.regenerate {
+        regenerate(provider_tag)
+      } else {
+        match inv.refine {
+          Some(issue_id) => run_refine(issue_id, inv.task, provider_tag),
+          None => match inv.issue {
+            Some(issue_id) => run_issue(issue_id, inv.task, mode, provider_tag),
+            None => dispatch(inv, mode, provider_tag),
           },
         }
-      } else {
-        if inv.regenerate {
-          regenerate(provider_tag)
-        } else {
-          match inv.refine {
-            Some(issue_id) => run_refine(issue_id, inv.task, provider_tag),
-            None => match inv.issue {
-              Some(issue_id) => run_issue(issue_id, inv.task, mode, provider_tag),
-              None => dispatch(inv, mode, provider_tag),
-            },
-          }
-        }
-      },
+      }
     },
   }
 }
@@ -1074,6 +1161,8 @@ fn dispatch(inv :: Invocation, mode :: sess.AgentMode, provider_tag :: Str) -> [
       io.print(str.concat("issue:     --issue=<id> [\"extra guidance\"]   implement a typed issue from its acceptance, then verify it", "\n"))
       io.print(str.concat("refine:    --refine=<id>                      propose a typed acceptance for a free_form issue (you approve it)", "\n"))
       io.print(str.concat("package:   --package \"<brief>\" --name=P   draw a graph of typed issues into .lex/plans/P.json (nothing filed)", "\n"))
+      io.print(str.concat("           --package \"<brief>\" --name=P --auto   plan, check, scaffold, file and drive — no human step", "\n"))
+      io.print(str.concat("           --package-check=P                  validate a plan: structure, consistency, real type check", "\n"))
       io.print(str.concat("           --package-apply=P                  file that reviewed plan as issues", "\n"))
       io.print(str.concat("           --project=P [--fallback=TAG]       drive the project to done, escalating a stuck issue to TAG", "\n"))
       io.print(str.concat("Ctrl-D to exit", "\n"))
