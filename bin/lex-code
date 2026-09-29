@@ -18,6 +18,12 @@
 # that output changes), and the step-limit override.
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# `--parallel=N`'s isolated-copy children (src/package_flow/parallel.lex)
+# run with cwd inside a temp copy of the PROJECT being built, which
+# never contains this tool's own bin/ — so they need this script's real
+# location to invoke it, independent of cwd. Exported, not just left to
+# $SCRIPT_DIR, since a child is a fresh process with its own environment.
+export LEX_CODE_BIN="$SCRIPT_DIR/lex-code"
 LEX_CODE_EFFECTS="${LEX_CODE_EFFECTS:-approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time}"
 LEX_CODE_MAX_STEPS="${LEX_CODE_MAX_STEPS:-20000000000}"
 

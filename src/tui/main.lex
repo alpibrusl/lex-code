@@ -32,6 +32,8 @@ import "../package_flow/board" as pb
 
 import "../package_flow/apply" as papply
 
+import "../package_flow/parallel" as par
+
 import "../server/session" as sess
 
 import "../server/multi_agent" as multi
@@ -539,6 +541,51 @@ fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_
   }
 }
 
+# `--parallel=N`: drive up to N currently-ready issues at once, as
+# separate OS processes (`package_flow/parallel.lex`) — real
+# concurrency, since Lex itself has none for effectful work today
+# (lex-lang#1085). Every issue in a batch is spawned before any of them
+# is waited on; `dispatch_and_merge` merges the whole batch back into
+# the canonical scaffold sequentially, one issue at a time, before the
+# next batch's board fetch — so this never reads a board that a
+# still-running batch could still change out from under it. No fallback
+# escalation here (a stuck issue's contract doesn't change by trying a
+# different model N-at-a-time instead of one-at-a-time); `--fallback=`
+# only has meaning for `project_loop`'s sequential path.
+fn project_loop_parallel(project :: Str, primary :: Str, guidance :: Str, concurrency :: Int, fuel :: Int) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
+  if fuel <= 0 {
+    "budget"
+  } else {
+    match fetch_board(project) {
+      Err(e) => {
+        let __err := io.print(str.concat("error: ", e))
+        "error"
+      },
+      Ok(board) => if board.done {
+        "done"
+      } else {
+        let batch := par.take_ready(board.ready, concurrency)
+        if list.is_empty(batch) {
+          let __s := io.print(str.join(["[PROJECT] stuck: nothing ready (", int.to_str(board.verified), "/", int.to_str(board.total), " verified)"], ""))
+          "stuck"
+        } else {
+          let ids := list.map(batch, fn (r :: pb.Ready) -> Str {
+            r.id
+          })
+          let __start := io.print(str.join(["\n[PROJECT] ", project, "  ", int.to_str(board.verified), "/", int.to_str(board.total), " verified — dispatching ", int.to_str(list.len(ids)), " in parallel: ", str.join(ids, ", ")], ""))
+          let outcomes := par.dispatch_and_merge(project, ids, guidance, str.concat("--", primary))
+          let lines := list.map(outcomes, fn (o :: par.BatchOutcome) -> Str {
+            str.join(["[PROJECT] issue ", o.issue_id, " → ", o.verdict], "")
+          })
+          let __report := io.print(str.join(lines, "\n"))
+          let __reg := regression_pass(project)
+          project_loop_parallel(project, primary, guidance, concurrency, fuel - list.len(ids))
+        }
+      },
+    }
+  }
+}
+
 # The whole-package gate: verified issues are necessary, not sufficient — a
 # codec whose `integer_to_hex` was a lookup table of its own examples passed
 # every issue. `lex test` (property/round-trip tests in tests/) is the check
@@ -657,7 +704,12 @@ fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, n
   } else {
     pb.module_guidance(project)
   }
-  let status := project_loop(project, primary, fallback, switch_after, max_attempts, [], fuel, guidance)
+  let concurrency := pb.flag_int(argv, "--parallel=", 1)
+  let status := if concurrency > 1 {
+    project_loop_parallel(project, primary, guidance, concurrency, fuel)
+  } else {
+    project_loop(project, primary, fallback, switch_after, max_attempts, [], fuel, guidance)
+  }
   let __final := regression_pass(project)
   let gate := if status == "done" {
     if has_flag(argv, "--no-harden") {
