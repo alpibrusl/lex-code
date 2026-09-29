@@ -56,15 +56,31 @@ fn truncate_output(s :: Str) -> Str {
 # block), and relying on GNU `timeout`/`gtimeout` is not an option — this
 # machine has neither installed, so that would leave zero protection on
 # the exact host the hang happened on. Implemented in bash itself
-# instead: `set -m` gives the backgrounded command its own process
-# group, so a watcher can `kill` that whole group (the command and
-# anything it spawned, e.g. a stuck `grep`) if the deadline passes, not
-# just its immediate PID. The child's command is passed as a positional
-# parameter (`"$1"`), never interpolated into the script text, so nothing
-# about the command string can break the wrapper's own quoting no matter
-# what the model's command contains. A flag file records whether the
-# watchdog actually fired, so the model is told plainly when its own
-# command was killed for taking too long, rather than seeing a bare 137.
+# instead. The child's command is passed as a positional parameter
+# (`"$1"`), never interpolated into the script text, so nothing about
+# the command string can break the wrapper's own quoting no matter what
+# the model's command contains.
+#
+# A first version used `set -m` + `kill -- -$pgid` to reach a stuck
+# command's whole descendant tree (e.g. a `grep` a shell spawned), on
+# the theory that job control gives a backgrounded job its own process
+# group. Reproduced live, the same day, that it doesn't just add
+# overhead: under `set -m`, `wait "$child"` on a job that exits near-
+# instantly (a plain `echo`) hung indefinitely, every time, with no
+# error — some interaction between job-control's own SIGCHLD bookkeeping
+# and an explicit-PID `wait` losing the race, not something this fix
+# should depend on holding across bash versions. Replaced with
+# `pgrep -P` walked recursively from the child's own PID: no job
+# control, no process groups, just `wait`/`kill` on plain PIDs, which is
+# unglamorous but is the part of bash that has never been in question.
+#
+# A flag file records whether the watchdog actually fired, so the model
+# is told plainly when its own command was killed for taking too long,
+# rather than seeing a bare 137. `mktemp` itself *creates* the file (the
+# whole point, to hand out a name nothing else raced for) — checking
+# `-f` on that path without first `rm`-ing it back out is true from the
+# first line, unconditionally; caught by timing the fast path, not by
+# reading the script.
 #
 # No `[env]` knob for this: `execute` fills `Tool.execute`'s field,
 # whose row `lex-llm/tool` fixes at exactly `[io, net, proc]` — adding
@@ -75,7 +91,7 @@ fn timeout_secs() -> Int {
 }
 
 fn watchdog_script(timeout :: Int) -> Str {
-  str.join(["flag=$(mktemp)\n", "set -m\n", "bash -c \"$1\" &\n", "child=$!\n", "(sleep ", int.to_str(timeout), "; touch \"$flag\"; kill -KILL -- -$child 2>/dev/null) &\n", "watchdog=$!\n", "wait \"$child\" 2>/dev/null\n", "status=$?\n", "kill \"$watchdog\" 2>/dev/null\n", "wait \"$watchdog\" 2>/dev/null\n", "if [ -f \"$flag\" ]; then\n", "  echo \"[lex-code bash tool] command exceeded ", int.to_str(timeout), "s and was killed\" >&2\n", "fi\n", "rm -f \"$flag\"\n", "exit \"$status\"\n"], "")
+  str.join(["flag=$(mktemp)\n", "rm -f \"$flag\"\n", "bash -c \"$1\" &\n", "child=$!\n", "(\n", "  sleep ", int.to_str(timeout), "\n", "  touch \"$flag\"\n", "  kill_tree() {\n", "    local pid=$1\n", "    local c\n", "    for c in $(pgrep -P \"$pid\" 2>/dev/null); do\n", "      kill_tree \"$c\"\n", "    done\n", "    kill -KILL \"$pid\" 2>/dev/null\n", "  }\n", "  kill_tree \"$child\"\n", ") &\n", "watchdog=$!\n", "wait \"$child\" 2>/dev/null\n", "status=$?\n", "kill \"$watchdog\" 2>/dev/null\n", "wait \"$watchdog\" 2>/dev/null\n", "if [ -f \"$flag\" ]; then\n", "  echo \"[lex-code bash tool] command exceeded ", int.to_str(timeout), "s and was killed\" >&2\n", "fi\n", "rm -f \"$flag\"\n", "exit \"$status\"\n"], "")
 }
 
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
