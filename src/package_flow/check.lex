@@ -336,7 +336,7 @@ fn layer2_errors(p :: plan.Plan) -> List[Str] {
   let outcomes := list.fold(p.units, [], fn (acc :: List[Str], u :: plan.PlanUnit) -> List[Str] {
     list.concat(acc, outcome_errors(u))
   })
-  list.concat(list.concat(list.concat(dangling_errors(p), type_decl_errors(p)), policy_errors(p)), outcomes)
+  list.concat(list.concat(list.concat(list.concat(dangling_errors(p), type_decl_errors(p)), policy_errors(p)), outcomes), invariant_errors(p))
 }
 
 # Everything that can be decided without running the checker.
@@ -401,7 +401,7 @@ fn scaffold_chunks(p :: plan.Plan) -> List[Chunk] {
       { label: str.join(["unit `", u.key, "` signature of `", a.name, "`"], ""), text: stub_fn(a) }
     }))
   })
-  list.concat(list.concat(header, types), fns)
+  list.concat(list.concat(list.concat(header, types), fns), invariant_chunks(p))
 }
 
 fn example_chunks(p :: plan.Plan) -> List[Chunk] {
@@ -494,5 +494,239 @@ fn label_at(labels :: List[(Int, Str)], line :: Int) -> Str
       },
     }
   })
+}
+
+# ---- corpora for hardening -----------------------------------------------
+#
+# Fixed and deterministic, so a run is reproducible: the same edge cases every
+# time, not a fresh random sample that might miss the case it missed last run.
+# Includes exactly the shape that a hyphen-collapsing bug needs to show up
+# (a run of separators inside a word) — this is the corpus that would have
+# caught it, not just examples the model happened to think of.
+fn str_corpus_literal() -> Str {
+  "[\"\", \" \", \"a\", \"Hello, World!\", \"--a--\", \"  spaced   out  \", \"ALL CAPS\", \"x_y-z\", \"9 lives\", \"!!!\", \"a b\", \"one two three\", \"Cafe 100%!\", \"hello_world 2.0\"]"
+}
+
+fn int_corpus_literal() -> Str {
+  "[0, 1, -1, 2, 3, 5, 10, 100, -100, 1000]"
+}
+
+fn corpus_literal_for(ty :: Str) -> Str
+  examples {
+    corpus_literal_for("Str") => str_corpus_literal(),
+    corpus_literal_for("Int") => int_corpus_literal(),
+    corpus_literal_for("Bool") => "[true, false]"
+  }
+{
+  if ty == "Str" {
+    str_corpus_literal()
+  } else {
+    if ty == "Int" {
+      int_corpus_literal()
+    } else {
+      "[true, false]"
+    }
+  }
+}
+
+# ---- invariants: real functions, validated the same way a signature is ----
+fn invariant_signature(name :: Str, params :: List[plan.Param]) -> Str {
+  str.join(["(", str.join(list.map(params, fn (p :: plan.Param) -> Str {
+    str.join([p.name, " :: ", p.ty], "")
+  }), ", "), ") -> Bool"], "")
+}
+
+fn invariant_fn_name(unit_key :: Str, inv_name :: Str) -> Str {
+  str.join(["inv_", unit_key, "_", inv_name], "")
+}
+
+# The invariant as a real (non-stub) function: it is fully specified by the
+# plan, so it does not wait to be filled in — only the functions it calls do.
+fn render_invariant(unit_key :: Str, inv :: plan.Invariant) -> Str {
+  str.join(["fn ", invariant_fn_name(unit_key, inv.name), invariant_signature("", inv.params), " {\n  ", inv.expr, "\n}\n\n"], "")
+}
+
+# For layer 1 (stub compile): the same function, so a malformed expression or
+# a wrong param type is rejected by the real type checker before anything is
+# filed — exactly the treatment a signature gets.
+fn render_invariant_check(unit_key :: Str, inv :: plan.Invariant) -> Chunk {
+  { label: str.join(["unit `", unit_key, "` invariant `", inv.name, "`"], ""), text: render_invariant(unit_key, inv) }
+}
+
+fn invariant_chunks(p :: plan.Plan) -> List[Chunk] {
+  list.fold(p.units, [], fn (acc :: List[Chunk], u :: plan.PlanUnit) -> List[Chunk] {
+    list.concat(acc, list.map(u.invariants, fn (i :: plan.Invariant) -> Chunk {
+      render_invariant_check(u.key, i)
+    }))
+  })
+}
+
+fn invariant_errors(p :: plan.Plan) -> List[Str] {
+  list.fold(p.units, [], fn (acc :: List[Str], u :: plan.PlanUnit) -> List[Str] {
+    let names := list.map(u.invariants, fn (i :: plan.Invariant) -> Str {
+      i.name
+    })
+    let dups := list.map(plan.duplicates(names), fn (n :: Str) -> Str {
+      str.join(["unit `", u.key, "`: invariant `", n, "` is declared twice"], "")
+    })
+    let shape := list.fold(u.invariants, [], fn (acc2 :: List[Str], i :: plan.Invariant) -> List[Str] {
+      if list.is_empty(i.params) or str.is_empty(str.trim(i.expr)) {
+        list.concat(acc2, [str.join(["unit `", u.key, "`: invariant `", i.name, "` needs at least one param and a non-empty expr"], "")])
+      } else {
+        list.fold(i.params, acc2, fn (acc3 :: List[Str], param :: plan.Param) -> List[Str] {
+          if param.ty == "Str" or param.ty == "Int" or param.ty == "Bool" {
+            acc3
+          } else {
+            list.concat(acc3, [str.join(["unit `", u.key, "`: invariant `", i.name, "` param `", param.name, "` has type `", param.ty, "` — only Str, Int and Bool have a corpus"], "")])
+          }
+        })
+      }
+    })
+    list.concat(acc, list.concat(dups, shape))
+  })
+}
+
+# ---- the hardening harness, generated, never written by a model ----------
+#
+# One check per invariant, over the cross product of its params' corpora
+# (capped, so two Str params — 14 x 14 — stay fast). Each records the calls
+# where the invariant came back false, as literal Lex source for that exact
+# call — text a `failing_example` issue can use as its example verbatim.
+fn max_combos() -> Int {
+  200
+}
+
+fn render_arg(ty :: Str, v :: Str) -> Str
+  examples {
+    render_arg("Str", "a b") => "\"a b\"",
+    render_arg("Int", "3") => "3"
+  }
+{
+  if ty == "Str" {
+    str.concat("\"", str.concat(v, "\""))
+  } else {
+    v
+  }
+}
+
+# `str_corpus_literal`'s entries, unquoted, for building call text. Kept in
+# lockstep with it deliberately rather than derived, so both stay literal and
+# reviewable.
+fn str_corpus_values() -> List[Str] {
+  ["", " ", "a", "Hello, World!", "--a--", "  spaced   out  ", "ALL CAPS", "x_y-z", "9 lives", "!!!", "a b", "one two three", "Cafe 100%!", "hello_world 2.0"]
+}
+
+fn int_corpus_values() -> List[Str] {
+  ["0", "1", "-1", "2", "3", "5", "10", "100", "-100", "1000"]
+}
+
+fn corpus_values_for(ty :: Str) -> List[Str] {
+  if ty == "Str" {
+    str_corpus_values()
+  } else {
+    if ty == "Int" {
+      int_corpus_values()
+    } else {
+      ["true", "false"]
+    }
+  }
+}
+
+# Every combination of values across `params`, as literal-argument lists,
+# capped at `max_combos`.
+fn combos(params :: List[plan.Param]) -> List[List[Str]] {
+  let per := list.map(params, fn (p :: plan.Param) -> List[Str] {
+    corpus_values_for(p.ty)
+  })
+  let raw := list.fold(per, [[]], fn (acc :: List[List[Str]], vals :: List[Str]) -> List[List[Str]] {
+    list.fold(acc, [], fn (acc2 :: List[List[Str]], prefix :: List[Str]) -> List[List[Str]] {
+      list.concat(acc2, list.map(vals, fn (v :: Str) -> List[Str] {
+        list.concat(prefix, [v])
+      }))
+    })
+  })
+  list.fold(list.enumerate(raw), [], fn (acc :: List[List[Str]], pair :: (Int, List[Str])) -> List[List[Str]] {
+    match pair {
+      (i, combo) => if i < max_combos() {
+        list.concat(acc, [combo])
+      } else {
+        acc
+      },
+    }
+  })
+}
+
+# Pair each value with its param's type and render it as a literal.
+fn render_args(params :: List[plan.Param], values :: List[Str]) -> List[Str] {
+  match list.head(params) {
+    None => [],
+    Some(p) => match list.head(values) {
+      None => [],
+      Some(v) => list.cons(render_arg(p.ty, v), render_args(list.tail(params), list.tail(values))),
+    },
+  }
+}
+
+fn call_text(fn_name :: Str, params :: List[plan.Param], values :: List[Str]) -> Str {
+  str.join([fn_name, "(", str.join(render_args(params, values), ", "), ")"], "")
+}
+
+# For one invariant: a checker function returning the calls (as literal
+# source) where it came back false — plain generated code, not a fold, so the
+# generated file reads like something a person would write by hand.
+# A flat `[r0, r1, ...]` list literal plus a fold, not a chain of nested
+# `list.concat` calls: at 200 combos a chained expression exceeds Lex's parser
+# nesting limit (max 96) — found by actually running this against a corpus
+# that size, not by inspection.
+fn invariant_check_fn(u :: plan.PlanUnit, i :: plan.Invariant) -> Str {
+  let fname := invariant_fn_name(u.key, i.name)
+  let qualified := str.concat("t.", fname)
+  let checker := str.concat("__check_", fname)
+  let cs := combos(i.params)
+  let bindings := list.map(list.enumerate(cs), fn (pair :: (Int, List[Str])) -> Str {
+    match pair {
+      (n, values) => {
+        let call := call_text(qualified, i.params, values)
+        let readable := call_text(fname, i.params, values)
+        let quoted := str.concat("\"", str.concat(str.replace(str.replace(readable, "\\", "\\\\"), "\"", "\\\""), "\""))
+        str.join(["  let r", int.to_str(n), " := if ", call, " { [] } else { [", quoted, "] }\n"], "")
+      },
+    }
+  })
+  let names := list.map(list.range(0, list.len(cs)), fn (n :: Int) -> Str {
+    str.concat("r", int.to_str(n))
+  })
+  str.join(["fn ", checker, "() -> [io] List[Str] {\n", str.join(bindings, ""), "  flatten([", str.join(names, ", "), "])\n}\n\n"], "")
+}
+
+fn invariant_check_fn_name(u :: plan.PlanUnit, i :: plan.Invariant) -> Str {
+  str.concat("__check_", invariant_fn_name(u.key, i.name))
+}
+
+# Every invariant checker over every unit, plus a run_all()/failing_calls()
+# pair matching `lex test`'s convention (`run_all() -> Int`, non-zero = a
+# failing count) and giving the driver the literal calls that came back
+# false, ready to become failing_example issues.
+fn harden_source(p :: plan.Plan) -> Str {
+  let all_invs := list.fold(p.units, [], fn (acc :: List[(plan.PlanUnit, plan.Invariant)], u :: plan.PlanUnit) -> List[(plan.PlanUnit, plan.Invariant)] {
+    list.concat(acc, list.map(u.invariants, fn (i :: plan.Invariant) -> (plan.PlanUnit, plan.Invariant) {
+      (u, i)
+    }))
+  })
+  let checker_fns := str.join(list.map(all_invs, fn (p2 :: (plan.PlanUnit, plan.Invariant)) -> Str {
+    match p2 {
+      (u, i) => invariant_check_fn(u, i),
+    }
+  }), "")
+  let checker_names := list.map(all_invs, fn (p2 :: (plan.PlanUnit, plan.Invariant)) -> Str {
+    match p2 {
+      (u, i) => invariant_check_fn_name(u, i),
+    }
+  })
+  let calls := str.join(list.map(checker_names, fn (n :: Str) -> Str {
+    str.concat(n, "()")
+  }), ", ")
+  let flatten_fn := "fn flatten(xss :: List[List[Str]]) -> List[Str] {\n  list.fold(xss, [], fn (acc :: List[Str], x :: List[Str]) -> List[Str] {\n    list.concat(acc, x)\n  })\n}\n\n"
+  str.join(["import \"../src/", p.project, "\" as t\n\n", "import \"std.str\" as str\n\n", "import \"std.list\" as list\n\n", flatten_fn, checker_fns, "fn failing_calls() -> [io] List[Str] {\n  flatten([", calls, "])\n}\n\n", "fn run_all() -> [io] Int {\n  list.len(failing_calls())\n}\n"], "")
 }
 
