@@ -8,12 +8,13 @@
 #                          examples cover only one outcome; a project policy
 #                          (e.g. one error type everywhere) applied to every unit
 #   layer 1 (stub compile) the plan is turned into a module in which every
-#                          function's body just calls itself — well-typed for
-#                          any signature — plus one checker function per
-#                          example, and the real `lex check` judges it. That
-#                          catches malformed signatures and examples whose
-#                          arguments or expected value do not fit the
-#                          signature, with the checker's own error and position.
+#                          function's body is `todo()` (lex-lang#1080) —
+#                          well-typed for any signature — plus one checker
+#                          function per example, and the real `lex check`
+#                          judges it. That catches malformed signatures and
+#                          examples whose arguments or expected value do not
+#                          fit the signature, with the checker's own error
+#                          and position.
 #
 # `stub_program` is also the scaffold: the same text, published, is the
 # starting point of every task — signatures already in place, an agent only
@@ -162,30 +163,6 @@ fn top_split(s :: Str) -> List[Str]
 }
 
 # ---- signature pieces -------------------------------------------------
-# `(a :: Int, b :: Str) -> R` → ["a", "b"]
-fn param_names(sig :: Str) -> List[Str]
-  examples {
-    param_names("(a :: Int, b :: Map[Str, Int]) -> Int") => ["a", "b"],
-    param_names("() -> Int") => [],
-    param_names("(x :: (Int, Str)) -> Int") => ["x"]
-  }
-{
-  match str.strip_prefix(str.trim(sig), "(") {
-    None => [],
-    Some(rest) => match until_close(rest, ")") {
-      None => [],
-      Some(body) => list.map(list.filter(top_split(body), fn (p :: Str) -> Bool {
-        not str.is_empty(p)
-      }), fn (p :: Str) -> Str {
-        match list.head(str.split(p, "::")) {
-          Some(n) => str.trim(n),
-          None => "",
-        }
-      }),
-    },
-  }
-}
-
 # Everything after the first `->`.
 fn return_type(sig :: Str) -> Str
   examples {
@@ -372,13 +349,20 @@ type Chunk = { label :: Str, text :: Str }
 
 type StubProgram = { source :: Str, labels :: List[(Int, Str)] }
 
+# A stub body of `todo()` (lex-lang#1080) rather than a self-recursive
+# call: both compile and both do nothing if never reached, but a build
+# task that leaves this one alone gets an immediate, legible
+# "todo() reached" panic the moment hardening or another issue's
+# examples exercise it — not a step-limit timeout that looks like a
+# hang. `todo()` type-checks as `Never`, so it unifies against any
+# signature with no per-signature reconstruction needed.
 fn stub_fn(a :: plan.Api) -> Str
   examples {
-    stub_fn({ name: "f", signature: "(x :: Int, y :: Str) -> Int" }) => "fn f(x :: Int, y :: Str) -> Int {\n  f(x, y)\n}\n\n",
-    stub_fn({ name: "serve", signature: "() -> [net] Nil" }) => "fn serve() -> [net] Nil {\n  serve()\n}\n\n"
+    stub_fn({ name: "f", signature: "(x :: Int, y :: Str) -> Int" }) => "fn f(x :: Int, y :: Str) -> Int {\n  todo()\n}\n\n",
+    stub_fn({ name: "serve", signature: "() -> [net] Nil" }) => "fn serve() -> [net] Nil {\n  todo()\n}\n\n"
   }
 {
-  str.join(["fn ", a.name, a.signature, " {\n  ", a.name, "(", str.join(param_names(a.signature), ", "), ")\n}\n\n"], "")
+  str.join(["fn ", a.name, a.signature, " {\n  todo()\n}\n\n"], "")
 }
 
 fn example_fn(n :: Int, e :: Str) -> Str
