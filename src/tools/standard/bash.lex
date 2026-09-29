@@ -82,6 +82,24 @@ fn truncate_output(s :: Str) -> Str {
 # first line, unconditionally; caught by timing the fast path, not by
 # reading the script.
 #
+# The watchdog subshell (`(sleep …; kill_tree …) &`) is explicitly
+# redirected to `/dev/null`, not left to inherit this script's own
+# stdout/stderr. Reproduced live, in a real `--auto` run: without this,
+# EVERY call through this tool — even `pwd`, seconds of real work —
+# took the *entire* timeout, every time, because `execute` reads the
+# child's output via `std::process::Command::output()`, which blocks
+# until it reads true EOF on the pipe. The main script (and the real
+# command) can finish and exit in milliseconds, but the watchdog
+# subshell, still sleeping in the background, still holds the *same*
+# inherited stdout/stderr open — so the pipe's write end stays open,
+# and `output()` keeps blocking, until that background sleep finally
+# ends on its own. Manual tests that check "is the PID still alive"
+# (`kill -0`) never see this, because they don't wait for genuine pipe
+# EOF the way `Command::output()` does — confirmed by reproducing both
+# the failure and the fix under a harness that actually does
+# (`subprocess.run(capture_output=True)`), not by re-running the
+# existing tests, which passed throughout.
+#
 # No `[env]` knob for this: `execute` fills `Tool.execute`'s field,
 # whose row `lex-llm/tool` fixes at exactly `[io, net, proc]` — adding
 # an effect here to read an override is the library-widening move
@@ -91,7 +109,7 @@ fn timeout_secs() -> Int {
 }
 
 fn watchdog_script(timeout :: Int) -> Str {
-  str.join(["flag=$(mktemp)\n", "rm -f \"$flag\"\n", "bash -c \"$1\" &\n", "child=$!\n", "(\n", "  sleep ", int.to_str(timeout), "\n", "  touch \"$flag\"\n", "  kill_tree() {\n", "    local pid=$1\n", "    local c\n", "    for c in $(pgrep -P \"$pid\" 2>/dev/null); do\n", "      kill_tree \"$c\"\n", "    done\n", "    kill -KILL \"$pid\" 2>/dev/null\n", "  }\n", "  kill_tree \"$child\"\n", ") &\n", "watchdog=$!\n", "wait \"$child\" 2>/dev/null\n", "status=$?\n", "kill \"$watchdog\" 2>/dev/null\n", "wait \"$watchdog\" 2>/dev/null\n", "if [ -f \"$flag\" ]; then\n", "  echo \"[lex-code bash tool] command exceeded ", int.to_str(timeout), "s and was killed\" >&2\n", "fi\n", "rm -f \"$flag\"\n", "exit \"$status\"\n"], "")
+  str.join(["flag=$(mktemp)\n", "rm -f \"$flag\"\n", "bash -c \"$1\" &\n", "child=$!\n", "(\n", "  sleep ", int.to_str(timeout), "\n", "  touch \"$flag\"\n", "  kill_tree() {\n", "    local pid=$1\n", "    local c\n", "    for c in $(pgrep -P \"$pid\" 2>/dev/null); do\n", "      kill_tree \"$c\"\n", "    done\n", "    kill -KILL \"$pid\" 2>/dev/null\n", "  }\n", "  kill_tree \"$child\"\n", ") </dev/null >/dev/null 2>&1 &\n", "watchdog=$!\n", "wait \"$child\" 2>/dev/null\n", "status=$?\n", "kill \"$watchdog\" 2>/dev/null\n", "wait \"$watchdog\" 2>/dev/null\n", "if [ -f \"$flag\" ]; then\n", "  echo \"[lex-code bash tool] command exceeded ", int.to_str(timeout), "s and was killed\" >&2\n", "fi\n", "rm -f \"$flag\"\n", "exit \"$status\"\n"], "")
 }
 
 fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
