@@ -34,6 +34,8 @@ import "../package_flow/apply" as papply
 
 import "../package_flow/parallel" as par
 
+import "../tools/session_health" as health
+
 import "../server/session" as sess
 
 import "../server/multi_agent" as multi
@@ -382,7 +384,29 @@ fn run_task_turn(task :: Str, provider_tag :: Str) -> [env, io, net, llm, proc, 
 
 # Ask the planner for a plan, check it, and while the check rejects it send the
 # problems back — up to `tries` rounds. Ok = a plan that passed every check.
-fn plan_loop(name :: Str, provider_tag :: Str, tries :: Int, prompt :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Result[pplan.Plan, List[Str]] {
+fn errs_repeated(errs :: List[Str], prev :: Option[List[Str]]) -> Bool
+  examples {
+    errs_repeated(["a"], None) => false,
+    errs_repeated(["a", "b"], Some(["a", "b"])) => true,
+    errs_repeated(["a", "b"], Some(["b", "a"])) => false,
+    errs_repeated(["a"], Some(["a", "b"])) => false
+  }
+{
+  match prev {
+    None => false,
+    Some(p) => p == errs,
+  }
+}
+
+# `prev_errs` is the previous attempt's own rejection, if any — carried
+# so a repeat can be told apart from a first offense. Reproduced live: a
+# repair-loop attempt can reject on the exact same problems as the one
+# before it, turn after turn — the planner isn't acting on the repair
+# prompt's own errors, and nothing said so until every try was spent.
+# The check is exact list equality on purpose: `full_check`'s errors are
+# deterministic given the same plan text, so a genuine fix changes the
+# list, not just its wording.
+fn plan_loop(name :: Str, provider_tag :: Str, tries :: Int, prompt :: Str, prev_errs :: Option[List[Str]]) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Result[pplan.Plan, List[Str]] {
   let path := plan_path(name)
   let __turn := run_task_turn(prompt, provider_tag)
   let checked := match io.read(path) {
@@ -394,8 +418,14 @@ fn plan_loop(name :: Str, provider_tag :: Str, tries :: Int, prompt :: Str) -> [
     Err(errs) => if tries <= 1 {
       Err(errs)
     } else {
-      let __again := io.print(str.join(["\n[PLAN] rejected by validation (", int.to_str(list.len(errs)), " problems) — sending them back to the planner, ", int.to_str(tries - 1), " tries left"], ""))
-      plan_loop(name, provider_tag, tries - 1, pplan.repair_prompt(errs, path))
+      let repeated := errs_repeated(errs, prev_errs)
+      let note := if repeated {
+        " — SAME problems as the last attempt (the planner isn't acting on the repair prompt)"
+      } else {
+        ""
+      }
+      let __again := io.print(str.join(["\n[PLAN] rejected by validation (", int.to_str(list.len(errs)), " problems)", note, " — sending them back to the planner, ", int.to_str(tries - 1), " tries left"], ""))
+      plan_loop(name, provider_tag, tries - 1, pplan.repair_prompt(errs, path), Some(errs))
     },
   }
 }
@@ -409,7 +439,7 @@ fn fresh_plan_prompt(brief :: Str, name :: Str) -> [proc] Str {
 
 fn run_package_plan(brief :: Str, name :: Str, provider_tag :: Str, tries :: Int) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
   let path := plan_path(name)
-  match plan_loop(name, provider_tag, tries, fresh_plan_prompt(brief, name)) {
+  match plan_loop(name, provider_tag, tries, fresh_plan_prompt(brief, name), None) {
     Err(errs) => io.print(str.join(["\nthe plan does not pass validation — fix ", path, " (or re-run) and check it with --package-check=", name, ":\n  - ", str.join(errs, "\n  - "), "\n[PLAN]\tinvalid\t", name], "")),
     Ok(plan) => io.print(str.join(["\nplan for `", name, "` — ", int.to_str(list.len(plan.units)), " units, in dependency order, all checks pass:\n", pplan.render_plan(plan), "\n\nfile it:  lex-code --package-apply=", name, "\n[PLAN]\tvalid\t", name], "")),
   }
@@ -419,7 +449,7 @@ fn run_package_plan(brief :: Str, name :: Str, provider_tag :: Str, tries :: Int
 # until it passes validation), scaffold and file it, then drive it to done.
 fn run_package_auto(brief :: Str, name :: Str, argv :: List[Str], provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
   let tries := pb.flag_int(argv, "--plan-tries=", 3)
-  match plan_loop(name, provider_tag, tries, fresh_plan_prompt(brief, name)) {
+  match plan_loop(name, provider_tag, tries, fresh_plan_prompt(brief, name), None) {
     Err(errs) => io.print(str.join(["\n[AUTO] stopped at planning — no plan passed validation:\n  - ", str.join(errs, "\n  - "), "\n[PROJECT_VERDICT]\tno_plan\t", name], "")),
     Ok(plan) => match apply_checked_plan(plan) {
       Err(e) => io.print(str.join(["\n[AUTO] stopped at filing: ", e, "\n[PROJECT_VERDICT]\tno_scaffold\t", name], "")),
@@ -1232,7 +1262,10 @@ fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, ap
     Some(name) => run_package_check(name),
     None => match pb.flag_value(argv, "--package-apply=") {
       Some(name) => run_package_apply(name),
-      None => run_main_rest(argv, inv, provider_tag, mode),
+      None => match pb.flag_value(argv, "--session-health=") {
+        Some(path) => health.run_session_health(path),
+        None => run_main_rest(argv, inv, provider_tag, mode),
+      },
     },
   }
 }
