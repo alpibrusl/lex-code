@@ -139,6 +139,20 @@ fn titles(rs :: List[Ready]) -> Str {
   }), "; ")
 }
 
+# Ready issues that still have attempts left. Shared by the sequential
+# and `--parallel` loops so neither can spin on one issue forever.
+fn under_cap(ready :: List[Ready], attempts :: List[(Str, Int)], max_attempts :: Int) -> List[Ready]
+  examples {
+    under_cap([{ id: "a", title: "A" }, { id: "b", title: "B" }], [("a", 4)], 4) => [{ id: "b", title: "B" }],
+    under_cap([{ id: "a", title: "A" }], [("a", 3)], 4) => [{ id: "a", title: "A" }],
+    under_cap([], [], 4) => []
+  }
+{
+  list.filter(ready, fn (r :: Ready) -> Bool {
+    attempts_of(attempts, r.id) < max_attempts
+  })
+}
+
 # The next step. Ready issues are taken in the order the board lists them
 # (creation order, so the planner's order). One that has used up its
 # attempts is skipped — its dependents then never become ready, which is
@@ -156,9 +170,7 @@ fn decide(board :: Board, attempts :: List[(Str, Int)], primary :: Str, fallback
   if board.done {
     PkgDone
   } else {
-    let open := list.filter(board.ready, fn (r :: Ready) -> Bool {
-      attempts_of(attempts, r.id) < max_attempts
-    })
+    let open := under_cap(board.ready, attempts, max_attempts)
     match list.head(open) {
       Some(r) => PkgRun(r.id, provider_for(attempts_of(attempts, r.id), primary, fallback, switch_after)),
       None => if list.is_empty(board.ready) {

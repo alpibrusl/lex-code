@@ -681,7 +681,7 @@ fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_
 # escalation here (a stuck issue's contract doesn't change by trying a
 # different model N-at-a-time instead of one-at-a-time); `--fallback=`
 # only has meaning for `project_loop`'s sequential path.
-fn project_loop_parallel(project :: Str, primary :: Str, guidance :: Str, concurrency :: Int, fuel :: Int, last_errors :: List[(Str, Str)]) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
+fn project_loop_parallel(project :: Str, primary :: Str, guidance :: Str, concurrency :: Int, fuel :: Int, max_attempts :: Int, attempts :: List[(Str, Int)], last_errors :: List[(Str, Str)]) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
   if fuel <= 0 {
     "budget"
   } else {
@@ -693,9 +693,18 @@ fn project_loop_parallel(project :: Str, primary :: Str, guidance :: Str, concur
       Ok(board) => if board.done {
         "done"
       } else {
-        let batch := par.take_ready(board.ready, concurrency)
+        let open := pb.under_cap(board.ready, attempts, max_attempts)
+        let batch := par.take_ready(open, concurrency)
         if list.is_empty(batch) {
-          let __s := io.print(str.join(["[PROJECT] stuck: nothing ready (", int.to_str(board.verified), "/", int.to_str(board.total), " verified)"], ""))
+          let __s := if list.is_empty(board.ready) {
+            io.print(str.join(["[PROJECT] stuck: nothing ready (", int.to_str(board.verified), "/", int.to_str(board.total), " verified)"], ""))
+          } else {
+            io.print(str.join(["[PROJECT] stuck: gave up after ", int.to_str(max_attempts), " attempts on: ", pb.titles(board.ready), " (", int.to_str(board.verified), "/", int.to_str(board.total), " verified; verified work is kept — rerun to try again, or raise --max-attempts=)\n", str.join(list.map(last_errors, fn (e :: (Str, Str)) -> Str {
+              match e {
+                (eid, msg) => str.join(["  last error for ", eid, ": ", msg], ""),
+              }
+            }), "\n")], ""))
+          }
           "stuck"
         } else {
           let ids := list.map(batch, fn (r :: pb.Ready) -> Str {
@@ -708,7 +717,9 @@ fn project_loop_parallel(project :: Str, primary :: Str, guidance :: Str, concur
           })
           let __report := io.print(str.join(lines, "\n"))
           let __reg := regression_pass(project)
-          project_loop_parallel(project, primary, guidance, concurrency, fuel - list.len(ids), par.update_errors(last_errors, outcomes))
+          project_loop_parallel(project, primary, guidance, concurrency, fuel - list.len(ids), max_attempts, list.fold(ids, attempts, fn (acc :: List[(Str, Int)], id :: Str) -> List[(Str, Int)] {
+            pb.bump_attempts(acc, id)
+          }), par.update_errors(last_errors, outcomes))
         }
       },
     }
@@ -846,7 +857,7 @@ fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, n
   }
   let concurrency := pb.flag_int(argv, "--parallel=", 1)
   let status := if concurrency > 1 {
-    project_loop_parallel(project, primary, guidance, concurrency, fuel, [])
+    project_loop_parallel(project, primary, guidance, concurrency, fuel, max_attempts, [], [])
   } else {
     project_loop(project, primary, fallback, switch_after, max_attempts, [], fuel, guidance)
   }
