@@ -146,13 +146,22 @@ fn capability_counts(calls :: List[CallStat]) -> List[(Str, Int)] {
   })
 }
 
+fn near_calls_for_ceiling(calls :: List[CallStat], ceiling :: Int) -> List[CallStat] {
+  list.filter(calls, fn (c :: CallStat) -> Bool {
+    near_ceiling(latency_ms(c), ceiling)
+  })
+}
+
+# Advisory, deliberately sensitive: `--session-health` is read by a
+# person, who can tell "one merely-slow command" from "every call is
+# doing this" at a glance, so even one near-ceiling call is worth
+# surfacing. `systemic_ceiling_flags` below is the stricter gate for
+# code that acts on this alone, with no one to sanity-check it first.
 fn ceiling_flags(calls :: List[CallStat]) -> List[Str] {
   list.fold(known_ceilings_ms(), [], fn (acc :: List[Str], kv :: (Str, Int)) -> List[Str] {
     match kv {
       (label, ceiling) => {
-        let near := list.filter(calls, fn (c :: CallStat) -> Bool {
-          near_ceiling(latency_ms(c), ceiling)
-        })
+        let near := near_calls_for_ceiling(calls, ceiling)
         if list.is_empty(near) {
           acc
         } else {
@@ -162,6 +171,43 @@ fn ceiling_flags(calls :: List[CallStat]) -> List[Str] {
             }
           })
           list.concat(acc, [str.join([int.to_str(list.len(near)), "/", int.to_str(list.len(calls)), " calls landed within 10% of ", label, " — probably hitting this timeout repeatedly, not just slow: ", str.join(caps, ", ")], "")])
+        }
+      },
+    }
+  })
+}
+
+# The strict gate for code that acts alone: a single near-ceiling call
+# among many fine ones is unremarkable (a big install, a search that
+# genuinely took a while) and must not stop a run that's actually
+# working. Systemic — the pattern that cost 4.5 real hours before
+# anyone looked — needs BOTH a minimum count and a minimum share of
+# every call this session made; neither alone is enough (a session with
+# only 4 calls total, 1 of them slow, is 25% but not "systemic" by
+# count; a long session with 3 slow calls out of 500 is 3 by count but
+# not by share).
+fn systemic_ceiling_flags(calls :: List[CallStat]) -> List[Str]
+  examples {
+    systemic_ceiling_flags([{ capability: "bash", start_ts: 0, end_ts: 2000, outcome: "cap.completed" }]) => [],
+    systemic_ceiling_flags([{ capability: "bash", start_ts: 0, end_ts: 300000, outcome: "cap.completed" }, { capability: "bash", start_ts: 0, end_ts: 1000, outcome: "cap.completed" }, { capability: "bash", start_ts: 0, end_ts: 1000, outcome: "cap.completed" }]) => [],
+    systemic_ceiling_flags([{ capability: "bash", start_ts: 0, end_ts: 300000, outcome: "cap.completed" }, { capability: "bash", start_ts: 0, end_ts: 290000, outcome: "cap.completed" }, { capability: "bash", start_ts: 0, end_ts: 295000, outcome: "cap.completed" }, { capability: "bash", start_ts: 0, end_ts: 1000, outcome: "cap.completed" }]) => ["3/4 calls landed within 10% of the bash tool's 300s watchdog — probably hitting this timeout repeatedly, not just slow: bash (3)"]
+  }
+{
+  list.fold(known_ceilings_ms(), [], fn (acc :: List[Str], kv :: (Str, Int)) -> List[Str] {
+    match kv {
+      (label, ceiling) => {
+        let near := near_calls_for_ceiling(calls, ceiling)
+        let n := list.len(calls)
+        let systemic := list.len(near) >= 3 and n > 0 and list.len(near) * 100 >= n * 20
+        if not systemic {
+          acc
+        } else {
+          let caps := list.map(capability_counts(near), fn (kv2 :: (Str, Int)) -> Str {
+            match kv2 {
+              (k, count) => str.join([k, " (", int.to_str(count), ")"], ""),
+            }
+          })
+          list.concat(acc, [str.join([int.to_str(list.len(near)), "/", int.to_str(n), " calls landed within 10% of ", label, " — probably hitting this timeout repeatedly, not just slow: ", str.join(caps, ", ")], "")])
         }
       },
     }
