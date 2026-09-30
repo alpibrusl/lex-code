@@ -369,3 +369,57 @@ fn append_extra_fns(canonical :: Str, child :: Str, declared :: List[Str]) -> St
   })
 }
 
+# Reproduced live: a `--parallel` project reported "6/6 verified" and
+# `[PROJECT_VERDICT] done` for a package where four of six functions —
+# including the one whose merge attempt had *just* failed with
+# `example_mismatch: Panic("todo() reached")` — were still bare `todo()`
+# stubs in the published canonical file. Per-issue "verified" comes from
+# the VCS store (`lex issue verify`), which is a separate process this
+# module doesn't control and can be wrong for reasons that have nothing
+# to do with this file's actual text (a shared, unscoped global store
+# across concurrent unrelated projects being the one caught red-handed
+# so far — see AGENTS.md on always giving a project its own `lex.toml`).
+# Rather than trust that layer, or hardening's own crash (a runtime
+# panic mid-invariant-check, reported as the vague "unavailable" rather
+# than a clear diagnosis), this reads the one thing that can't lie: the
+# text of the file about to be called finished. `is_stub_body` checks
+# whether a named function's body is *exactly* `todo()` (nothing else in
+# it) — a real implementation that merely calls `todo()` somewhere deep
+# inside is a different, legitimate bug `lex check`/hardening already
+# catch; this is only for "this function was never touched at all".
+fn is_stub_body(source :: Str, name :: Str) -> Bool
+  examples {
+    is_stub_body("fn a() -> Int {\n  todo()\n}\n", "a") => true,
+    is_stub_body("fn a() -> Int { todo() }", "a") => true,
+    is_stub_body("fn a() -> Int {\n  1\n}\n", "a") => false,
+    is_stub_body("fn a() -> Int {\n  todo() + 1\n}\n", "a") => false,
+    is_stub_body("fn a() -> Int {\n  1\n}\n", "missing") => false
+  }
+{
+  match fn_start(source, name) {
+    None => false,
+    Some(start) => match body_open(source, start) {
+      None => false,
+      Some(open) => match body_close(source, open) {
+        None => false,
+        Some(close) => str.trim(str.slice(source, open + 1, close)) == "todo()",
+      },
+    },
+  }
+}
+
+# Every top-level function `source` declares whose body is still a bare
+# `todo()` stub, in declaration order — the set that must be empty
+# before a package can honestly be called done, independent of whatever
+# any store-backed "verified" status claims.
+fn stub_fn_names(source :: Str) -> List[Str]
+  examples {
+    stub_fn_names("fn a() -> Int {\n  todo()\n}\n\nfn b() -> Int {\n  2\n}\n") => ["a"],
+    stub_fn_names("fn a() -> Int {\n  1\n}\n") => []
+  }
+{
+  list.filter(all_fn_names(source), fn (name :: Str) -> Bool {
+    is_stub_body(source, name)
+  })
+}
+

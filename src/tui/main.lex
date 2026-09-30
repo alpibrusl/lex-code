@@ -34,6 +34,8 @@ import "../package_flow/apply" as papply
 
 import "../package_flow/parallel" as par
 
+import "../package_flow/merge" as merge
+
 import "../tools/session_health" as health
 
 import "../server/session" as sess
@@ -838,14 +840,35 @@ fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, n
     project_loop(project, primary, fallback, switch_after, max_attempts, [], fuel, guidance)
   }
   let __final := regression_pass(project)
-  let gate := if status == "done" {
-    if has_flag(argv, "--no-harden") {
-      package_gate()
-    } else {
-      harden(project, primary, fallback, switch_after, max_attempts, guidance, argv)
-    }
+  # Reproduced live (2026-09-30): a `--parallel` run reported "6/6
+  # verified" and `[PROJECT_VERDICT] done` for a package where four of
+  # six functions — including one whose own merge attempt had *just*
+  # failed with `Panic("todo() reached")` — were still bare `todo()`
+  # stubs in the published file. Per-issue "verified" comes from the VCS
+  # store (`lex issue verify`), a separate process this loop doesn't
+  # control; trusting it alone means a store-level problem (a shared,
+  # unscoped global store across concurrent unrelated projects, in the
+  # case that was caught) can make a broken package look finished. This
+  # reads the one thing that can't be wrong for someone else's reasons:
+  # the actual text of the file about to be called done.
+  let scaffold_path := str.join(["src/", project, ".lex"], "")
+  let stubs := match io.read(scaffold_path) {
+    Err(_) => [],
+    Ok(source) => merge.stub_fn_names(source),
+  }
+  let gate := if not list.is_empty(stubs) {
+    let __w := io.print(str.join(["[PROJECT] ⚠ still stubbed (todo()) despite the board reporting done: ", str.join(stubs, ", "), " — not safe to call this package finished. If nothing else is running against the same store, run `lex pkg init` here (or pass --store) to give this project its own, then try again."], ""))
+    "fail"
   } else {
-    "skipped"
+    if status == "done" {
+      if has_flag(argv, "--no-harden") {
+        package_gate()
+      } else {
+        harden(project, primary, fallback, switch_after, max_attempts, guidance, argv)
+      }
+    } else {
+      "skipped"
+    }
   }
   io.print(str.join(["[PROJECT_VERDICT]\t", status, "\t", project, "\n[PACKAGE_GATE]\t", gate, "\t", project, "\n"], ""))
 }
