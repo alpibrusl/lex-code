@@ -383,6 +383,61 @@ fn tool_bug_check(session_id :: Str) -> [sql, fs_write] Option[Str] {
   }
 }
 
+# A stable, fixed title across every firing — not one baked from the
+# per-incident counts (`reason`), which differ every time and would
+# defeat the dedup check below. `known_ceilings_ms` names one ceiling
+# today; if a second is ever added, this can grow into one title per
+# label, but a single fixed title covers the one case that exists.
+fn tool_bug_issue_title() -> Str {
+  "[auto] lex-code: tool-call latency cluster suggests a timeout bug"
+}
+
+# Checked with `gh issue list`, not tracked locally: the source of
+# truth for "does an open report already exist" is the repo itself, and
+# a run in a fresh checkout has no local state to check against anyway.
+fn tool_bug_issue_open_already(title :: Str) -> [proc] Result[Bool, Str] {
+  match proc.run("gh", ["issue", "list", "--repo", "alpibrusl/lex-code", "--search", title, "--state", "open", "--json", "number"]) {
+    Err(e) => Err(e),
+    Ok(out) => if out.exit_code != 0 {
+      Err(str.trim(str.concat(out.stdout, out.stderr)))
+    } else {
+      match jv.parse(str.trim(out.stdout)) {
+        Err(_) => Err("could not parse `gh issue list`'s own output"),
+        Ok(j) => match jv.as_list(j) {
+          None => Err("`gh issue list --json number` did not return an array"),
+          Some(items) => Ok(not list.is_empty(items)),
+        },
+      }
+    },
+  }
+}
+
+# Filed against lex-code itself: `tool_bug_check`'s whole premise is
+# that this specific pattern (a known, hardcoded timeout, clustered) is
+# a bug in the TOOL, not the model or the task — every real instance
+# found this session was fixed at the tool, never by retrying. Checks
+# for an existing open report first so a recurring bug doesn't spam
+# duplicates; silently skips filing (with a clear reason printed) on
+# any step that fails, rather than risk a malformed or duplicate issue.
+fn file_tool_bug_issue(project :: Str, issue_id :: Str, reason :: Str, session_path :: Str) -> [proc, io] Nil {
+  let title := tool_bug_issue_title()
+  match tool_bug_issue_open_already(title) {
+    Err(e) => io.print(str.join(["[PROJECT] could not check for an existing tool-bug report (", e, ") — not filing, to avoid risking a duplicate"], "")),
+    Ok(true) => io.print(str.join(["[PROJECT] an open tool-bug report already exists (\"", title, "\") — not filing a duplicate. See: gh issue list --repo alpibrusl/lex-code --search \"", title, "\""], "")),
+    Ok(false) => {
+      let body := str.join(["Automatically filed by lex-code's own live tool-bug detector (`project_loop`'s `tool_bug_check`) — not a person.\n\n", "**Project:** ", project, "\n", "**Issue that triggered this:** ", issue_id, "\n", "**Detected pattern:** ", reason, "\n", "**Session to inspect:** `lex-code --session-health=", session_path, "`\n\n", "Fires only when at least 3 tool calls AND at least 20% of one issue attempt's own calls land within 10% of a hardcoded timeout ceiling (`known_ceilings_ms` in `src/tools/session_health.lex`) — deliberately stricter than the advisory `--session-health` check, precisely so a single legitimately slow call never triggers this. Every real instance of this pattern found so far was a genuine tool bug (not the model, not the task) fixed in the tool itself, never by retrying.\n"], "")
+      match proc.run("gh", ["issue", "create", "--repo", "alpibrusl/lex-code", "--title", title, "--body", body]) {
+        Err(e) => io.print(str.concat("[PROJECT] failed to file the tool-bug report: ", e)),
+        Ok(out) => if out.exit_code == 0 {
+          io.print(str.concat("[PROJECT] filed: ", str.trim(out.stdout)))
+        } else {
+          io.print(str.concat("[PROJECT] `gh issue create` failed: ", str.trim(str.concat(out.stdout, out.stderr))))
+        },
+      }
+    },
+  }
+}
+
 fn run_issue(issue_id :: Str, guidance :: Option[Str], mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
   let verdict := run_issue_verdict(issue_id, guidance, mode, provider_tag)
   io.print(str.join(["[ISSUE_VERDICT]\t", verdict, "\t", issue_id, "\n"], ""))
@@ -589,7 +644,9 @@ fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_
             let __v := io.print(str.join(["[PROJECT] issue ", id, " → ", verdict], ""))
             match tool_bug_check(outcome.session_id) {
               Some(reason) => {
-                let __why := io.print(str.join(["[PROJECT] ⚠ STOPPING — this looks like a lex-code tooling bug, not a model or task problem: ", reason, ". Retrying won't fix it; check `--session-health=.lex/sessions/", outcome.session_id, ".db` before running again. Verified issues are kept."], ""))
+                let session_path := str.join([".lex/sessions/", outcome.session_id, ".db"], "")
+                let __why := io.print(str.join(["[PROJECT] ⚠ STOPPING — this looks like a lex-code tooling bug, not a model or task problem: ", reason, ". Retrying won't fix it; check `--session-health=", session_path, "` before running again. Verified issues are kept."], ""))
+                let __file := file_tool_bug_issue(project, id, reason, session_path)
                 "tool_bug_suspected"
               },
               None => if verdict == "no_response" {
