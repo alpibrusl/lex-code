@@ -423,3 +423,50 @@ fn stub_fn_names(source :: Str) -> List[Str]
   })
 }
 
+# Reproduced live (2026-09-30): a helper `append_extra_fns` correctly
+# carried into the canonical scaffold — `round_cents_scaled`, calling
+# `float.to_int` exactly the way `lex_lang.lex`'s own reference tells an
+# agent to — merge_error'd on `unknown_identifier: float`, identically,
+# on every single retry, no matter how many times the issue was
+# redispatched: `append_extra_fns` carries a new function's TEXT, never
+# the import line it depends on, and neither `replace_fn_block` nor
+# anything else in this module ever looks at the import section of
+# either file. Every retry was doomed before the model ever wrote a
+# line — not a knowledge gap, not model inconsistency, a structural gap
+# in the merge itself. `import_lines`/`append_extra_imports` is the
+# other half of the same fix `append_extra_fns` already is for
+# functions: find every `import` line the child's copy has that the
+# canonical file doesn't (exact line match — these are short, regular
+# lines with no reason to differ only in whitespace), and prepend them.
+fn import_lines(source :: Str) -> List[Str] {
+  list.filter(list.map(str.split(source, "\n"), fn (line :: Str) -> Str {
+    str.trim(line)
+  }), fn (line :: Str) -> Bool {
+    str.starts_with(line, "import ")
+  })
+}
+
+fn extra_import_lines(canonical :: Str, child :: Str) -> List[Str]
+  examples {
+    extra_import_lines("import \"std.str\" as str\n", "import \"std.str\" as str\n\nimport \"std.float\" as float\n") => ["import \"std.float\" as float"],
+    extra_import_lines("import \"std.str\" as str\n", "import \"std.str\" as str\n") => []
+  }
+{
+  let canonical_imports := import_lines(canonical)
+  list.filter(import_lines(child), fn (line :: Str) -> Bool {
+    not list_has(canonical_imports, line)
+  })
+}
+
+# Prepended, not appended — an import line means nothing placed after
+# the code that needs it, and every real `.lex` file in this project
+# already puts every import before every `fn`.
+fn append_extra_imports(canonical :: Str, child :: Str) -> Str {
+  let extra := extra_import_lines(canonical, child)
+  if list.is_empty(extra) {
+    canonical
+  } else {
+    str.join([str.join(extra, "\n"), "\n\n", canonical], "")
+  }
+}
+
