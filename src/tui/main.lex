@@ -850,10 +850,25 @@ fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, n
     Err(_) => false,
     Ok(o) => str.trim(o.stdout) == "yes",
   }
-  let guidance := if scaffolded {
+  let base_guidance := if scaffolded {
     pb.scaffold_guidance(project)
   } else {
     pb.module_guidance(project)
+  }
+  let hint := match pb.flag_value(argv, "--hint=") {
+    Some(h) => h,
+    None => match pb.flag_value(argv, "--hint-file=") {
+      None => "",
+      Some(path) => match io.read(path) {
+        Err(_) => "",
+        Ok(t) => str.trim(t),
+      },
+    },
+  }
+  let guidance := if str.is_empty(hint) {
+    base_guidance
+  } else {
+    str.join([base_guidance, "\n\nHint from the human running this build — take it seriously, it comes from reading your earlier failed attempts:\n", hint], "")
   }
   let concurrency := pb.flag_int(argv, "--parallel=", 1)
   let status := if concurrency > 1 {

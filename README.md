@@ -329,7 +329,8 @@ would notice. A regressed issue simply comes back on the board.
 
 | flag | meaning |
 |---|---|
-| `--max-attempts=N` | attempts per issue before it is given up on (default 4) |
+| `--max-attempts=N` | attempts per issue before it is given up on (default 4; applies to `--parallel` too) |
+| `--hint=TEXT` / `--hint-file=PATH` | extra guidance appended to every issue's task on this run — use it when resuming a stuck build (`--project=NAME`; verified issues are kept) |
 | `--fallback=TAG` `--switch-after=N` | after N failures on an issue, hand it to another provider, e.g. `--ollama --fallback=opencode` (default 2) |
 | `--max-turns=N` | budget for the whole run (default 40) |
 | `--no-harden` | skip the closing turn that writes property tests |

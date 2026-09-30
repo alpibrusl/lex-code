@@ -204,7 +204,7 @@ fn merge_issue(project :: Str, r :: ChildResult) -> [proc, io] Result[Str, Str] 
               match proc.run("lex", ["check", check_path]) {
                 Err(e) => Err(e),
                 Ok(out) => if out.exit_code != 0 {
-                  Err(str.join(["merged ", scaffold_path, " for issue ", r.issue_id, " doesn't type-check — canonical scaffold left untouched:\n", str.trim(str.concat(out.stdout, out.stderr))], ""))
+                  Err(str.join(["merged ", scaffold_path, " for issue ", r.issue_id, " doesn't type-check — canonical scaffold left untouched:\n", str.trim(str.concat(out.stdout, out.stderr)), locate_error(merged, str.concat(out.stdout, out.stderr))], ""))
                 } else {
                   let __w2 := io.write(scaffold_path, merged)
                   match proc.run("lex", ["publish", scaffold_path, "--activate"]) {
@@ -308,6 +308,60 @@ fn update_errors(last_errors :: List[(Str, Str)], outcomes :: List[BatchOutcome]
       cleared
     }
   })
+}
+
+# A merge_error points at a line of `.lex/plans/<project>.merge-check.lex`,
+# a file that only exists in the canonical project: the model retrying in
+# its own isolated copy cannot open it, so "line 265" meant nothing to it
+# and the same mistake came back attempt after attempt. Quote the line
+# itself (for a whole-function error that is the `fn` header).
+fn check_error_line(out :: Str) -> Int {
+  list.fold(str.split(out, "\n"), 0, fn (acc :: Int, l :: Str) -> Int {
+    if acc > 0 or not str.starts_with(str.trim(l), "{") {
+      acc
+    } else {
+      match jv.parse(str.trim(l)) {
+        Err(_) => acc,
+        Ok(j) => match jv.get_field(j, "position") {
+          None => acc,
+          Some(pos) => match jv.get_field(pos, "line") {
+            None => acc,
+            Some(n) => match jv.as_int(n) {
+              None => acc,
+              Some(i) => i,
+            },
+          },
+        },
+      }
+    }
+  })
+}
+
+fn line_at(text :: Str, n :: Int) -> Str
+  examples {
+    line_at("a\nb\nc", 2) => "b",
+    line_at("a\nb\nc", 9) => ""
+  }
+{
+  list.fold(list.enumerate(str.split(text, "\n")), "", fn (acc :: Str, p :: (Int, Str)) -> Str {
+    match p {
+      (i, l) => if i + 1 == n {
+        l
+      } else {
+        acc
+      },
+    }
+  })
+}
+
+fn locate_error(merged :: Str, out :: Str) -> Str {
+  let n := check_error_line(out)
+  let src := str.trim(line_at(merged, n))
+  if n <= 0 or str.is_empty(src) {
+    ""
+  } else {
+    str.join(["\nThat position is in the merged file, which you do not have; the offending code is at or inside: `", src, "` — find it in your own file and fix it there."], "")
+  }
 }
 
 # The whole point: copy + spawn every id in the batch first — nothing in
