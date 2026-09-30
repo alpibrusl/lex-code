@@ -1,0 +1,27 @@
+Build a small Lex package named "tally" for splitting shared expenses among roommates and keeping a running ledger. Every function below except save_ledger MUST be pure -- no IO, no file access, no effect annotation of any kind. save_ledger is the ONLY function in this package allowed to touch the filesystem, and its effect must be declared as narrowly as Lex allows (file-write only, not general IO).
+
+- round_cents(amount :: Float) -> Int
+  Round a dollar amount to the nearest whole cent, half-up, measured against the DECIMAL LITERAL the amount represents -- not against the raw binary Float value, which is not exact. For example, 1.005 is stored as a Float slightly below 1.005, so a naive "multiply by 100, add 0.5, truncate" implementation returns 100; the correct answer, matching what a human reading "1.005" would expect, is 101. Your examples{} block MUST include these exact cases and their correct decimal-literal answers: round_cents(1.005) => 101, round_cents(2.675) => 268, round_cents(0.125) => 13, round_cents(0.005) => 1, round_cents(-1.005) => -101. Must be pure.
+
+- add_expense(ledger :: List[{ person :: Str, cents :: Int }], person :: Str, amount :: Float) -> Result[List[{ person :: Str, cents :: Int }], Str]
+  Append a new entry to the ledger with the amount rounded via round_cents. Err("empty name") if person is empty or whitespace-only. Err("invalid amount") if amount is negative, NaN, or infinite. Must be pure.
+
+- split_evenly(cents :: Int, people :: List[Str]) -> Result[List[{ person :: Str, cents :: Int }], Str]
+  Split `cents` evenly across `people`. Err("no one to split with") if people is empty. Otherwise, distribute the amount so that: (1) the shares sum to EXACTLY `cents` -- no cent may be created or lost to rounding, any remainder cents must be assigned to specific people, not dropped; (2) no person's share differs from any other's by more than 1 cent. Must be pure.
+
+- total_paid(ledger :: List[{ person :: Str, cents :: Int }], person :: Str) -> Int
+  Sum every entry in the ledger for the given person, in cents. (This is what they contributed, not what they owe -- see balances for that.) Must be pure.
+
+- balances(ledger :: List[{ person :: Str, cents :: Int }], people :: List[Str]) -> Result[List[{ person :: Str, net :: Int }], Str]
+  For each person in `people`, compute net = total_paid(ledger, person) minus their fair share of the ledger's total cost (the total cost split evenly across `people` via split_evenly). A positive net means they are owed money; negative means they owe. Propagate split_evenly's Err. The resulting nets MUST sum to exactly 0. Must be pure.
+
+- format_ledger(ledger :: List[{ person :: Str, cents :: Int }]) -> Str
+  Render the ledger as exactly one line per entry, in the SAME order as the input list, each line formatted as "name: $X.YY" (always exactly two decimal places, no thousands separators), lines joined with a single newline and no trailing newline.
+
+- parse_ledger(text :: Str) -> Result[List[{ person :: Str, cents :: Int }], Str]
+  Parse format_ledger's exact output format back into a ledger. Err with a descriptive message on malformed input. This function exists to prove a round-trip property: for any valid ledger `x`, parse_ledger(format_ledger(x)) must equal Ok(x). Include that exact round-trip as one of your examples/invariants.
+
+- save_ledger(ledger :: List[{ person :: Str, cents :: Int }], path :: Str) -> [fs_write] Result[Unit, Str]
+  Write format_ledger(ledger) to a file at `path`. This is the only function in the package permitted to declare any effect.
+
+Add invariant/property-based checks for each function covering: the float-rounding trap cases listed above; split_evenly's exact cent-conservation and max-min-share invariants, plus its empty-list error; balances always summing to zero; the format_ledger/parse_ledger round trip; and the documented error behavior for empty names, negative/NaN/infinite amounts.
