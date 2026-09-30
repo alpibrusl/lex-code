@@ -179,7 +179,8 @@ fn merge_issue(project :: Str, r :: ChildResult) -> [proc, io] Result[Str, Str] 
             }
           }) {
             Err(e) => Err(str.join(["merging issue ", r.issue_id, ": ", e], "")),
-            Ok(merged) => {
+            Ok(merged_declared) => {
+              let merged := merge.append_extra_fns(merged_declared, child_source, names)
               let check_path := str.join([".lex/plans/", project, ".merge-check.lex"], "")
               let __d := proc.run("mkdir", ["-p", ".lex/plans"])
               let __w := io.write(check_path, merged)

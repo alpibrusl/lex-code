@@ -257,3 +257,115 @@ fn replace_fn_block(canonical :: Str, name :: Str, replacement :: Str) -> Result
   }
 }
 
+# Reproduced live: a real `--parallel` run's `gcd` used a private
+# recursive helper, `gcd_loop`, alongside the declared `gcd` itself —
+# exactly what `scaffold_guidance` tells an issue it may do ("you may
+# add private helper functions below them"). `merge_issue` only knew to
+# splice in the issue's own DECLARED api names, so `gcd_loop` was
+# silently dropped on every merge: the canonical file type-checked
+# `gcd`'s call to it as `unknown_identifier` every single time, seven
+# merge attempts running (over half of one real recording) before the
+# model happened to stop using a helper at all. This is the other half
+# of the fix: find every function the child's copy declares that the
+# canonical file doesn't have yet, and carry those over too — as
+# additions, since there's no existing block of that name to replace.
+fn is_ident_start_char(c :: Str) -> Bool {
+  str.len(c) == 1 and str.contains("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_", c)
+}
+
+fn is_ident_char(c :: Str) -> Bool {
+  is_ident_start_char(c) or str.len(c) == 1 and str.contains("0123456789", c)
+}
+
+fn ident_end(source :: Str, i :: Int) -> Int {
+  if i < str.len(source) and is_ident_char(str.char_at(source, i)) {
+    ident_end(source, i + 1)
+  } else {
+    i
+  }
+}
+
+# The name of a real function DECLARATION starting at `at` (the index
+# of `"fn "`), or None — the one thing that tells `fn double(x...` (a
+# declaration) apart from `fn (x...` (an anonymous closure literal,
+# constantly passed to `list.map`/`list.fold` in this very codebase):
+# a declaration has an identifier, not `(`, immediately after `fn `.
+fn named_fn_at(source :: Str, at :: Int) -> Option[Str] {
+  let after := at + 3
+  if after < str.len(source) and is_ident_start_char(str.char_at(source, after)) {
+    let end := ident_end(source, after)
+    if end < str.len(source) and str.char_at(source, end) == "(" {
+      Some(str.slice(source, after, end))
+    } else {
+      None
+    }
+  } else {
+    None
+  }
+}
+
+# Every top-level `fn name(...) -> T { ... }` this source declares, in
+# order — never an anonymous closure. Resumes scanning from just past
+# each one's own closing `}`, so a closure literal *inside* that body
+# (there is always at least one, in real Lex code) is never mistaken
+# for another top-level declaration.
+fn all_fn_names(source :: Str) -> List[Str]
+  examples {
+    all_fn_names("fn a() -> Int {\n  1\n}\n\nfn b(x :: Int) -> Int {\n  list.map([1], fn (y :: Int) -> Int {\n    y\n  })\n  x\n}\n") => ["a", "b"],
+    all_fn_names("no functions here") => []
+  }
+{
+  scan_fn_names(source, 0)
+}
+
+fn scan_fn_names(source :: Str, from :: Int) -> List[Str] {
+  match str.find(source, "fn ", from) {
+    None => [],
+    Some(at) => match named_fn_at(source, at) {
+      None => scan_fn_names(source, at + 3),
+      Some(name) => match body_open(source, at) {
+        None => scan_fn_names(source, at + 3),
+        Some(open) => match body_close(source, open) {
+          None => scan_fn_names(source, at + 3),
+          Some(close) => list.cons(name, scan_fn_names(source, close + 1)),
+        },
+      },
+    },
+  }
+}
+
+fn list_has(xs :: List[Str], s :: Str) -> Bool
+  examples {
+    list_has(["a", "b"], "b") => true,
+    list_has(["a"], "z") => false,
+    list_has([], "a") => false
+  }
+{
+  list.fold(xs, false, fn (acc :: Bool, x :: Str) -> Bool {
+    acc or x == s
+  })
+}
+
+# Every function `child` declares that `canonical` doesn't have yet —
+# a private helper an issue's own copy added alongside its declared api
+# function(s), which `replace_fn_block` alone would silently drop.
+fn extra_fn_names(canonical :: Str, child :: Str, declared :: List[Str]) -> List[Str] {
+  let canonical_names := all_fn_names(canonical)
+  list.filter(all_fn_names(child), fn (name :: Str) -> Bool {
+    not list_has(canonical_names, name) and not list_has(declared, name)
+  })
+}
+
+# `canonical` with every function in `extra_fn_names` appended, each
+# one's full block taken verbatim from `child`. Order among the
+# appended functions matches their order in `child`; every one of them
+# is new to `canonical`, so there is nothing to replace — only to add.
+fn append_extra_fns(canonical :: Str, child :: Str, declared :: List[Str]) -> Str {
+  list.fold(extra_fn_names(canonical, child, declared), canonical, fn (acc :: Str, name :: Str) -> Str {
+    match fn_block(child, name) {
+      None => acc,
+      Some(block) => str.join([acc, "\n", block, "\n"], ""),
+    }
+  })
+}
+
