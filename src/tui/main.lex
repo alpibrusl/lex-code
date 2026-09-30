@@ -305,11 +305,13 @@ fn run_refine(issue_id :: Str, guidance :: Option[Str], provider_tag :: Str) -> 
   }
 }
 
-fn run_issue_verdict(issue_id :: Str, guidance :: Option[Str], mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
+type IssueOutcome = { verdict :: Str, session_id :: Str }
+
+fn run_issue_verdict_full(issue_id :: Str, guidance :: Option[Str], mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] IssueOutcome {
   match fetch_issue(issue_id) {
     Err(e) => {
       let __err := io.print(str.join(["error: ", e, "\n"], ""))
-      "unavailable"
+      { verdict: "unavailable", session_id: "" }
     },
     Ok(issue) => {
       let contract := ic.contract_prompt(issue)
@@ -321,7 +323,7 @@ fn run_issue_verdict(issue_id :: Str, guidance :: Option[Str], mode :: sess.Agen
       match sess.new_session_persistent_with_provider(session_id, mode, provider_tag) {
         Err(e) => {
           let __err := io.print(str.concat(str.concat("error: ", e), "\n"))
-          "unavailable"
+          { verdict: "unavailable", session_id: session_id }
         },
         Ok(session) => {
           let __d := proc.run("mkdir", ["-p", ".lex/intent"])
@@ -343,10 +345,41 @@ fn run_issue_verdict(issue_id :: Str, guidance :: Option[Str], mode :: sess.Agen
             (p, c) => io.print(str.join(["[USAGE]\t", int.to_str(p), "\t", int.to_str(c), "\t", issue_id], "")),
           }
           let __trail := io.print(str.join(["\n(trail: .lex/sessions/", session_id, ".db)"], ""))
-          verdict
+          { verdict: verdict, session_id: session_id }
         },
       }
     },
+  }
+}
+
+fn run_issue_verdict(issue_id :: Str, guidance :: Option[Str], mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
+  run_issue_verdict_full(issue_id, guidance, mode, provider_tag).verdict
+}
+
+# The live counterpart to `--session-health`: check THIS issue attempt's
+# own session, right after it happens, instead of only on demand after
+# the fact. A ceiling cluster is the one signal precise enough to call
+# "this is a lex-code bug" rather than "the model got this wrong" or
+# "the task is hard" — confirmed three times in one afternoon, each one
+# a real tooling bug that no amount of retrying the model could have
+# fixed, discovered only by manual archaeology hours later. `None` on
+# any lookup failure (no session, unreadable db): silence here just
+# means "couldn't check", never "checked and it's fine".
+fn tool_bug_check(session_id :: Str) -> [sql, fs_write] Option[Str] {
+  if str.is_empty(session_id) {
+    None
+  } else {
+    match health.load_calls(str.join([".lex/sessions/", session_id, ".db"], "")) {
+      Err(_) => None,
+      Ok(calls) => {
+        let flags := health.systemic_ceiling_flags(calls)
+        if list.is_empty(flags) {
+          None
+        } else {
+          Some(str.join(flags, "; "))
+        }
+      },
+    }
   }
 }
 
@@ -551,18 +584,25 @@ fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_
           PkgRun(id, tag) => {
             let tried := pb.attempts_of(attempts, id)
             let __start := io.print(str.join(["[PROJECT] issue ", id, " — attempt ", int.to_str(tried + 1), " on ", tag], ""))
-            let verdict := run_issue_verdict(id, Some(guidance), Build, tag)
+            let outcome := run_issue_verdict_full(id, Some(guidance), Build, tag)
+            let verdict := outcome.verdict
             let __v := io.print(str.join(["[PROJECT] issue ", id, " → ", verdict], ""))
-            if verdict == "no_response" {
-              let __why := io.print(str.join(["[PROJECT] the provider (", tag, ") returned nothing — stopping instead of burning attempts. Check the key, the quota and the network, then run again: verified issues are kept."], ""))
-              "provider_error"
-            } else {
-              let __reg := if verdict == "verified" {
-                regression_pass(project)
+            match tool_bug_check(outcome.session_id) {
+              Some(reason) => {
+                let __why := io.print(str.join(["[PROJECT] ⚠ STOPPING — this looks like a lex-code tooling bug, not a model or task problem: ", reason, ". Retrying won't fix it; check `--session-health=.lex/sessions/", outcome.session_id, ".db` before running again. Verified issues are kept."], ""))
+                "tool_bug_suspected"
+              },
+              None => if verdict == "no_response" {
+                let __why := io.print(str.join(["[PROJECT] the provider (", tag, ") returned nothing — stopping instead of burning attempts. Check the key, the quota and the network, then run again: verified issues are kept."], ""))
+                "provider_error"
               } else {
-                io.print("")
-              }
-              project_loop(project, primary, fallback, switch_after, max_attempts, pb.bump_attempts(attempts, id), fuel - 1, guidance)
+                let __reg := if verdict == "verified" {
+                  regression_pass(project)
+                } else {
+                  io.print("")
+                }
+                project_loop(project, primary, fallback, switch_after, max_attempts, pb.bump_attempts(attempts, id), fuel - 1, guidance)
+              },
             }
           },
         }
