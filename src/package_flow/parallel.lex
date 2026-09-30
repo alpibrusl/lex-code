@@ -249,6 +249,67 @@ fn take_ready(xs :: List[pb.Ready], n :: Int) -> List[pb.Ready] {
 
 type BatchOutcome = { issue_id :: Str, verdict :: Str }
 
+# Reproduced live (2026-09-30): the SAME issue, redispatched after a
+# `merge_error`, gets the exact same task text every time —
+# `contract_prompt` is built purely from the issue's own static fields
+# (id, title, body, acceptance); nothing about a previous attempt's
+# failure, for this issue or any other, is ever recorded or read back.
+# Two separate --parallel runs each spent 7+ retries stuck on their own
+# rounding function, in both cases repeating variations on the same
+# wrong guess with no way to have done otherwise: a fresh session every
+# time, with nothing to learn from because nothing told it what it got
+# wrong last time. Not a memory or session bug (each retry's session_id
+# is genuinely fresh, cli_session_id(), no persisted history) — the
+# opposite one: there is no feedback channel for this at all.
+#
+# `last_errors` closes it: one (issue_id, last verdict) pair per issue
+# still outstanding, carried across `project_loop_parallel`'s recursion
+# and folded into that one issue's own task text on its next dispatch —
+# every OTHER issue in the same batch is unaffected. A verdict clears
+# its own entry (from `update_errors`) once it's no longer a failure, so
+# this never accretes stale history past the attempt that produced it.
+fn error_for(last_errors :: List[(Str, Str)], id :: Str) -> Option[Str] {
+  list.fold(last_errors, None, fn (acc :: Option[Str], e :: (Str, Str)) -> Option[Str] {
+    match acc {
+      Some(_) => acc,
+      None => match e {
+        (eid, msg) => if eid == id {
+          Some(msg)
+        } else {
+          None
+        },
+      },
+    }
+  })
+}
+
+fn guidance_for(base_guidance :: Str, last_errors :: List[(Str, Str)], id :: Str) -> Str {
+  match error_for(last_errors, id) {
+    None => base_guidance,
+    Some(err) => str.join([base_guidance, "\n\nYour own previous attempt at this exact issue failed with this error. Read it carefully and fix the SPECIFIC problem it names — do not just retry the same body again:\n", err], ""),
+  }
+}
+
+# Drop an id's entry once its own verdict is no longer a merge/spawn
+# failure (it may still be `failed`/`inconclusive` from `issue_verify`,
+# which is a different, already-surfaced signal — not a reason to keep
+# repeating a merge error that no longer applies); otherwise replace it
+# with the new one, never accumulate more than one per id.
+fn update_errors(last_errors :: List[(Str, Str)], outcomes :: List[BatchOutcome]) -> List[(Str, Str)] {
+  list.fold(outcomes, last_errors, fn (acc :: List[(Str, Str)], o :: BatchOutcome) -> List[(Str, Str)] {
+    let cleared := list.filter(acc, fn (e :: (Str, Str)) -> Bool {
+      match e {
+        (eid, _) => eid != o.issue_id,
+      }
+    })
+    if str.starts_with(o.verdict, "merge_error: ") or str.starts_with(o.verdict, "spawn_error: ") {
+      list.cons((o.issue_id, o.verdict), cleared)
+    } else {
+      cleared
+    }
+  })
+}
+
 # The whole point: copy + spawn every id in the batch first — nothing in
 # this phase blocks — THEN wait for each (blocking only on that one
 # child; the others keep running), THEN merge one at a time, in-process,
@@ -256,11 +317,12 @@ type BatchOutcome = { issue_id :: Str, verdict :: Str }
 # while this runs. Real overlap comes entirely from spawning before any
 # waiting starts; get that ordering wrong and this degrades silently
 # back to sequential.
-fn dispatch_and_merge(project :: Str, ids :: List[Str], guidance :: Str, provider_flag :: Str) -> [proc, env, io] List[BatchOutcome] {
+fn dispatch_and_merge(project :: Str, ids :: List[Str], guidance :: Str, provider_flag :: Str, last_errors :: List[(Str, Str)]) -> [proc, env, io] List[BatchOutcome] {
   let spawned := list.map(ids, fn (id :: Str) -> [proc, env] (Str, Str, Result[ProcessHandle, Str]) {
     let copy := copy_dir_for(project, id)
     let __mk := make_isolated_copy(copy)
-    (id, copy, spawn_issue_child(project, copy, id, Some(guidance), provider_flag))
+    let g := guidance_for(guidance, last_errors, id)
+    (id, copy, spawn_issue_child(project, copy, id, Some(g), provider_flag))
   })
   let waited := list.map(spawned, fn (t :: (Str, Str, Result[ProcessHandle, Str])) -> [proc] (Str, Result[ChildResult, Str]) {
     match t {

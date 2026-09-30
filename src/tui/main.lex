@@ -681,7 +681,7 @@ fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_
 # escalation here (a stuck issue's contract doesn't change by trying a
 # different model N-at-a-time instead of one-at-a-time); `--fallback=`
 # only has meaning for `project_loop`'s sequential path.
-fn project_loop_parallel(project :: Str, primary :: Str, guidance :: Str, concurrency :: Int, fuel :: Int) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
+fn project_loop_parallel(project :: Str, primary :: Str, guidance :: Str, concurrency :: Int, fuel :: Int, last_errors :: List[(Str, Str)]) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
   if fuel <= 0 {
     "budget"
   } else {
@@ -702,13 +702,13 @@ fn project_loop_parallel(project :: Str, primary :: Str, guidance :: Str, concur
             r.id
           })
           let __start := io.print(str.join(["\n[PROJECT] ", project, "  ", int.to_str(board.verified), "/", int.to_str(board.total), " verified — dispatching ", int.to_str(list.len(ids)), " in parallel: ", str.join(ids, ", ")], ""))
-          let outcomes := par.dispatch_and_merge(project, ids, guidance, str.concat("--", primary))
+          let outcomes := par.dispatch_and_merge(project, ids, guidance, str.concat("--", primary), last_errors)
           let lines := list.map(outcomes, fn (o :: par.BatchOutcome) -> Str {
             str.join(["[PROJECT] issue ", o.issue_id, " → ", o.verdict], "")
           })
           let __report := io.print(str.join(lines, "\n"))
           let __reg := regression_pass(project)
-          project_loop_parallel(project, primary, guidance, concurrency, fuel - list.len(ids))
+          project_loop_parallel(project, primary, guidance, concurrency, fuel - list.len(ids), par.update_errors(last_errors, outcomes))
         }
       },
     }
@@ -835,7 +835,7 @@ fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, n
   }
   let concurrency := pb.flag_int(argv, "--parallel=", 1)
   let status := if concurrency > 1 {
-    project_loop_parallel(project, primary, guidance, concurrency, fuel)
+    project_loop_parallel(project, primary, guidance, concurrency, fuel, [])
   } else {
     project_loop(project, primary, fallback, switch_after, max_attempts, [], fuel, guidance)
   }
