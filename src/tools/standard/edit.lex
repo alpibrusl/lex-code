@@ -20,11 +20,66 @@ fn params() -> s.ModelSchema {
   { title: "EditArgs", description: "Edit a file by exact string replacement. old_str must appear exactly once.", fields: [s.required_str("path", []), s.required_str("old_str", []), s.required_str("new_str", [])] }
 }
 
+fn first_line(text :: Str) -> Str
+  examples {
+    first_line("\n  a b \nc") => "a b",
+    first_line("") => ""
+  }
+{
+  match list.head(list.filter(str.split(text, "\n"), fn (l :: Str) -> Bool {
+    not str.is_empty(str.trim(l))
+  })) {
+    None => "",
+    Some(l) => str.trim(l),
+  }
+}
+
+type Scan = { i :: Int, at :: Int, out :: List[Str] }
+
+fn window(lines :: List[Str], needle :: Str) -> List[Str]
+  examples {
+    window(["x", "  b", "c", "d", "e", "f"], "b") => ["  b", "c", "d", "e"],
+    window(["x"], "q") => []
+  }
+{
+  let hit := list.fold(lines, { i: 0, at: -1, out: [] }, fn (acc :: Scan, l :: Str) -> Scan {
+    let at := if acc.at < 0 and str.contains(l, needle) {
+      acc.i
+    } else {
+      acc.at
+    }
+    let keep := at >= 0 and acc.i < at + 4
+    { i: acc.i + 1, at: at, out: if keep {
+      list.concat(acc.out, [l])
+    } else {
+      acc.out
+    } }
+  })
+  hit.out
+}
+
+# old_str is matched byte for byte, so a multi-line old_str written from
+# memory fails on indentation alone. Show what the file really has at the
+# first line of old_str so the retry copies it instead of guessing again.
+fn not_found_hint(content :: Str, old_str :: Str) -> Str {
+  let needle := first_line(old_str)
+  let shown := if str.is_empty(needle) {
+    []
+  } else {
+    window(str.split(content, "\n"), needle)
+  }
+  if list.is_empty(shown) {
+    "old_str not found in file — its first line is not in the file at all; read the file and copy the text exactly (or use one short line as old_str)"
+  } else {
+    str.join(["old_str not found in file — only the whitespace or a later line differs. The file has, from the line your old_str starts with:\n", str.join(shown, "\n"), "\nCopy it exactly, or use one short single line as old_str."], "")
+  }
+}
+
 fn replace_once(content :: Str, old_str :: Str, new_str :: Str) -> Result[Str, Str] {
   let parts := str.split(content, old_str)
   let n := list.len(parts)
   match n {
-    1 => Err("old_str not found in file"),
+    1 => Err(not_found_hint(content, old_str)),
     2 => match list.head(parts) {
       None => Err("internal error"),
       Some(head) => match list.head(list.tail(parts)) {

@@ -239,13 +239,13 @@ fn outcome_errors(u :: plan.PlanUnit) -> List[Str] {
         Some(_) => if any_starts(expected, "Ok(") and any_starts(expected, "Err(") {
           acc
         } else {
-          list.concat(acc, [str.concat(who, "returns a Result, so its examples must show both an `Ok(...)` and an `Err(...)` outcome")])
+          list.concat(acc, [str.concat(who, "returns a Result, so its examples must show both an `Ok(...)` and an `Err(...)` outcome — the expected value after `=>` must itself start with `Ok(` or `Err(`: write the whole value, e.g. `f(good) => Ok(value)`. Projecting a field or calling a helper on the result (`f(x).field`, `.ok_or(..)`) does not count")])
         },
         None => match generic_args(ret, "Option") {
           Some(_) => if any_starts(expected, "Some(") and any_starts(expected, "None") {
             acc
           } else {
-            list.concat(acc, [str.concat(who, "returns an Option, so its examples must show both a `Some(...)` and a `None` outcome")])
+            list.concat(acc, [str.concat(who, "returns an Option, so its examples must show both a `Some(...)` and a `None` outcome — the expected value after `=>` must itself be `Some(...)` or `None`: write the whole value, not a projection of it")])
           },
           None => acc,
         },
@@ -576,13 +576,52 @@ fn nth_line(source :: Str, n :: Int) -> Str
   }
 }
 
-# A parse error told in the plan's terms: which unit's text it is in.
+# What the parser said it wanted: the text after "parse error at byte N: ".
+fn parser_reason(msg :: Str) -> Str
+  examples {
+    parser_reason("error: parse x.lex: parse error at byte 9: expected expression, got Some(FatArrow): parse error at byte 9: expected expression, got Some(FatArrow)") => "expected expression, got Some(FatArrow)",
+    parser_reason("type error") => ""
+  }
+{
+  let r := list.fold(str.split(msg, ": "), ("", false), fn (acc :: (Str, Bool), part :: Str) -> (Str, Bool) {
+    match acc {
+      (found, take) => if take and str.is_empty(found) {
+        (part, false)
+      } else {
+        if str.starts_with(part, "parse error at byte") {
+          (found, true)
+        } else {
+          acc
+        }
+      },
+    }
+  })
+  match r {
+    (found, _) => found,
+  }
+}
+
+# A parse error told in the plan's terms: which unit's text it is in, the
+# line, what the parser expected there, and — for the one slip every model
+# makes — how to write it.
 fn describe_parse_error(prog :: StubProgram, msg :: Str) -> Str {
   match parse_error_byte(msg) {
     None => str.concat("lex check failed: ", msg),
     Some(n) => {
       let line := line_of_byte(prog.source, n)
-      str.join([label_at(prog.labels, line), ": the stub does not parse at `", str.trim(nth_line(prog.source, line)), "`"], "")
+      let text := str.trim(nth_line(prog.source, line))
+      let why := parser_reason(msg)
+      let because := if str.is_empty(why) {
+        ""
+      } else {
+        str.join([" (parser: ", why, ")"], "")
+      }
+      let hint := if str.contains(text, "{\"") {
+        " — Lex has no map literal: `{\"k\": v}` is not valid; build a map with `map.from_list([(\"k\", v)])`"
+      } else {
+        ""
+      }
+      str.join([label_at(prog.labels, line), ": the stub does not parse at `", text, "`", because, hint], "")
     },
   }
 }
@@ -716,7 +755,14 @@ fn invariant_errors(p :: plan.Plan) -> List[Str] {
         acc2
       }
     })
-    list.concat(acc, list.concat(list.concat(dups, shape), wildcard))
+    let implication := list.fold(u.invariants, [], fn (acc2 :: List[Str], i :: plan.Invariant) -> List[Str] {
+      if str.contains(i.expr, " => ") and not str.contains(i.expr, "match ") {
+        list.concat(acc2, [str.join(["unit `", u.key, "`: invariant `", i.name, "` uses `=>` — an invariant is a plain Bool expression with no implication; write \"if A then B\" as `not (A) or (B)`"], "")])
+      } else {
+        acc2
+      }
+    })
+    list.concat(acc, list.concat(list.concat(dups, shape), list.concat(wildcard, implication)))
   })
 }
 

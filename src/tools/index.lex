@@ -261,7 +261,7 @@ fn review_dynamic_tools() -> List[t.Tool] {
 # rather than guess it — confirmed the hard way in #143's live test,
 # which burned its whole step budget on exactly that class of mistake.
 fn planner_dynamic_tools() -> List[t.Tool] {
-  [read_tool.tool(), write_tool.tool(), grep_tool.tool(), glob_tool.tool(), stdlib_tool.tool(), guide_tool.tool(), find_packages_tool.tool(), package_api_tool.tool(), plan_check_tool.tool()]
+  [read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), stdlib_tool.tool(), guide_tool.tool(), find_packages_tool.tool(), package_api_tool.tool(), plan_check_tool.tool()]
 }
 
 fn verify_dynamic_tools() -> List[t.Tool] {

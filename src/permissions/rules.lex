@@ -101,7 +101,7 @@ fn test_permission() -> sp.Spec {
 # mistake and a missing stdlib import before ever landing a file that
 # type-checked.
 fn planner_permission() -> sp.Spec {
-  allow_tools("planner_tools", ["read", "write", "grep", "glob", "lex_stdlib", "lex_guide", "find_packages", "package_api", "plan_check"])
+  allow_tools("planner_tools", ["read", "write", "edit", "grep", "glob", "lex_stdlib", "lex_guide", "find_packages", "package_api", "plan_check"])
 }
 
 fn verify_permission() -> sp.Spec {
