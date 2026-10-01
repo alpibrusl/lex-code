@@ -101,7 +101,7 @@ fn test_permission() -> sp.Spec {
 # mistake and a missing stdlib import before ever landing a file that
 # type-checked.
 fn verify_permission() -> sp.Spec {
-  allow_tools("verify_tools", ["read", "write", "grep", "glob", "lex_check", "lex_run", "lex_test", "lex_stdlib", "lex_guide", "lex_cli_help"])
+  allow_tools("verify_tools", ["read", "write", "grep", "glob", "lex_check", "lex_run", "lex_test", "lex_stdlib", "lex_guide", "lex_cli_help", "package_api"])
 }
 
 fn build_permission() -> sp.Spec {

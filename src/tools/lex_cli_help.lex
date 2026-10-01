@@ -3,12 +3,9 @@
 # `lex` implements ACLI (github.com/alpibrusl/acli): `lex introspect
 # --output json` emits the full command tree — every subcommand's
 # arguments, options, examples, and idempotency, generated from the
-# binary's own registration, not hand-maintained prose. `lex_cli.lex`
-# (the generic "run any lex command" escape hatch) already ships a
-# hand-written summary of a handful of subcommands in its own tool
-# description, which goes stale as subcommands are added; this tool
-# answers the same "how do I invoke lex X" question by asking the binary
-# itself, the same "atomic, authoritative, on demand" move `lex_stdlib`
+# binary's own registration, not hand-maintained prose. A hand-written subcommand summary in a tool description goes
+# stale as subcommands are added; this tool answers "how do I invoke lex X"
+# by asking the binary itself, the same "atomic, authoritative, on demand" move `lex_stdlib`
 # makes for stdlib signatures and `lex_guide` makes for the language
 # guide — so a CLI usage error (`is_usage_error` in `./util`) is
 # something to ask about first, not find out by trial and error.
