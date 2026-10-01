@@ -151,11 +151,108 @@ fn not_found_hint(content :: Str, old_str :: Str) -> Str {
   }
 }
 
-fn replace_once(content :: Str, old_str :: Str, new_str :: Str) -> Result[Str, Str] {
+fn matches_at(file_t :: List[Str], old_t :: List[Str], start :: Int) -> Bool
+  examples {
+    matches_at(["a", "b", "c"], ["b", "c"], 1) => true,
+    matches_at(["a", "b"], ["b", "c"], 1) => false
+  }
+{
+  list.fold(list.enumerate(old_t), true, fn (acc :: Bool, p :: (Int, Str)) -> Bool {
+    match p {
+      (k, ol) => {
+        let same := match nth(file_t, start + k) {
+          None => false,
+          Some(fl) => fl == ol,
+        }
+        acc and same
+      },
+    }
+  })
+}
+
+fn match_starts(file_t :: List[Str], old_t :: List[Str]) -> List[Int]
+  examples {
+    match_starts(["a", "b", "a", "b"], ["a", "b"]) => [0, 2],
+    match_starts(["a"], ["z"]) => []
+  }
+{
+  list.fold(list.enumerate(file_t), [], fn (acc :: List[Int], p :: (Int, Str)) -> List[Int] {
+    match p {
+      (i, _) => if matches_at(file_t, old_t, i) {
+        list.concat(acc, [i])
+      } else {
+        acc
+      },
+    }
+  })
+}
+
+fn splice_lines(lines :: List[Str], start :: Int, count :: Int, repl :: List[Str]) -> List[Str]
+  examples {
+    splice_lines(["a", "b", "c"], 1, 1, ["x", "y"]) => ["a", "x", "y", "c"]
+  }
+{
+  let before := list.fold(list.enumerate(lines), [], fn (acc :: List[Str], p :: (Int, Str)) -> List[Str] {
+    match p {
+      (j, l) => if j < start {
+        list.concat(acc, [l])
+      } else {
+        acc
+      },
+    }
+  })
+  let after := list.fold(list.enumerate(lines), [], fn (acc :: List[Str], p :: (Int, Str)) -> List[Str] {
+    match p {
+      (j, l) => if j >= start + count {
+        list.concat(acc, [l])
+      } else {
+        acc
+      },
+    }
+  })
+  list.concat(list.concat(before, repl), after)
+}
+
+# `lex fmt` re-indents the file after every edit, so a worker's old_str
+# written from memory misses on whitespace alone and it loops. For .lex files
+# (where indentation carries no meaning, fmt rewrites it) an old_str whose
+# lines all match one window of the file ignoring leading/trailing whitespace
+# is applied there; fmt then re-indents the replacement.
+fn replace_ignoring_indent(content :: Str, old_str :: Str, new_str :: Str) -> Option[Str] {
+  let old_t := list.map(str.split(str.trim(old_str), "\n"), fn (l :: Str) -> Str {
+    str.trim(l)
+  })
+  if str.is_empty(str.trim(old_str)) {
+    None
+  } else {
+    let file_lines := str.split(content, "\n")
+    let file_t := list.map(file_lines, fn (l :: Str) -> Str {
+      str.trim(l)
+    })
+    let hits := match_starts(file_t, old_t)
+    if list.len(hits) == 1 {
+      match list.head(hits) {
+        None => None,
+        Some(only) => Some(str.join(splice_lines(file_lines, only, list.len(old_t), str.split(str.trim(new_str), "\n")), "\n")),
+      }
+    } else {
+      None
+    }
+  }
+}
+
+fn replace_once(content :: Str, old_str :: Str, new_str :: Str, lenient :: Bool) -> Result[Str, Str] {
   let parts := str.split(content, old_str)
   let n := list.len(parts)
   match n {
-    1 => Err(not_found_hint(content, old_str)),
+    1 => if lenient {
+      match replace_ignoring_indent(content, old_str, new_str) {
+        Some(updated) => Ok(updated),
+        None => Err(not_found_hint(content, old_str)),
+      }
+    } else {
+      Err(not_found_hint(content, old_str))
+    },
     2 => match list.head(parts) {
       None => Err("internal error"),
       Some(head) => match list.head(list.tail(parts)) {
@@ -176,7 +273,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
         None => Err(e.single("", "missing_field", "new_str is required")),
         Some(new_str) => match io.read(path) {
           Err(msg) => Err(e.single("", "io_error", msg)),
-          Ok(content) => match replace_once(content, old_str, new_str) {
+          Ok(content) => match replace_once(content, old_str, new_str, str.ends_with(path, ".lex")) {
             Err(reason) => Err(e.single("", "edit_error", reason)),
             Ok(updated) => match io.write(path, updated) {
               Err(msg) => Err(e.single("", "io_error", msg)),
