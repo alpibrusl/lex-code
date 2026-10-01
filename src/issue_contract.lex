@@ -86,7 +86,7 @@ fn typed_delta_section(acc :: jv.Json) -> Str {
   str.join(["Shape: typed_delta. The API delta is the contract:\n", bullets(api), if list.is_empty(examples) {
     ""
   } else {
-    str.join(["These examples are the oracle — each must hold at head. Put them in the function's own `examples { }` block so the store's write-time gate runs them on every publish:\n", bullets(examples)], "")
+    str.join(["These examples are the oracle — each must hold at head. Put each one in the `examples { }` block of the function it calls (the OUTERMOST call: `f(g(x)) => y` belongs to `f`, never to `g`), so the store's write-time gate runs them on every publish:\n", bullets(examples)], "")
   }], "")
 }
 
