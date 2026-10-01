@@ -114,7 +114,7 @@ fn plan_one(e :: jv.Json) -> [proc] Result[Planned, Refusal] {
         Some(new) => {
           let expect := default_expect(e)
           if str.ends_with(path, ".lex") {
-            Err({ path: path, expected: expect, actual: 0, before_sha: "", before_bytes: 0, reason: ".lex files are refused ? Lex source goes through the op-log (lex-vcs ops), not this tool" })
+            Err({ path: path, expected: expect, actual: 0, before_sha: "", before_bytes: 0, reason: ".lex files are refused ? Lex source goes through the op-log (lex-vcs ops), not this tool. Use the `edit` tool (small exact old_str) or `write` (whole file) for .lex files" })
           } else {
             match proc.run("cat", [path]) {
               Err(msg) => Err({ path: path, expected: expect, actual: 0, before_sha: "", before_bytes: 0, reason: str.concat("could not read: ", msg) }),
