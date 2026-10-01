@@ -461,8 +461,12 @@ fn plan_path(name :: Str) -> Str {
 
 # One free-standing agent turn (a Build session, no issue bound to it).
 fn run_task_turn(task :: Str, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
+  run_mode_turn(task, provider_tag, Build)
+}
+
+fn run_mode_turn(task :: Str, provider_tag :: Str, mode :: sess.AgentMode) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
   let session_id := cli_session_id()
-  match sess.new_session_persistent_with_provider(session_id, Build, provider_tag) {
+  match sess.new_session_persistent_with_provider(session_id, mode, provider_tag) {
     Err(e) => io.print(str.concat(str.concat("error: ", e), "\n")),
     Ok(session) => {
       let __reset := write_buf("")
@@ -498,7 +502,7 @@ fn errs_repeated(errs :: List[Str], prev :: Option[List[Str]]) -> Bool
 # list, not just its wording.
 fn plan_loop(name :: Str, provider_tag :: Str, tries :: Int, prompt :: Str, original :: Str, prev_errs :: Option[List[Str]]) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Result[pplan.Plan, List[Str]] {
   let path := plan_path(name)
-  let __turn := run_task_turn(prompt, provider_tag)
+  let __turn := run_mode_turn(prompt, provider_tag, Planner)
   let checked := match io.read(path) {
     Err(_) => Err(["no plan was written to the plan file"]),
     Ok(text) => papply.full_check(text),

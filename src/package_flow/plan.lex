@@ -183,6 +183,62 @@ fn signature_shape_ok(sig :: Str) -> Bool
   str.starts_with(str.trim(sig), "(") and str.contains(sig, "->")
 }
 
+# Two slips a planner makes from habit in other languages. Both used to
+# surface as an unrelated error (a "pure function needs an example" on every
+# effectful unit, because `-> T [sql]` does not read as effectful), so each is
+# named here, before any other check runs.
+fn effect_names() -> List[Str] {
+  ["net", "sql", "io", "proc", "env", "fs_read", "fs_write", "fs_walk", "time", "random", "crypto", "llm", "approval", "stream", "concurrent", "mcp", "log"]
+}
+
+fn is_effect_row(inner :: Str) -> Bool
+  examples {
+    is_effect_row("sql") => true,
+    is_effect_row("net, sql") => true,
+    is_effect_row("Int") => false,
+    is_effect_row("") => false
+  }
+{
+  not str.is_empty(str.trim(inner)) and list.fold(str.split(inner, ","), true, fn (ok :: Bool, e :: Str) -> Bool {
+    ok and has(effect_names(), str.trim(e))
+  })
+}
+
+fn signature_syntax_problem(sig :: Str) -> Option[Str]
+  examples {
+    signature_syntax_problem("(x :: Int) -> Int") => None,
+    signature_syntax_problem("() -> [net, sql] Nil") => None,
+    signature_syntax_problem("(x :: Map<Str, Int>) -> Int") => Some("write generics with square brackets: `(x :: Map[Str, Int]) -> Int`"),
+    signature_syntax_problem("(d :: Db) -> Nil [sql]") => Some("the effect row goes right after the arrow, before the return type: `-> [sql] ...`, not at the end")
+  }
+{
+  if str.contains(str.replace(sig, "->", ""), "<") {
+    let fixed := str.replace(str.replace(str.replace(str.replace(sig, "->", "@@"), "<", "["), ">", "]"), "@@", "->")
+    Some(str.join(["write generics with square brackets: `", fixed, "`"], ""))
+  } else {
+    let parts := str.split(str.trim(sig), " [")
+    match list.head(list.reverse(parts)) {
+      None => None,
+      Some(last) => if list.len(parts) > 1 and str.ends_with(last, "]") and is_effect_row(str.slice(last, 0, str.len(last) - 1)) {
+        Some(str.join(["the effect row goes right after the arrow, before the return type: `-> [", str.slice(last, 0, str.len(last) - 1), "] ...`, not at the end"], ""))
+      } else {
+        None
+      },
+    }
+  }
+}
+
+fn syntax_errors(units :: List[PlanUnit]) -> List[Str] {
+  list.fold(units, [], fn (acc :: List[Str], u :: PlanUnit) -> List[Str] {
+    list.fold(u.api, acc, fn (acc2 :: List[Str], a :: Api) -> List[Str] {
+      match signature_syntax_problem(a.signature) {
+        None => acc2,
+        Some(msg) => list.concat(acc2, [str.join(["unit `", u.key, "`: `", a.name, "` signature `", a.signature, "` — ", msg], "")]),
+      }
+    })
+  })
+}
+
 # An effectful signature (`-> [net] Nil`) cannot carry an `examples {}` case
 # — examples run at check time, where no effect is granted.
 fn is_effectful(sig :: Str) -> Bool
@@ -359,13 +415,18 @@ fn validate(plan :: Plan) -> List[Str] {
     list.concat(acc, unit_errors(u, keys, names))
   })
   let base := list.concat(list.concat(list.concat(list.concat(project_err, empty_err), dup_key_err), dup_api_err), per_unit)
-  if list.is_empty(base) {
-    match ordered(plan) {
-      Err(e) => [e],
-      Ok(_) => [],
-    }
+  let syntax := syntax_errors(plan.units)
+  if not list.is_empty(syntax) {
+    syntax
   } else {
-    base
+    if list.is_empty(base) {
+      match ordered(plan) {
+        Err(e) => [e],
+        Ok(_) => [],
+      }
+    } else {
+      base
+    }
   }
 }
 
@@ -415,7 +476,7 @@ fn create_argv(u :: PlanUnit, project :: Str, dep_ids :: List[Str]) -> List[Str]
 # satisfy it with a lookup table — the properties go in tests/, later), and
 # an integration unit that exercises the composed public function.
 fn plan_prompt(brief :: Str, project :: Str, path :: Str) -> Str {
-  str.join(["Plan a Lex package as a graph of typed issues. Do NOT write the package itself.\n\n", "The package: ", brief, "\n\n", "Write ONE file, ", path, ", containing only JSON of this shape:\n\n", "  { \"project\": \"", project, "\",\n", "    \"types\": [ { \"name\": \"TypeName\", \"decl\": \"type TypeName = Ctor(Int) | { field :: Str }\" } ],\n", "    \"packages\": [ { \"name\": \"lex-web\", \"git\": \"https://github.com/alpibrusl/lex-web\" } ],\n", "    \"policy\": { \"error_type\": \"Str\" },\n", "    \"units\": [\n", "      { \"key\": \"short_snake_name\", \"title\": \"one line\", \"body\": \"what it must do and the edge cases, in prose\",\n", "        \"api\": [ { \"name\": \"fn_name\", \"signature\": \"(x :: Int) -> Str\" } ],\n", "        \"examples\": [ \"fn_name(1) => \\\"one\\\"\" ],\n", "        \"invariants\": [ { \"name\": \"short_snake_name\", \"params\": [ { \"name\": \"x\", \"type\": \"Int\" } ], \"expr\": \"a Lex boolean expression using the param names and calling this unit's functions\" } ],\n", "        \"deps\": [ \"key_of_a_unit_this_needs_first\" ] } ] }\n\n", "`types`, `packages` and `policy` are each optional — omit any you don't need (an empty `[]` or `{}`, or leave the key out entirely). Rules — each one exists because a package built without it went wrong:\n", "1. One unit = one function the size of a screen (helpers may share its unit). If you cannot state its contract in two sentences, split it.\n", "2. Signatures are the contract. Write them in Lex: `(a :: Int, b :: Str) -> Result[Int, Str]`; an effectful one puts its row after the arrow: `() -> [net] Nil`. Every function that any example calls must be declared as an api entry of some unit.\n", "3. deps are real: a unit lists the units whose functions it calls. Foundations first; no cycles.\n", "4. Give each pure function at least three examples, and make them pin the edges (empty, zero, boundary, the case the obvious implementation gets wrong). Examples run at check time, so an effectful function carries none.\n", "5. Give each pure function 1-2 invariants — a property checked over many inputs, not a few hand-picked ones (this is what catches a bug like a slugifier that doubles a hyphen on a run of separators, which every example happened to miss). `invariants` uses the shape shown above. Only Str, Int and Bool params have a corpus to check against.\n", "6. If the package composes its functions into ONE entry point, make that the last unit (deps = what it composes) with examples that run the whole thing end to end. If its public functions each stand alone, add no integration unit. Either way every function is declared by exactly ONE unit — never list a function in two units.\n", "7. The package is ONE module, src/", project, ".lex: units split the work, not the files, so never plan a separate file per unit.\n", "8. Before drawing anything, look at what already exists: read lex.toml and use the find_packages tool — depend on an existing package instead of planning to rebuild it; once installed, package_api(package, module) shows its real signatures, so plan against those instead of reading its source.\n", "9. If any signature or invariant mentions a type that isn't a builtin (Int, Str, Bool, List, Option, Result, tuples, records written inline) or one of your own units' functions, declare it in the top-level `types` array first — one entry per type, `decl` holding its FULL, real `type Name = ...` declaration (the field is `decl`, not `definition` or anything else). A signature that mentions an undeclared type is rejected before anything is filed.\n\n", "10. Budget: you have a limited number of steps (about 60) and a plan that is not written is worth nothing. Spend at most about 25 on research (find_packages, package_api, lex_stdlib) and then write the plan file — when unsure of a detail, plan the unit and let the build step discover it.\n\n", "When the file is written, reply with one line: the number of units. Do not implement anything."], "")
+  str.join(["Plan a Lex package as a graph of typed issues. Do NOT write the package itself.\n\n", "The package: ", brief, "\n\n", "Write ONE file, ", path, ", containing only JSON of this shape:\n\n", "  { \"project\": \"", project, "\",\n", "    \"types\": [ { \"name\": \"TypeName\", \"decl\": \"type TypeName = { field :: Str }\" } ],\n", "    \"packages\": [ { \"name\": \"lex-web\", \"git\": \"https://github.com/alpibrusl/lex-web\" } ],\n", "    \"policy\": { \"error_type\": \"Str\" },\n", "    \"units\": [\n", "      { \"key\": \"short_snake_name\", \"title\": \"one line\", \"body\": \"what it must do and the edge cases, in prose\",\n", "        \"api\": [ { \"name\": \"fn_name\", \"signature\": \"(x :: Int) -> Str\" } ],\n", "        \"examples\": [ \"fn_name(1) => \\\"one\\\"\" ],\n", "        \"invariants\": [ { \"name\": \"short_snake_name\", \"params\": [ { \"name\": \"x\", \"type\": \"Int\" } ], \"expr\": \"a Lex boolean expression using the param names and calling this unit's functions\" } ],\n", "        \"deps\": [ \"key_of_a_unit_this_needs_first\" ] } ] }\n\n", "`types`, `packages` and `policy` are each optional — omit any you don't need (an empty `[]` or `{}`, or leave the key out entirely). Rules — each one exists because a package built without it went wrong:\n", "1. One unit = one function the size of a screen (helpers may share its unit). If you cannot state its contract in two sentences, split it.\n", "2. Signatures are the contract. Write them in Lex: `(a :: Int, b :: Str) -> Result[Int, Str]`; an effectful one puts its row after the arrow: `() -> [net] Nil`. Every function that any example calls must be declared as an api entry of some unit.\n", "3. deps are real: a unit lists the units whose functions it calls. Foundations first; no cycles.\n", "4. Give each pure function at least three examples, and make them pin the edges (empty, zero, boundary, the case the obvious implementation gets wrong). Examples run at check time, so an effectful function carries none.\n", "5. Give each pure function 1-2 invariants — a property checked over many inputs, not a few hand-picked ones (this is what catches a bug like a slugifier that doubles a hyphen on a run of separators, which every example happened to miss). `invariants` uses the shape shown above. Only Str, Int and Bool params have a corpus to check against.\n", "6. If the package composes its functions into ONE entry point, make that the last unit (deps = what it composes) with examples that run the whole thing end to end. If its public functions each stand alone, add no integration unit. Either way every function is declared by exactly ONE unit — never list a function in two units.\n", "7. The package is ONE module, src/", project, ".lex: units split the work, not the files, so never plan a separate file per unit.\n", "8. Before drawing anything, look at what already exists: read lex.toml and use the find_packages tool — depend on an existing package instead of planning to rebuild it; once installed, package_api(package, module) shows its real signatures, so plan against those instead of reading its source.\n", "9. If any signature or invariant mentions a type that isn't a builtin (Int, Str, Bool, List, Option, Result, tuples, records written inline) or one of your own units' functions, declare it in the top-level `types` array first — one entry per type, `decl` holding its FULL, real `type Name = ...` declaration (the field is `decl`, not `definition` or anything else). A record is `type Invoice = { id :: Int, paid :: Bool }` — no constructor name before the brace; a variant type is `type Shape = Circle(Int) | Square(Int)`. A type that a dependency package owns (what package_api shows, e.g. ConnDb or Ctx) is not declared here: write it qualified by a short module alias, `conn.ConnDb`, `ctx.Ctx`, `resp.Response`. A signature that mentions any other undeclared type is rejected before anything is filed.\n\n", "10. Budget: you have a limited number of steps (about 60) and a plan that is not written is worth nothing. Spend at most about 25 on research (find_packages, package_api, lex_stdlib) and then write the plan file — when unsure of a detail, plan the unit and let the build step discover it.\n\n", "When the file is written, reply with one line: the number of units. Do not implement anything."], "")
 }
 
 # One line per unit, in dependency order, for a human to review before

@@ -86,7 +86,7 @@ fn type_names_in(sig :: Str) -> List[Str]
 }
 
 fn builtin_types() -> List[Str] {
-  ["Int", "Float", "Str", "Bool", "Nil", "Unit", "Bytes", "List", "Map", "Set", "Option", "Result", "Iter", "Stream", "Request", "Response"]
+  ["SqlParam", "Int", "Float", "Str", "Bool", "Nil", "Unit", "Bytes", "List", "Map", "Set", "Option", "Result", "Iter", "Stream", "Request", "Response"]
 }
 
 # The text between an already-consumed opener and its matching `close`,
@@ -264,11 +264,32 @@ fn dangling_errors(p :: plan.Plan) -> List[Str] {
         if plan.has(known, t) {
           acc3
         } else {
-          list.concat(acc3, [str.join(["unit `", u.key, "`: `", a.name, "` mentions type `", t, "`, which is neither built in nor declared in the plan's `types`"], "")])
+          list.concat(acc3, [str.join(["unit `", u.key, "`: `", a.name, "` mentions type `", t, "`, which is neither built in nor declared in the plan's `types` — if a dependency package owns it, write it qualified by a module alias (`conn.ConnDb`, `ctx.Ctx`), otherwise declare it in `types`"], "")])
         }
       })
     })
   })
+}
+
+# `type Invoice = Invoice { id :: Int }` is not Lex: a record type is written
+# `type Invoice = { id :: Int }`; a constructor takes parentheses.
+fn record_ctor_misuse(name :: Str, decl :: Str) -> Bool
+  examples {
+    record_ctor_misuse("Inv", "type Inv = Inv { id :: Int }") => true,
+    record_ctor_misuse("Inv", "type Inv = { id :: Int }") => false,
+    record_ctor_misuse("Inv", "type Inv = Inv(Int) | Nope") => false
+  }
+{
+  match str.strip_prefix(str.trim(decl), str.concat("type ", name)) {
+    None => false,
+    Some(rest) => match str.strip_prefix(str.trim(rest), "=") {
+      None => false,
+      Some(body) => match str.strip_prefix(str.trim(body), name) {
+        None => false,
+        Some(after) => str.starts_with(str.trim(after), "{"),
+      },
+    },
+  }
 }
 
 fn type_decl_errors(p :: plan.Plan) -> List[Str] {
@@ -284,7 +305,14 @@ fn type_decl_errors(p :: plan.Plan) -> List[Str] {
       list.concat(acc, [str.join(["type `", t.name, "`: decl must start with `type ", t.name, "`"], "")])
     }
   })
-  list.concat(dups, shape)
+  let misuse := list.fold(p.types, [], fn (acc :: List[Str], t :: plan.TypeDecl) -> List[Str] {
+    if record_ctor_misuse(t.name, t.decl) {
+      list.concat(acc, [str.join(["type `", t.name, "`: a record type is written `type ", t.name, " = { field :: Int, ... }` — without the constructor name before the brace"], "")])
+    } else {
+      acc
+    }
+  })
+  list.concat(list.concat(dups, shape), misuse)
 }
 
 fn policy_errors(p :: plan.Plan) -> List[Str] {
@@ -451,7 +479,11 @@ fn toml_with_packages(toml :: Str, pkgs :: List[plan.Pkg]) -> Str
 # The whole stub module and, for each chunk, the line it starts on — so a
 # checker error at a line can be told back as "unit X, example Y".
 fn stub_program(p :: plan.Plan) -> StubProgram {
-  let r := list.fold(stub_chunks(p), ("", 1, []), fn (acc :: (Str, Int, List[(Int, Str)]), c :: Chunk) -> (Str, Int, List[(Int, Str)]) {
+  program_of(stub_chunks(p))
+}
+
+fn program_of(chunks :: List[Chunk]) -> StubProgram {
+  let r := list.fold(chunks, ("", 1, []), fn (acc :: (Str, Int, List[(Int, Str)]), c :: Chunk) -> (Str, Int, List[(Int, Str)]) {
     match acc {
       (src, line, labels) => (str.concat(src, c.text), line + list.len(str.split(c.text, "\n")) - 1, list.concat(labels, [(line, c.label)])),
     }
@@ -476,6 +508,117 @@ fn label_at(labels :: List[(Int, Str)], line :: Int) -> Str
       } else {
         acc
       },
+    }
+  })
+}
+
+# The 1-based line that holds byte offset `n` of `source`.
+fn line_of_byte(source :: Str, n :: Int) -> Int
+  examples {
+    line_of_byte("ab\ncd\n", 0) => 1,
+    line_of_byte("ab\ncd\n", 3) => 2,
+    line_of_byte("ab\ncd\nef", 6) => 3,
+    line_of_byte("aaaa\nbbbbbb\nc\nd", 7) => 2
+  }
+{
+  let r := list.fold(str.split(source, "\n"), (0, 1, false), fn (acc :: (Int, Int, Bool), l :: Str) -> (Int, Int, Bool) {
+    match acc {
+      (start, line, done) => if done {
+        acc
+      } else {
+        if start + str.len(l) < n {
+          (start + str.len(l) + 1, line + 1, false)
+        } else {
+          (start, line, true)
+        }
+      },
+    }
+  })
+  match r {
+    (_, line, _) => line,
+  }
+}
+
+# The byte offset a parse error reports ("parse error at byte 1337: ...").
+fn parse_error_byte(msg :: Str) -> Option[Int]
+  examples {
+    parse_error_byte("error: parse x.lex: parse error at byte 1337: expected expression") => Some(1337),
+    parse_error_byte("type error") => None
+  }
+{
+  match list.head(list.tail(str.split(msg, "at byte "))) {
+    None => None,
+    Some(rest) => match list.head(str.split(rest, ":")) {
+      None => None,
+      Some(d) => str.to_int(str.trim(d)),
+    },
+  }
+}
+
+# The 1-based `n`th line of `source` ("" past the end).
+fn nth_line(source :: Str, n :: Int) -> Str
+  examples {
+    nth_line("a\nb\nc", 2) => "b",
+    nth_line("a", 5) => ""
+  }
+{
+  let r := list.fold(str.split(source, "\n"), (1, ""), fn (acc :: (Int, Str), l :: Str) -> (Int, Str) {
+    match acc {
+      (i, found) => if i == n {
+        (i + 1, l)
+      } else {
+        (i + 1, found)
+      },
+    }
+  })
+  match r {
+    (_, found) => found,
+  }
+}
+
+# A parse error told in the plan's terms: which unit's text it is in.
+fn describe_parse_error(prog :: StubProgram, msg :: Str) -> Str {
+  match parse_error_byte(msg) {
+    None => str.concat("lex check failed: ", msg),
+    Some(n) => {
+      let line := line_of_byte(prog.source, n)
+      str.join([label_at(prog.labels, line), ": the stub does not parse at `", str.trim(nth_line(prog.source, line)), "`"], "")
+    },
+  }
+}
+
+# Which chunk (0-based, in stub order) holds `line`.
+fn chunk_index_at(labels :: List[(Int, Str)], line :: Int) -> Int
+  examples {
+    chunk_index_at([(1, "imports"), (5, "unit a"), (9, "unit b")], 6) => 1,
+    chunk_index_at([(1, "imports"), (5, "unit a")], 1) => 0,
+    chunk_index_at([], 3) => 0
+  }
+{
+  let n := list.fold(labels, 0, fn (acc :: Int, p :: (Int, Str)) -> Int {
+    match p {
+      (start, _) => if start <= line {
+        acc + 1
+      } else {
+        acc
+      },
+    }
+  })
+  if n > 0 {
+    n - 1
+  } else {
+    0
+  }
+}
+
+fn remove_chunk(chunks :: List[Chunk], i :: Int) -> List[Chunk] {
+  list.map(list.filter(list.enumerate(chunks), fn (p :: (Int, Chunk)) -> Bool {
+    match p {
+      (k, _) => k != i,
+    }
+  }), fn (p :: (Int, Chunk)) -> Chunk {
+    match p {
+      (_, c) => c,
     }
   })
 }
@@ -566,7 +709,14 @@ fn invariant_errors(p :: plan.Plan) -> List[Str] {
         })
       }
     })
-    list.concat(acc, list.concat(dups, shape))
+    let wildcard := list.fold(u.invariants, [], fn (acc2 :: List[Str], i :: plan.Invariant) -> List[Str] {
+      if str.contains(i.expr, "(_)") {
+        list.concat(acc2, [str.join(["unit `", u.key, "`: invariant `", i.name, "` uses a `_` pattern like `Err(_)` in an expression — that only works inside `match`: write `match f(x) { Err(_) => true, Ok(_) => false }`"], "")])
+      } else {
+        acc2
+      }
+    })
+    list.concat(acc, list.concat(list.concat(dups, shape), wildcard))
   })
 }
 
