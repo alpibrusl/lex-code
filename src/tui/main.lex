@@ -819,6 +819,17 @@ fn harden(project :: Str, primary :: Str, fallback :: Option[Str], switch_after 
   }
 }
 
+# Reproduced live (2026-09-30): a `--parallel` run reported "6/6
+# verified" and `[PROJECT_VERDICT] done` for a package where four of
+# six functions — including one whose own merge attempt had *just*
+# failed with `Panic("todo() reached")` — were still bare `todo()`
+# stubs in the published file. Per-issue "verified" comes from the VCS
+# store (`lex issue verify`), a separate process this loop doesn't
+# control; trusting it alone means a store-level problem (a shared,
+# unscoped global store across concurrent unrelated projects, in the
+# case that was caught) can make a broken package look finished. This
+# reads the one thing that can't be wrong for someone else's reasons:
+# the actual text of the file about to be called done.
 fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
   let fallback := pb.flag_value(argv, "--fallback=")
   let switch_after := pb.flag_int(argv, "--switch-after=", 2)
@@ -840,17 +851,6 @@ fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, n
     project_loop(project, primary, fallback, switch_after, max_attempts, [], fuel, guidance)
   }
   let __final := regression_pass(project)
-  # Reproduced live (2026-09-30): a `--parallel` run reported "6/6
-  # verified" and `[PROJECT_VERDICT] done` for a package where four of
-  # six functions — including one whose own merge attempt had *just*
-  # failed with `Panic("todo() reached")` — were still bare `todo()`
-  # stubs in the published file. Per-issue "verified" comes from the VCS
-  # store (`lex issue verify`), a separate process this loop doesn't
-  # control; trusting it alone means a store-level problem (a shared,
-  # unscoped global store across concurrent unrelated projects, in the
-  # case that was caught) can make a broken package look finished. This
-  # reads the one thing that can't be wrong for someone else's reasons:
-  # the actual text of the file about to be called done.
   let scaffold_path := str.join(["src/", project, ".lex"], "")
   let stubs := match io.read(scaffold_path) {
     Err(_) => [],

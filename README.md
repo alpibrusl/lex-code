@@ -43,6 +43,10 @@ can run by hand.
 - **It dogfoods its own guarantees.** lex-code is written entirely in
   Lex, so its own CI runs the same type checker, minimum-bar gate, and
   effect-row-minimality report against itself that it holds any task to.
+  Concretely, not just in theory: six real defects in `--parallel`
+  itself were found by building real packages end to end and pushing
+  past the first green light — see
+  [Found by actually using it](#found-by-actually-using-it-2026-09-30).
 
 ## Install
 
@@ -65,9 +69,56 @@ export OPENCODE_API_KEY=...
 lex-code --opencode "implement list.zip"
 ```
 
-## [Trust Without Comprehension](https://lexlang.org/manifesto) — live demo
+## Live demo — building a real package, unattended
 
-Effect-typed parallel orchestration (§VI) + tamper-evident audit (§VIII) — verified live by the type checker:
+The claim to check isn't "an LLM wrote some code" — it's that the
+result doesn't need to be trusted on the model's word. One command
+builds an entire small package from a one-paragraph brief, with no
+human editing the generated code:
+
+```sh
+lex-code --opencode --package "$BRIEF" --name=tally --auto --parallel=2
+```
+
+What actually happens, in order: a plan agent turns the brief into a
+dependency graph of typed units (an LLM step); independent units build
+concurrently, as separate OS processes, each in its own isolated copy
+(an LLM step per unit); every merge back into the canonical file is
+gated by `lex check` — a deterministic compiler, never the model,
+deciding whether it's accepted; and once every unit verifies, a closing
+hardening pass runs property tests *generated from the plan's own
+declared invariants*, not written by the agent that implemented them.
+
+A representative real result, `tally` — a shared-expense ledger with a
+deliberate floating-point trap (round `1.005` to the nearest cent: the
+literal isn't exactly representable as a binary `Float`, so a naive
+`* 100 + 0.5` implementation returns the wrong answer) and one function
+genuinely gated behind the effect system (`save_ledger`, the only unit
+in the package allowed to touch a filesystem):
+
+```
+8/8 verified · 908 invariant checks, all hold · PACKAGE_GATE: pass
+
+$ lex run --allow-effects fs_write src/tally.lex round_cents 1.005
+101
+$ lex run --allow-effects fs_write src/tally.lex split_evenly 1000 '["alice","bob","carol"]'
+{"$variant":"Ok","args":[[{"cents":334,"person":"alice"},{"cents":333,"person":"bob"},{"cents":333,"person":"carol"}]]}
+```
+
+334 + 333 + 333 = 1000 exactly — no cent created or lost across three
+shares of an amount that doesn't divide evenly. That's a property
+nobody hand-wrote a test for; it's checked because the plan declared it
+as an invariant, and the hardening pass verified it against many inputs,
+not just the one shown here.
+
+See [Found by actually using it](#found-by-actually-using-it-2026-09-30)
+for what *didn't* work on the first try, and how each failure was
+found and fixed — the interesting part of an unattended build is what
+happens when it's wrong, not only when it's right.
+
+### Effect-typed orchestration + tamper-evident audit
+
+A narrower, earlier demo of two specific manifesto guarantees (§VI, §VIII):
 
 [![Demo — effect-typed orchestration + hash chain](https://asciinema.org/a/pdL5GnjFtakQi6bC.svg)](https://asciinema.org/a/pdL5GnjFtakQi6bC)
 
@@ -297,6 +348,30 @@ issues read "absent at head". So every issue is told to put its code in
 A provider that returns nothing (a rate limit, a rejected key) stops the run
 with the provider named instead of burning attempts; verified issues are kept.
 
+### Found by actually using it (2026-09-30)
+
+"It dogfoods its own guarantees" (above) is a claim; this is what that
+looked like in practice, over one real night of building several
+packages end to end. Every one of these was a genuine defect in this
+repo, not a demo artifact — found only because the run was pushed to
+completion instead of stopped at the first green light, fixed, and
+re-verified against the exact failure that found it.
+
+| Found | The defect | The fix |
+|---|---|---|
+| A package reported `[PACKAGE_GATE] pass` was actually impossible | `[PROJECT_VERDICT] done` / `[PACKAGE_GATE] unavailable` can mean "every issue verified" while a function is still a bare `todo()` — the store-backed per-issue "verified" status can be wrong for reasons unrelated to the code | `run_project` now re-reads the canonical file and hard-fails on any surviving stub *before* trusting anything the store claims |
+| Two projects on one machine leaked into each other's reasoning | Every `--parallel` issue's isolated Build-session copy lived in one flat, unscoped `/tmp` path shared by every project running at once | Scoped by project name — a same-machine cross-project collision is now a same-project one, already prevented by content-addressed issue ids |
+| A private helper function's needed import silently vanished at merge | `append_extra_fns` (a prior fix, for the helper *function* itself) carries a new function's text into the canonical file, but never the `import` line it depends on | The merge now also diffs and carries missing `import` lines, the same way it already did for functions |
+| The same retry, forever, with no new information | A redispatched issue gets byte-for-byte the same task text on attempt 10 as attempt 1 — no memory bug, the opposite: *no feedback channel exists at all* for a specific prior failure | The last merge/spawn error for that one issue is now folded into its own next retry's guidance; every other issue in the same batch is unaffected |
+| Hardening failed outright on the first package with a real effectful function | The harness's own effect grant was hardcoded to `"io"`, so property-testing any unit needing `fs_write` (or anything else) was never going to work, no matter how correct the code was | The grant is now computed from `lex check`'s own `required_effects` on the harness file, not guessed in advance |
+| A model spent many retries guessing `decimal`/`dec`/`flt`/`cents_via_decimal` before finding the real `math.round` | `lex_stdlib(module)` only supported an exact module-name lookup — useless when the model doesn't know which module to check in the first place | `lex_stdlib` now also searches every module's function names by keyword, so `module="round"` finds `math.round` directly |
+
+Two follow-ups filed, not yet done: [#215](https://github.com/alpibrusl/lex-code/issues/215)
+tracks the residual case neither fix above touches — a model that never
+calls a discovery tool at all — which needs either write-time
+enforcement or, for the local path specifically, grammar/type-constrained
+decoding.
+
 ## Providers
 
 lex-code can talk to ten provider backends (see `--help` for the full
@@ -308,6 +383,33 @@ have actually been run end-to-end against this repo:
 |------|----------|-------|--------------|
 | `--ollama` | Ollama (local, native API) | `$OLLAMA_MODEL` (default `qwen3.8:27b-mlx`) | none |
 | `--opencode` | OpenCode Go plan (cloud, direct) | `$OPENCODE_MODEL` | `OPENCODE_API_KEY` |
+
+### Local vs. cloud, measured — not assumed
+
+Reproduced live (2026-09-30): the intuitive assumption — a hosted cloud
+model beats one Mac's own GPU — didn't hold, for a concrete and
+checkable reason. Two real builds of the same package, same brief,
+compared from each session's own event log (`ts_ms` timestamps, not a
+guess):
+
+| | Local (`--ollama`, `qwen3.8:27b-mlx`) | Cloud (`--opencode`, `qwen3.8-flash`) |
+|---|---|---|
+| Median per-turn | 5.5s | 11.8s |
+| Mean per-turn | 12.8s | 32.4s |
+| Slowest turns seen | 175s, 139s | 195s, 172s, 120s, 108s, 103s... (fatter tail) |
+
+The gap traces to a concrete, fixable cause, not raw compute: the local
+path sets `OLLAMA_THINK=false`; the cloud path has no equivalent
+control, and a direct call to it showed a "reply with one word" request
+still burning 30 hidden reasoning tokens before the answer — one
+observed call spent its entire token budget on reasoning and returned
+no visible output at all. Separately, `qwen3.8-flash` on this gateway
+reproducibly returned a bare HTTP 500 for an ordinary single-function
+request, twice in a row, after ~80-96s each time. None of this is a
+claim about either provider in general — it's what this repo's own
+session logs showed on one real night, and anyone can reproduce the
+comparison the same way: `sqlite3 .lex/sessions/<id>.db "SELECT ts_ms
+FROM events WHERE kind='llm.step' ORDER BY ts_ms"` and diff the deltas.
 
 ### lex-gpu
 
@@ -1230,6 +1332,7 @@ the transcript.
 - [x] v0.5 — BeeAI ACP server (`src/server/acp.lex`), ACP helpers in lex-agent (server since removed — it never had a listener, and `lex-agent/acp_server` supplies only pure JSON/SSE builders, so finishing it meant writing a second HTTP server for a job `web.lex` and the MCP server already cover; the helpers remain upstream)
 - [x] v0.6 — OpenCode Go provider (native + via the bundled LiteLLM proxy, shared config with lex-loom)
 - [x] v0.7 — Agent Client Protocol (Zed) server, Phase 1: `initialize`/`session/new`/`session/prompt`/`session/close`
+- [x] v0.8 — `--parallel` reliability, found and fixed by actually building real packages end to end: the false-`PACKAGE_GATE`-pass stub guard, cross-project copy-dir isolation, import-carrying at merge, per-issue retry feedback, and hardening's own effect grant (see [Found by actually using it](#found-by-actually-using-it-2026-09-30)); `lex_stdlib` keyword search ([#214](https://github.com/alpibrusl/lex-code/pull/214))
 
 `src/server/api.lex` went the same way as the BeeAI ACP server, and for a
 sharper reason. It had no entry point, and its handler could not have run
