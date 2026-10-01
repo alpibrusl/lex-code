@@ -187,7 +187,13 @@ fn contract_prompt(issue :: jv.Json) -> Str {
     ""
   } else {
     str.join(["\n", body, "\n"], "")
-  }, "\n", refined, acceptance_section(acc), discovery_step(), closing], "")
+  }, "\n", refined, acceptance_section(acc), workspace_rule(), discovery_step(), closing], "")
+}
+
+# A worker once invented a second project directory, copied the file there,
+# and spent 25 steps failing to resolve imports without a lex.toml.
+fn workspace_rule() -> Str {
+  "\nWork only in the current directory: the project is the lex.toml and src/ here. Never cd elsewhere, copy the project, or create another project directory — the issue is verified against this one.\n"
 }
 
 # The step that keeps an agent from hand-rolling what already ships as a
