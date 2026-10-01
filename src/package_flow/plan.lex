@@ -501,7 +501,7 @@ fn render_plan(plan :: Plan) -> Str {
 # the checker's own, so the fix is mechanical: repair the file, do not redraw it.
 fn retry_prompt(original :: Str, errs :: List[Str], path :: Str) -> Str
   examples {
-    retry_prompt("TASK", ["a is wrong"], "p.json") => "TASK\n\n--- RETRY ---\nYour plan in p.json was rejected by automatic validation. Repair exactly these problems and rewrite the same file; keep everything that was not flagged:\n  - a is wrong\n\nThe rules in the original task still apply. Reply with one line: the number of units.\n\nIf the plan file is missing or empty, the previous attempt spent its whole step budget researching and never wrote it: do at most three more lookups, then write the file."
+    retry_prompt("TASK", ["a is wrong"], "p.json") => "TASK\n\n--- RETRY ---\nYour plan in p.json was rejected by automatic validation. The file is still on disk: read it, then fix exactly these problems with small `edit` replacements (one line of the file as old_str) — do not rewrite the file and do not redo the research, you already have the plan:\n  - a is wrong\n\nThe rules in the original task still apply. Reply with one line: the number of units.\n\nIf the plan file is missing or empty, the previous attempt spent its whole step budget researching and never wrote it: do at most three more lookups, then write the file."
   }
 {
   str.join([original, "\n\n--- RETRY ---\n", repair_prompt(errs, path), "\n\nIf the plan file is missing or empty, the previous attempt spent its whole step budget researching and never wrote it: do at most three more lookups, then write the file."], "")
@@ -509,9 +509,9 @@ fn retry_prompt(original :: Str, errs :: List[Str], path :: Str) -> Str
 
 fn repair_prompt(errs :: List[Str], path :: Str) -> Str
   examples {
-    repair_prompt(["a is wrong"], "p.json") => "Your plan in p.json was rejected by automatic validation. Repair exactly these problems and rewrite the same file; keep everything that was not flagged:\n  - a is wrong\n\nThe rules in the original task still apply. Reply with one line: the number of units."
+    repair_prompt(["a is wrong"], "p.json") => "Your plan in p.json was rejected by automatic validation. The file is still on disk: read it, then fix exactly these problems with small `edit` replacements (one line of the file as old_str) — do not rewrite the file and do not redo the research, you already have the plan:\n  - a is wrong\n\nThe rules in the original task still apply. Reply with one line: the number of units."
   }
 {
-  str.join(["Your plan in ", path, " was rejected by automatic validation. Repair exactly these problems and rewrite the same file; keep everything that was not flagged:\n  - ", str.join(errs, "\n  - "), "\n\nThe rules in the original task still apply. Reply with one line: the number of units."], "")
+  str.join(["Your plan in ", path, " was rejected by automatic validation. The file is still on disk: read it, then fix exactly these problems with small `edit` replacements (one line of the file as old_str) — do not rewrite the file and do not redo the research, you already have the plan:\n  - ", str.join(errs, "\n  - "), "\n\nThe rules in the original task still apply. Reply with one line: the number of units."], "")
 }
 
