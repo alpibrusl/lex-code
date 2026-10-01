@@ -4,10 +4,10 @@
 lex-web, lex-schema and lex-orm. It lists six attacker moves (missing or
 forged token, cross-tenant access, SQL injection through a filter, mass
 assignment, oversized body, hostile path ids) and requires the server to run
-with exactly the `net` and `sql` grants.
+with only the effects it needs: `net`, `sql`, `env` (config), and `fs_write` (the std.sql open row, for an in-memory database) -- no `proc`, `io` or `fs_read`.
 
 `attack.sh` is the check that does not trust the build: it starts the built
-server with only `--allow-effects net,sql --allow-net-host 127.0.0.1` and
+server with only `--allow-effects net,sql,env,fs_write --allow-net-host 127.0.0.1` and
 fires 13 curl requests at it, each expecting a specific status.
 
 ## Run it

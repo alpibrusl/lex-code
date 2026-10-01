@@ -5,7 +5,7 @@ set -u
 SRC=${1:?path to invoices.lex}
 export INVOICES_TOKENS="tok-acme:acme,tok-globex:globex" INVOICES_PORT=${INVOICES_PORT:-8099}
 B=http://127.0.0.1:$INVOICES_PORT
-lex run --allow-effects net,sql --allow-net-host 127.0.0.1 "$SRC" main >/tmp/invoices-server.log 2>&1 &
+lex run --allow-effects net,sql,env,fs_write --allow-net-host 127.0.0.1 "$SRC" main >/tmp/invoices-server.log 2>&1 &
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null' EXIT
 i=0; until curl -s -o /dev/null "$B/" || [ $i -gt 50 ]; do i=$((i+1)); sleep 0.2; done
