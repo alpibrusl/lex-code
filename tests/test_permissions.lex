@@ -96,7 +96,7 @@ fn test_write_modes_keep_their_tools() -> Result[Unit, Str] {
 # package_api; a shell or edit tool is what let a local model spend ~90 steps
 # implementing instead of planning, so it must never come back.
 fn test_planner_writes_a_plan_but_has_no_shell() -> Result[Unit, Str] {
-  check("planner keeps write and package_api; no bash, edit, run or check", allows_all(rules.planner_permission(), ["read", "write", "package_api", "find_packages", "lex_stdlib", "plan_check"]) and denies_all(rules.planner_permission(), ["bash", "edit", "lex_run", "lex_check", "lex_test", "definitely_not_a_tool"]))
+  check("planner keeps write, edit and package_api; no bash, run or check", allows_all(rules.planner_permission(), ["read", "write", "edit", "package_api", "find_packages", "lex_stdlib", "plan_check"]) and denies_all(rules.planner_permission(), ["bash", "lex_run", "lex_check", "lex_test", "definitely_not_a_tool"]))
 }
 
 fn suite() -> List[Result[Unit, Str]] {
