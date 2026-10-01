@@ -309,6 +309,23 @@ fn run_refine(issue_id :: Str, guidance :: Option[Str], provider_tag :: Str) -> 
 
 type IssueOutcome = { verdict :: Str, session_id :: Str }
 
+# `lex issue verify` passes an effectful unit whose body is still `todo()`;
+# check the working file before believing it.
+fn hollow_guard(issue :: jv.Json, verdict :: Str) -> [io, fs_read] Str {
+  match io.read(str.join(["src/", ic.field_text(issue, "project"), ".lex"], "")) {
+    Err(_) => verdict,
+    Ok(source) => {
+      let shown := ic.demote_hollow(verdict, ic.api_names(issue), merge.stub_fn_names(source))
+      if shown != verdict {
+        let __n := io.print("\n[hollow] verified by signature only: a declared function still has a todo() body\n")
+        shown
+      } else {
+        verdict
+      }
+    },
+  }
+}
+
 fn run_issue_verdict_full(issue_id :: Str, guidance :: Option[Str], mode :: sess.AgentMode, provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] IssueOutcome {
   match fetch_issue(issue_id) {
     Err(e) => {
@@ -337,7 +354,7 @@ fn run_issue_verdict_full(issue_id :: Str, guidance :: Option[Str], mode :: sess
               Err(_) => "unavailable",
               Ok(v) => match ic.verdict_of(v.stdout) {
                 None => "unavailable",
-                Some(word) => word,
+                Some(word) => hollow_guard(issue, word),
               },
             }
           } else {
