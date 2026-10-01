@@ -1,0 +1,21 @@
+Build a small Lex package named "invoices": a multi-tenant invoice REST API that is safe to put on the internet. Reuse the existing packages lex-web (routing and serving), lex-schema (request validation) and lex-orm (database access, SQLite) instead of writing those layers yourself.
+
+Each customer company ("tenant") has its own bearer token. A request carries "Authorization: Bearer <token>"; the token decides which tenant it acts for. Tokens are loaded at startup from the environment variable INVOICES_TOKENS, formatted "token1:tenantA,token2:tenantB". The server listens on the port in INVOICES_PORT.
+
+Endpoints, all returning JSON:
+
+- POST /invoices -- body {"customer": Str, "amount_cents": Int, "currency": Str}. Creates an invoice owned by the caller's tenant and returns it with its new integer id and "paid": false. 201 on success.
+- GET /invoices/{id} -- returns one invoice.
+- GET /invoices?customer=NAME -- lists the caller's tenant's invoices whose customer equals NAME exactly (no NAME: list all of the tenant's).
+- POST /invoices/{id}/pay -- marks one invoice paid. Idempotent. 200.
+
+Security requirements. Each one is something an attacker will try, and each must have a test:
+
+1. No token, a malformed Authorization header, or an unknown token: 401, and the database is never touched.
+2. A tenant can never see or change another tenant's invoice. Asking for an id that belongs to someone else returns 404, exactly the same response as an id that does not exist -- never 403, so existence does not leak.
+3. Every database query is parameterized. The customer filter value `x' OR '1'='1` is just a customer name that matches nothing; it must never widen the result or raise an error.
+4. The create body is strictly validated: customer is 1 to 100 characters after trimming; amount_cents is an integer from 1 to 10000000; currency is one of USD, EUR, GBP. Unknown fields are rejected with 400 -- in particular a body that tries to set "id", "tenant", "tenant_id" or "paid" is rejected, so a client cannot choose its own owner (mass assignment). Invalid JSON is 400.
+5. A request body larger than 4096 bytes is rejected with 413 before it is parsed.
+6. The id in the path must be a positive integer; anything else (including "1 OR 1=1" and "../etc/passwd") is 404.
+
+Effects. The pure logic -- reading the token header, mapping a token to a tenant, validating a create body, deciding whether a tenant may access an invoice -- must be pure functions with no effect annotation, each with examples. Only the handlers and main may use effects, and only the narrowest ones Lex allows (the database and the network). The server must never need file, process or general IO access, so it can be run with exactly the grants net and sql and nothing else.
