@@ -576,13 +576,52 @@ fn nth_line(source :: Str, n :: Int) -> Str
   }
 }
 
-# A parse error told in the plan's terms: which unit's text it is in.
+# What the parser said it wanted: the text after "parse error at byte N: ".
+fn parser_reason(msg :: Str) -> Str
+  examples {
+    parser_reason("error: parse x.lex: parse error at byte 9: expected expression, got Some(FatArrow): parse error at byte 9: expected expression, got Some(FatArrow)") => "expected expression, got Some(FatArrow)",
+    parser_reason("type error") => ""
+  }
+{
+  let r := list.fold(str.split(msg, ": "), ("", false), fn (acc :: (Str, Bool), part :: Str) -> (Str, Bool) {
+    match acc {
+      (found, take) => if take and str.is_empty(found) {
+        (part, false)
+      } else {
+        if str.starts_with(part, "parse error at byte") {
+          (found, true)
+        } else {
+          acc
+        }
+      },
+    }
+  })
+  match r {
+    (found, _) => found,
+  }
+}
+
+# A parse error told in the plan's terms: which unit's text it is in, the
+# line, what the parser expected there, and — for the one slip every model
+# makes — how to write it.
 fn describe_parse_error(prog :: StubProgram, msg :: Str) -> Str {
   match parse_error_byte(msg) {
     None => str.concat("lex check failed: ", msg),
     Some(n) => {
       let line := line_of_byte(prog.source, n)
-      str.join([label_at(prog.labels, line), ": the stub does not parse at `", str.trim(nth_line(prog.source, line)), "`"], "")
+      let text := str.trim(nth_line(prog.source, line))
+      let why := parser_reason(msg)
+      let because := if str.is_empty(why) {
+        ""
+      } else {
+        str.join([" (parser: ", why, ")"], "")
+      }
+      let hint := if str.contains(text, "{\"") {
+        " — Lex has no map literal: `{\"k\": v}` is not valid; build a map with `map.from_list([(\"k\", v)])`"
+      } else {
+        ""
+      }
+      str.join([label_at(prog.labels, line), ": the stub does not parse at `", text, "`", because, hint], "")
     },
   }
 }
