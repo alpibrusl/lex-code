@@ -513,6 +513,18 @@ fn kill_child(project :: Str, issue_id :: Str) -> [proc] Unit {
   ()
 }
 
+# The worker's copy directory is rebuilt for the next attempt, taking its
+# session trail with it — which is exactly the evidence needed to see why it
+# stalled. Keep the stalled attempt's trail next to its log.
+fn stalled_trail_path(project :: Str, issue_id :: Str) -> Str {
+  str.concat(log_path_for(project, issue_id), ".stalled.db")
+}
+
+fn save_trail(project :: Str, issue_id :: Str) -> [proc] Unit {
+  let __s := proc.run("sh", ["-c", "d=$(find \"$1/.lex/sessions\" -name 'cli-*.db' -newer \"$2\" 2>/dev/null | head -1); [ -n \"$d\" ] && { rm -f \"$3\"; sqlite3 \"$d\" \".backup '$3'\" 2>/dev/null; }; true", "sh", copy_dir_for(project, issue_id), pid_path_for(project, issue_id), stalled_trail_path(project, issue_id)])
+  ()
+}
+
 fn short_id(id :: Str) -> Str {
   str.slice(id, 0, 8)
 }
@@ -539,8 +551,9 @@ fn watch_tick(project :: Str, ids :: List[Str], stalls :: List[(Str, Str)], tick
       let p := probe_child(copy_dir_for(project, id), pid_path_for(project, id))
       match stall_reason(p, lim) {
         Some(reason) => {
+          let __save := save_trail(project, id)
           let __kill := kill_child(project, id)
-          let __say := io.print(str.join([heartbeat_line(project, id, elapsed_s, p), "\n[STALL] ", project, " ", short_id(id), " — ", reason], ""))
+          let __say := io.print(str.join([heartbeat_line(project, id, elapsed_s, p), "\n[STALL] ", project, " ", short_id(id), " — ", reason, "\n[STALL] trail kept at ", stalled_trail_path(project, id)], ""))
           list.cons((id, reason), acc)
         },
         None => {
