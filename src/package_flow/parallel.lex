@@ -406,12 +406,12 @@ fn locate_error(merged :: Str, out :: Str) -> Str {
 #     log shows what each worker is actually doing;
 #   - stops a worker that is not making progress and files the unit as
 #     stalled with its last error, which the next attempt is given:
-#       * N consecutive failed writes/edits (default 5), or
+#       * N consecutive failed writes/edits (default 10), or
 #       * N steps since the last successful write/edit (default 25), or
 #       * a hard cap on total steps (default 80).
 # Limits come from LEX_CODE_STALL_FAILS / _STEPS / _MAX_STEPS; the poll
 # interval from LEX_CODE_POLL_MS (default 20000).
-type Probe = { steps :: Int, since_write :: Int, fail_streak :: Int, writes_ok :: Int, last_error :: Str }
+type Probe = { steps :: Int, since_write :: Int, fail_streak :: Int, writes_ok :: Int, repeated :: Bool, last_error :: Str }
 
 type StallLimits = { fails :: Int, since_write :: Int, max_steps :: Int }
 
@@ -430,11 +430,11 @@ fn env_int(name :: Str, default :: Int) -> [env] Int {
 }
 
 fn stall_limits() -> [env] StallLimits {
-  { fails: env_int("LEX_CODE_STALL_FAILS", 5), since_write: env_int("LEX_CODE_STALL_STEPS", 25), max_steps: env_int("LEX_CODE_STALL_MAX_STEPS", 80) }
+  { fails: env_int("LEX_CODE_STALL_FAILS", 10), since_write: env_int("LEX_CODE_STALL_STEPS", 25), max_steps: env_int("LEX_CODE_STALL_MAX_STEPS", 80) }
 }
 
 fn probe_script() -> Str {
-  str.join(["d=$(find \"$1/.lex/sessions\" -name 'cli-*.db' -newer \"$2\" 2>/dev/null | head -1)", "[ -n \"$d\" ] || { printf '0\\t0\\t0\\t0\\t\\n'; exit 0; }", "q() { sqlite3 \"$d\" \"$1\" 2>/dev/null; }", "W=\"(substr(payload_json,16,5)='write' or substr(payload_json,16,4)='edit')\"", "steps=$(q \"select count(*) from events where kind='llm.step'\")", "lastok=$(q \"select coalesce(max(rowid),0) from events where kind='cap.completed' and $W\")", "since=$(q \"select count(*) from events where kind='llm.step' and rowid>$lastok\")", "okn=$(q \"select count(*) from events where kind='cap.completed' and $W\")", "streak=$(q \"select count(*) from events where kind='cap.failed' and $W and rowid>$lastok\")", "err=$(q \"select replace(replace(payload_json,char(10),' '),char(9),' ') from events where kind='cap.failed' and $W order by rowid desc limit 1\" | tail -c 360)", "printf '%s\\t%s\\t%s\\t%s\\t%s\\n' \"${steps:-0}\" \"${since:-0}\" \"${streak:-0}\" \"${okn:-0}\" \"$err\""], "\n")
+  str.join(["d=$(find \"$1/.lex/sessions\" -name 'cli-*.db' -newer \"$2\" 2>/dev/null | head -1)", "[ -n \"$d\" ] || { printf '0\\t0\\t0\\t0\\t0\\t\\n'; exit 0; }", "q() { sqlite3 \"$d\" \"$1\" 2>/dev/null; }", "W=\"(substr(payload_json,16,5)='write' or substr(payload_json,16,4)='edit')\"", "steps=$(q \"select count(*) from events where kind='llm.step'\")", "lastok=$(q \"select coalesce(max(rowid),0) from events where kind='cap.completed' and $W\")", "since=$(q \"select count(*) from events where kind='llm.step' and rowid>$lastok\")", "okn=$(q \"select count(*) from events where kind='cap.completed' and $W\")", "streak=$(q \"select count(*) from events where kind='cap.failed' and $W and rowid>$lastok\")", "errs=$(q \"select replace(replace(payload_json,char(10),' '),char(9),' ') from events where kind='cap.failed' and $W order by rowid desc limit 4\")", "last=$(printf '%s\\n' \"$errs\" | head -1)", "msg=$(printf '%s' \"$last\" | grep -o 'lint\\[lex check\\]: FAILED.*' | sed -E 's/[\"}]+$//' | head -c 300)", "[ -n \"$msg\" ] || msg=$(printf '%s' \"$last\" | tail -c 300)", "nerr=$(printf '%s\\n' \"$errs\" | sed -E 's/.*(lint\\[lex check\\]: FAILED.*)/\\1/' | tr -d '0-9' | sort -u | wc -l | tr -d ' ')", "cnt=$(printf '%s\\n' \"$errs\" | grep -c .)", "same=0; [ \"$cnt\" -ge 4 ] && [ \"$nerr\" = 1 ] && [ \"${streak:-0}\" -ge 4 ] && same=1", "printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' \"${steps:-0}\" \"${since:-0}\" \"${streak:-0}\" \"${okn:-0}\" \"$same\" \"$msg\""], "\n")
 }
 
 fn int_or_zero(s :: Str) -> Int {
@@ -446,8 +446,8 @@ fn int_or_zero(s :: Str) -> Int {
 
 fn parse_probe(line :: Str) -> Probe
   examples {
-    parse_probe("41\t33\t6\t0\tparse error") => { steps: 41, since_write: 33, fail_streak: 6, writes_ok: 0, last_error: "parse error" },
-    parse_probe("") => { steps: 0, since_write: 0, fail_streak: 0, writes_ok: 0, last_error: "" }
+    parse_probe("41\t33\t6\t0\t1\tparse error") => { steps: 41, since_write: 33, fail_streak: 6, writes_ok: 0, repeated: true, last_error: "parse error" },
+    parse_probe("") => { steps: 0, since_write: 0, fail_streak: 0, writes_ok: 0, repeated: false, last_error: "" }
   }
 {
   let f := str.split(str.trim(line), "\t")
@@ -462,7 +462,7 @@ fn parse_probe(line :: Str) -> Probe
       }
     })
   }
-  { steps: int_or_zero(at(0)), since_write: int_or_zero(at(1)), fail_streak: int_or_zero(at(2)), writes_ok: int_or_zero(at(3)), last_error: str.trim(at(4)) }
+  { steps: int_or_zero(at(0)), since_write: int_or_zero(at(1)), fail_streak: int_or_zero(at(2)), writes_ok: int_or_zero(at(3)), repeated: int_or_zero(at(4)) == 1, last_error: str.trim(at(5)) }
 }
 
 fn probe_child(copy_dir :: Str, pid_path :: Str) -> [proc] Probe {
@@ -474,22 +474,27 @@ fn probe_child(copy_dir :: Str, pid_path :: Str) -> [proc] Probe {
 
 fn stall_reason(p :: Probe, lim :: StallLimits) -> Option[Str]
   examples {
-    stall_reason({ steps: 10, since_write: 10, fail_streak: 5, writes_ok: 0, last_error: "boom" }, { fails: 5, since_write: 25, max_steps: 80 }) => Some("stopped by the stall guard after 5 failed writes/edits in a row without one succeeding (the file never compiled). Last error: boom"),
-    stall_reason({ steps: 30, since_write: 26, fail_streak: 0, writes_ok: 1, last_error: "" }, { fails: 5, since_write: 25, max_steps: 80 }) => Some("stopped by the stall guard after 26 steps without a successful write or edit — it was researching or probing instead of writing"),
-    stall_reason({ steps: 81, since_write: 3, fail_streak: 0, writes_ok: 4, last_error: "" }, { fails: 5, since_write: 25, max_steps: 80 }) => Some("stopped by the stall guard after 81 steps without finishing"),
-    stall_reason({ steps: 12, since_write: 4, fail_streak: 2, writes_ok: 1, last_error: "x" }, { fails: 5, since_write: 25, max_steps: 80 }) => None
+    stall_reason({ steps: 10, since_write: 10, fail_streak: 10, writes_ok: 0, repeated: false, last_error: "boom" }, { fails: 10, since_write: 25, max_steps: 80 }) => Some("stopped by the stall guard after 10 failed writes/edits in a row without one succeeding (the file never compiled). Last error: boom"),
+    stall_reason({ steps: 10, since_write: 10, fail_streak: 4, writes_ok: 0, repeated: true, last_error: "boom" }, { fails: 10, since_write: 25, max_steps: 80 }) => Some("stopped by the stall guard: the same error came back on 4 writes/edits in a row (4 failures so far, none succeeding) — retrying the same fix is not working. Last error: boom"),
+    stall_reason({ steps: 30, since_write: 26, fail_streak: 0, writes_ok: 1, repeated: false, last_error: "" }, { fails: 10, since_write: 25, max_steps: 80 }) => Some("stopped by the stall guard after 26 steps without a successful write or edit — it was researching or probing instead of writing"),
+    stall_reason({ steps: 81, since_write: 3, fail_streak: 0, writes_ok: 4, repeated: false, last_error: "" }, { fails: 10, since_write: 25, max_steps: 80 }) => Some("stopped by the stall guard after 81 steps without finishing"),
+    stall_reason({ steps: 12, since_write: 4, fail_streak: 2, writes_ok: 1, repeated: false, last_error: "x" }, { fails: 10, since_write: 25, max_steps: 80 }) => None
   }
 {
   if p.fail_streak >= lim.fails {
     Some(str.join(["stopped by the stall guard after ", int.to_str(p.fail_streak), " failed writes/edits in a row without one succeeding (the file never compiled). Last error: ", p.last_error], ""))
   } else {
-    if p.since_write >= lim.since_write {
-      Some(str.join(["stopped by the stall guard after ", int.to_str(p.since_write), " steps without a successful write or edit — it was researching or probing instead of writing"], ""))
+    if p.repeated {
+      Some(str.join(["stopped by the stall guard: the same error came back on 4 writes/edits in a row (", int.to_str(p.fail_streak), " failures so far, none succeeding) — retrying the same fix is not working. Last error: ", p.last_error], ""))
     } else {
-      if p.steps >= lim.max_steps {
-        Some(str.join(["stopped by the stall guard after ", int.to_str(p.steps), " steps without finishing"], ""))
+      if p.since_write >= lim.since_write {
+        Some(str.join(["stopped by the stall guard after ", int.to_str(p.since_write), " steps without a successful write or edit — it was researching or probing instead of writing"], ""))
       } else {
-        None
+        if p.steps >= lim.max_steps {
+          Some(str.join(["stopped by the stall guard after ", int.to_str(p.steps), " steps without finishing"], ""))
+        } else {
+          None
+        }
       }
     }
   }
