@@ -122,15 +122,33 @@ fn run_docs(flag :: Str) -> [proc] Result[Str, Str] {
   }
 }
 
+# Modules where the index alone sends a worker into a probing rabbit hole:
+# std.json's function names are listed with no types, so a worker that needs
+# to read a JSON body writes throwaway files to learn the shape of `parse`'s
+# result (20+ steps, observed). Point it at the typed alternative up front.
+fn module_note(name :: Str) -> Str
+  examples {
+    module_note("json") => "\n\nNote: std.json lists no types, and the shape of `json.parse`'s result cannot be learned by probing. To read fields from a JSON string use lex-schema (add it to lex.toml, `lex pkg install`): `import \"lex-schema/json_value\" as jv`, `jv.parse(src)` returns `Result[Json, ParseErr]` with `Json = JNull | JBool(Bool) | JInt(Int) | JFloat(Float) | JStr(Str) | JList(List[Json]) | JObj(List[(Str, Json)])` — match on those. `package_api(\"lex-schema\", \"json_value\")` lists the extractors.",
+    module_note("str") => ""
+  }
+{
+  if name == "json" {
+    "\n\nNote: std.json lists no types, and the shape of `json.parse`'s result cannot be learned by probing. To read fields from a JSON string use lex-schema (add it to lex.toml, `lex pkg install`): `import \"lex-schema/json_value\" as jv`, `jv.parse(src)` returns `Result[Json, ParseErr]` with `Json = JNull | JBool(Bool) | JInt(Int) | JFloat(Float) | JStr(Str) | JList(List[Json]) | JObj(List[(Str, Json)])` — match on those. `package_api(\"lex-schema\", \"json_value\")` lists the extractors."
+  } else {
+    ""
+  }
+}
+
 fn with_signatures(line :: Str, name :: Str) -> [proc] Result[jv.Json, e.Errors] {
+  let note := module_note(name)
   match run_docs("--stdlib-spec") {
-    Err(_) => Ok(JStr(line)),
+    Err(_) => Ok(JStr(str.concat(line, note))),
     Ok(spec_text) => {
       let sig_lines := spec_lines_for(spec_text, name)
       if list.is_empty(sig_lines) {
-        Ok(JStr(line))
+        Ok(JStr(str.concat(line, note)))
       } else {
-        Ok(JStr(str.join([line, "\n\nSignatures:\n", str.join(sig_lines, "\n")], "")))
+        Ok(JStr(str.join([line, "\n\nSignatures:\n", str.join(sig_lines, "\n"), note], "")))
       }
     },
   }
