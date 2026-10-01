@@ -451,7 +451,9 @@ fn toml_with_packages(toml :: Str, pkgs :: List[plan.Pkg]) -> Str
   examples {
     toml_with_packages("[package]\nname = \"x\"\n\n[dependencies]\n# note\n", [{ name: "lex-web", git: "https://g/lex-web" }]) => "[package]\nname = \"x\"\n\n[dependencies]\nlex-web = { git = \"https://g/lex-web\" }\n# note\n",
     toml_with_packages("[dependencies]\nlex-web = { git = \"u\" }\n", [{ name: "lex-web", git: "u" }]) => "[dependencies]\nlex-web = { git = \"u\" }\n",
-    toml_with_packages("[package]\n", []) => "[package]\n"
+    toml_with_packages("[package]\n", []) => "[package]\n",
+    toml_with_packages("", [{ name: "lex-web", git: "u" }]) => "\n\n[dependencies]\nlex-web = { git = \"u\" }\n",
+    toml_with_packages("[package]\nname = \"x\"\n", [{ name: "lex-web", git: "u" }]) => "[package]\nname = \"x\"\n\n[dependencies]\nlex-web = { git = \"u\" }\n"
   }
 {
   let lines := str.split(toml, "\n")
@@ -460,19 +462,26 @@ fn toml_with_packages(toml :: Str, pkgs :: List[plan.Pkg]) -> Str
       acc or str.starts_with(str.trim(l), str.concat(k.name, " "))
     })
   })
+  let has_deps := list.fold(lines, false, fn (acc :: Bool, l :: Str) -> Bool {
+    acc or str.trim(l) == "[dependencies]"
+  })
   if list.is_empty(missing) {
     toml
   } else {
     let added := list.map(missing, fn (k :: plan.Pkg) -> Str {
       str.join([k.name, " = { git = \"", k.git, "\" }"], "")
     })
-    str.join(list.fold(lines, [], fn (acc :: List[Str], l :: Str) -> List[Str] {
-      if str.trim(l) == "[dependencies]" {
-        list.concat(list.concat(acc, [l]), added)
-      } else {
-        list.concat(acc, [l])
-      }
-    }), "\n")
+    if has_deps {
+      str.join(list.fold(lines, [], fn (acc :: List[Str], l :: Str) -> List[Str] {
+        if str.trim(l) == "[dependencies]" {
+          list.concat(list.concat(acc, [l]), added)
+        } else {
+          list.concat(acc, [l])
+        }
+      }), "\n")
+    } else {
+      str.join([str.trim(toml), "\n\n[dependencies]\n", str.join(added, "\n"), "\n"], "")
+    }
   }
 }
 
