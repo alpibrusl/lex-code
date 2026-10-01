@@ -83,6 +83,7 @@ fn args_for(name :: Str) -> Option[jv.Json] {
     "vcs_merge_show_conflicts" => Some(JObj([("merge_id", JStr("no-such-session"))])),
     "find_packages" => Some(JObj([("query", JStr("gcd"))])),
     "package_api" => Some(JObj([("package", JStr("lex-schema")), ("module", JStr("schema"))])),
+    "plan_check" => Some(JObj([("path", JStr(".lex/plans/no-such-plan.json"))])),
     "issue_show" => Some(JObj([("issue_id", JStr("0000000000000000000000000000000000000000000000000000000000000000"))])),
     "issue_verify" => Some(JObj([("issue_id", JStr("0000000000000000000000000000000000000000000000000000000000000000"))])),
     "issue_propose" => Some(JObj([("issue_id", JStr("0000000000000000000000000000000000000000000000000000000000000000")), ("shape", JStr("failing_example")), ("examples", JStr("f(1) => 1")), ("rationale", JStr("smoke"))])),

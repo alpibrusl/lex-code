@@ -100,6 +100,10 @@ fn test_permission() -> sp.Spec {
 # correct but it burned its whole step budget on an import-path
 # mistake and a missing stdlib import before ever landing a file that
 # type-checked.
+fn planner_permission() -> sp.Spec {
+  allow_tools("planner_tools", ["read", "write", "grep", "glob", "lex_stdlib", "lex_guide", "find_packages", "package_api", "plan_check"])
+}
+
 fn verify_permission() -> sp.Spec {
   allow_tools("verify_tools", ["read", "write", "grep", "glob", "lex_check", "lex_run", "lex_test", "lex_stdlib", "lex_guide", "lex_cli_help", "package_api"])
 }
@@ -137,7 +141,11 @@ fn mode_of_spec(spec :: sp.Spec) -> Str {
                 if spec.name == "verify_tools" {
                   "verify"
                 } else {
-                  "build"
+                  if spec.name == "planner_tools" {
+                    "planner"
+                  } else {
+                    "build"
+                  }
                 }
               }
             }

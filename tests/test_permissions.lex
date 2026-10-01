@@ -92,8 +92,15 @@ fn test_write_modes_keep_their_tools() -> Result[Unit, Str] {
   check("refactor/test/spec keep write and edit; refactor keeps bash", allows_all(rules.refactor_permission(), ["write", "edit", "bash"]) and allows_all(rules.test_permission(), ["write", "edit", "lex_test"]) and allows_all(rules.spec_permission(), ["write", "edit", "lex_spec_check"]))
 }
 
+# The planner writes one plan file and learns dependencies through
+# package_api; a shell or edit tool is what let a local model spend ~90 steps
+# implementing instead of planning, so it must never come back.
+fn test_planner_writes_a_plan_but_has_no_shell() -> Result[Unit, Str] {
+  check("planner keeps write and package_api; no bash, edit, run or check", allows_all(rules.planner_permission(), ["read", "write", "package_api", "find_packages", "lex_stdlib", "plan_check"]) and denies_all(rules.planner_permission(), ["bash", "edit", "lex_run", "lex_check", "lex_test", "definitely_not_a_tool"]))
+}
+
 fn suite() -> List[Result[Unit, Str]] {
-  [test_readonly_modes_cannot_mutate(), test_bar_is_read_only_but_can_probe(), test_no_spec_is_allow_all(), test_build_is_allow_all_on_purpose(), test_write_modes_keep_their_tools()]
+  [test_readonly_modes_cannot_mutate(), test_bar_is_read_only_but_can_probe(), test_no_spec_is_allow_all(), test_build_is_allow_all_on_purpose(), test_write_modes_keep_their_tools(), test_planner_writes_a_plan_but_has_no_shell()]
 }
 
 fn run_all() -> [io] Unit {

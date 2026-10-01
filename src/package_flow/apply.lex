@@ -104,9 +104,50 @@ fn describe_error(j :: jv.Json, labels :: List[(Int, Str)]) -> Str {
   }], "")
 }
 
+# Every chunk of the stub that does not PARSE, each told in the plan's terms.
+# The parser stops at the first bad chunk, so a model fixing one syntax slip
+# per round-trip would take one retry per slip: after each hit that chunk is
+# dropped and the rest checked again, until the stub parses or `budget` runs
+# out. Parse errors are self-contained, so dropping a chunk cannot hide one
+# in another.
+fn parse_problems(chunks :: List[chk.Chunk], path :: Str, found :: List[Str], budget :: Int) -> [proc, io] List[Str] {
+  if budget <= 0 {
+    found
+  } else {
+    let prog := chk.program_of(chunks)
+    let __w := io.write(path, prog.source)
+    match proc.run("lex", ["check", path]) {
+      Err(_) => found,
+      Ok(out) => if out.exit_code == 0 {
+        found
+      } else {
+        let msg := str.trim(str.concat(out.stdout, out.stderr))
+        match chk.parse_error_byte(msg) {
+          None => found,
+          Some(n) => {
+            let line := chk.line_of_byte(prog.source, n)
+            parse_problems(chk.remove_chunk(chunks, chk.chunk_index_at(prog.labels, line)), path, list.concat(found, [chk.describe_parse_error(prog, msg)]), budget - 1)
+          },
+        }
+      },
+    }
+  }
+}
+
 # Write the stub module and run `lex check` on it. Ok([]) = the contracts
 # are well-typed and every example fits its signature.
 fn compile_check(p :: plan.Plan) -> [proc, io] Result[List[Str], Str] {
+  let parse_path := str.join([".lex/plans/", p.project, ".parse.lex"], "")
+  let __d := proc.run("mkdir", ["-p", ".lex/plans"])
+  let parse_found := parse_problems(chk.stub_chunks(p), parse_path, [], 12)
+  if list.is_empty(parse_found) {
+    compile_types(p)
+  } else {
+    Ok(parse_found)
+  }
+}
+
+fn compile_types(p :: plan.Plan) -> [proc, io] Result[List[Str], Str] {
   let prog := chk.stub_program(p)
   let path := str.join([".lex/plans/", p.project, ".stub.lex"], "")
   let __dir := proc.run("mkdir", ["-p", ".lex/plans"])
@@ -128,7 +169,7 @@ fn compile_check(p :: plan.Plan) -> [proc, io] Result[List[Str], Str] {
         }
       })
       if list.is_empty(errs) {
-        Err(str.concat("lex check failed: ", str.trim(str.concat(out.stdout, out.stderr))))
+        Ok([chk.describe_parse_error(prog, str.trim(str.concat(out.stdout, out.stderr)))])
       } else {
         Ok(errs)
       }

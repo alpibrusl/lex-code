@@ -88,6 +88,8 @@ import "./find_packages" as find_packages_tool
 
 import "./package_api" as package_api_tool
 
+import "./plan_check" as plan_check_tool
+
 import "./edit_files" as edit_files_tool
 
 import "./vcs/merge_status" as vcs_merge_status_tool
@@ -258,6 +260,10 @@ fn review_dynamic_tools() -> List[t.Tool] {
 # its own Lex code should ask a stdlib signature or a syntax rule
 # rather than guess it — confirmed the hard way in #143's live test,
 # which burned its whole step budget on exactly that class of mistake.
+fn planner_dynamic_tools() -> List[t.Tool] {
+  [read_tool.tool(), write_tool.tool(), grep_tool.tool(), glob_tool.tool(), stdlib_tool.tool(), guide_tool.tool(), find_packages_tool.tool(), package_api_tool.tool(), plan_check_tool.tool()]
+}
+
 fn verify_dynamic_tools() -> List[t.Tool] {
   [read_tool.tool(), write_tool.tool(), grep_tool.tool(), glob_tool.tool(), check_tool.tool(), run_tool.tool(), test_tool.tool(), stdlib_tool.tool(), guide_tool.tool(), cli_help_tool.tool(), find_packages_tool.tool(), package_api_tool.tool()]
 }

@@ -808,6 +808,7 @@ for production interop.
 | `lex_stdlib` | Look up or keyword-search the stdlib, signatures from the compiler |
 | `find_packages` | Search existing packages by what they do (`lex pkg search`) |
 | `package_api` | An installed package's modules, or one module's typed signatures and docs |
+| `plan_check` | Planner only: validate the plan file against the build's own rules |
 | `issue_show` | Render a typed issue's acceptance as the contract to implement |
 | `issue_verify` | Evaluate a typed issue at head, record an `IssueVerified` attestation |
 | `issue_propose` | Propose a typed acceptance for a free-form issue (a human approves it) |
