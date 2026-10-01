@@ -496,7 +496,7 @@ fn errs_repeated(errs :: List[Str], prev :: Option[List[Str]]) -> Bool
 # The check is exact list equality on purpose: `full_check`'s errors are
 # deterministic given the same plan text, so a genuine fix changes the
 # list, not just its wording.
-fn plan_loop(name :: Str, provider_tag :: Str, tries :: Int, prompt :: Str, prev_errs :: Option[List[Str]]) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Result[pplan.Plan, List[Str]] {
+fn plan_loop(name :: Str, provider_tag :: Str, tries :: Int, prompt :: Str, original :: Str, prev_errs :: Option[List[Str]]) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Result[pplan.Plan, List[Str]] {
   let path := plan_path(name)
   let __turn := run_task_turn(prompt, provider_tag)
   let checked := match io.read(path) {
@@ -515,7 +515,7 @@ fn plan_loop(name :: Str, provider_tag :: Str, tries :: Int, prompt :: Str, prev
         ""
       }
       let __again := io.print(str.join(["\n[PLAN] rejected by validation (", int.to_str(list.len(errs)), " problems)", note, " — sending them back to the planner, ", int.to_str(tries - 1), " tries left"], ""))
-      plan_loop(name, provider_tag, tries - 1, pplan.repair_prompt(errs, path), Some(errs))
+      plan_loop(name, provider_tag, tries - 1, pplan.retry_prompt(original, errs, path), original, Some(errs))
     },
   }
 }
@@ -529,7 +529,8 @@ fn fresh_plan_prompt(brief :: Str, name :: Str) -> [proc] Str {
 
 fn run_package_plan(brief :: Str, name :: Str, provider_tag :: Str, tries :: Int) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
   let path := plan_path(name)
-  match plan_loop(name, provider_tag, tries, fresh_plan_prompt(brief, name), None) {
+  let first := fresh_plan_prompt(brief, name)
+  match plan_loop(name, provider_tag, tries, first, first, None) {
     Err(errs) => io.print(str.join(["\nthe plan does not pass validation — fix ", path, " (or re-run) and check it with --package-check=", name, ":\n  - ", str.join(errs, "\n  - "), "\n[PLAN]\tinvalid\t", name], "")),
     Ok(plan) => io.print(str.join(["\nplan for `", name, "` — ", int.to_str(list.len(plan.units)), " units, in dependency order, all checks pass:\n", pplan.render_plan(plan), "\n\nfile it:  lex-code --package-apply=", name, "\n[PLAN]\tvalid\t", name], "")),
   }
@@ -539,7 +540,8 @@ fn run_package_plan(brief :: Str, name :: Str, provider_tag :: Str, tries :: Int
 # until it passes validation), scaffold and file it, then drive it to done.
 fn run_package_auto(brief :: Str, name :: Str, argv :: List[Str], provider_tag :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
   let tries := pb.flag_int(argv, "--plan-tries=", 3)
-  match plan_loop(name, provider_tag, tries, fresh_plan_prompt(brief, name), None) {
+  let first := fresh_plan_prompt(brief, name)
+  match plan_loop(name, provider_tag, tries, first, first, None) {
     Err(errs) => io.print(str.join(["\n[AUTO] stopped at planning — no plan passed validation:\n  - ", str.join(errs, "\n  - "), "\n[PROJECT_VERDICT]\tno_plan\t", name], "")),
     Ok(plan) => match apply_checked_plan(plan) {
       Err(e) => io.print(str.join(["\n[AUTO] stopped at filing: ", e, "\n[PROJECT_VERDICT]\tno_scaffold\t", name], "")),
