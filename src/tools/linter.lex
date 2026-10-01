@@ -80,6 +80,7 @@ fn translate_lex_error(raw :: Str) -> Str
     translate_lex_error("{\"kind\":\"effect_not_declared\",\"rule_tag\":\"effect-not-declared\",\"rule_explanation\":\"A function body invokes an effect the signature does not declare.\"}") => "[effect-not-declared] A function body invokes an effect the signature does not declare.",
     translate_lex_error("  parse error: unrecognized token `&` at line 3  ") => "parse error: `&&` is not valid Lex. Use `a and b` (Lex keyword). Example: `acc and (x == y)`.",
     translate_lex_error("expected LBrace before block, got If") => "parse error: `else if` is not valid in Lex. Write `else { if cond { ... } else { ... } }` instead.",
+    translate_lex_error("parse error at byte 80: expected expression, got Some(Let)") => "parse error: a match arm (or any branch) that needs `let` must wrap its body in braces: `Some(x) => { let y := x + 1\n y * 2 },` — a bare `=> let ...` does not parse. Better: move the nested work into a small top-level helper fn and call it from the arm.",
     translate_lex_error("  something nobody has a hint for  ") => "something nobody has a hint for"
   }
 {
@@ -212,7 +213,11 @@ fn translate_lex_error(raw :: Str) -> Str
                     if str.contains(s, "expected expression, got Some(Comma)") {
                       "parse error: `let` bindings inside a block need NO trailing comma — just write them on separate lines. Commas only appear between match arms."
                     } else {
-                      s
+                      if str.contains(s, "expected expression, got Some(Let)") {
+                        "parse error: a match arm (or any branch) that needs `let` must wrap its body in braces: `Some(x) => { let y := x + 1\n y * 2 },` — a bare `=> let ...` does not parse. Better: move the nested work into a small top-level helper fn and call it from the arm."
+                      } else {
+                        s
+                      }
                     }
                   }
                 }
