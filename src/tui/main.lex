@@ -1005,7 +1005,7 @@ fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, n
   let status := if not patches_ok {
     "stuck"
   } else {
-    if concurrency > 1 {
+    if concurrency > 1 or has_flag(argv, "--isolated") {
       project_loop_parallel(project, primary, guidance, concurrency, fuel, max_attempts, [], [])
     } else {
       project_loop(project, primary, fallback, switch_after, max_attempts, [], fuel, guidance)
