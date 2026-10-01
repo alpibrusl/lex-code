@@ -209,6 +209,38 @@ fn write_scaffold(p :: plan.Plan) -> [proc, io] Result[Str, Str] {
 
 type HardenResult = { calls_checked :: Int, failing :: List[Str] }
 
+# Reproduced live (2026-09-30): a package whose plan legitimately declares
+# one effectful unit (a file-writing function, say) hardened every OTHER
+# unit fine, then failed outright on `hardening unavailable` — not an
+# invariant violation, `effect_not_allowed: fs_write`. The harness's own
+# grant was hardcoded to exactly "io", regardless of what the package
+# under test actually needs; calling ANY unit whose effect row isn't a
+# subset of "io" was never going to work, no matter how correct the code
+# was. This wasn't exercised before because no plan given to `harden` had
+# declared a non-`io` effect on any of its units until now.
+#
+# `lex check` already computes exactly the answer needed — the union of
+# every effect the file in front of it requires — and reports it as
+# `required_effects` in its own JSON output (the same field this project
+# already reads as a warning elsewhere). Ask it about the harness file
+# itself (which imports and calls every unit under test) rather than
+# hardcode a guess, and this generalizes to any future effect a plan
+# might legitimately declare, not just fs_write.
+fn required_effects_of(path :: Str) -> [proc] List[Str] {
+  match proc.run("lex", ["--output", "json", "check", path]) {
+    Err(_) => [],
+    Ok(o) => match jv.parse(str.trim(o.stdout)) {
+      Err(_) => [],
+      Ok(env) => match jv.get_field(env, "data") {
+        None => [],
+        Some(data) => list.filter(ic.texts(ic.field_list(data, "required_effects")), fn (e :: Str) -> Bool {
+          not str.is_empty(e)
+        }),
+      },
+    },
+  }
+}
+
 # Write tests/test_<project>.lex from the plan's invariants (nothing a model
 # wrote), run it, and return the calls that came back false. Every invariant
 # is fully specified by the plan, so there is nothing here to ask a model for.
@@ -221,7 +253,10 @@ fn harden(p :: plan.Plan) -> [proc, io] Result[HardenResult, Str] {
     let path := str.join(["tests/test_", p.project, ".lex"], "")
     let __d := proc.run("mkdir", ["-p", "tests"])
     let __w := io.write(path, chk.harden_source(p))
-    let effects := "io"
+    let needed := required_effects_of(path)
+    let effects := str.join(list.cons("io", list.filter(needed, fn (e :: Str) -> Bool {
+      e != "io"
+    })), ",")
     match proc.run("lex", ["--output", "json", "run", "--allow-effects", effects, path, "failing_calls"]) {
       Err(e) => Err(e),
       Ok(o) => if o.exit_code != 0 {

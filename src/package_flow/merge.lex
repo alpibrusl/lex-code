@@ -369,3 +369,104 @@ fn append_extra_fns(canonical :: Str, child :: Str, declared :: List[Str]) -> St
   })
 }
 
+# Reproduced live: a `--parallel` project reported "6/6 verified" and
+# `[PROJECT_VERDICT] done` for a package where four of six functions —
+# including the one whose merge attempt had *just* failed with
+# `example_mismatch: Panic("todo() reached")` — were still bare `todo()`
+# stubs in the published canonical file. Per-issue "verified" comes from
+# the VCS store (`lex issue verify`), which is a separate process this
+# module doesn't control and can be wrong for reasons that have nothing
+# to do with this file's actual text (a shared, unscoped global store
+# across concurrent unrelated projects being the one caught red-handed
+# so far — see AGENTS.md on always giving a project its own `lex.toml`).
+# Rather than trust that layer, or hardening's own crash (a runtime
+# panic mid-invariant-check, reported as the vague "unavailable" rather
+# than a clear diagnosis), this reads the one thing that can't lie: the
+# text of the file about to be called finished. `is_stub_body` checks
+# whether a named function's body is *exactly* `todo()` (nothing else in
+# it) — a real implementation that merely calls `todo()` somewhere deep
+# inside is a different, legitimate bug `lex check`/hardening already
+# catch; this is only for "this function was never touched at all".
+fn is_stub_body(source :: Str, name :: Str) -> Bool
+  examples {
+    is_stub_body("fn a() -> Int {\n  todo()\n}\n", "a") => true,
+    is_stub_body("fn a() -> Int { todo() }", "a") => true,
+    is_stub_body("fn a() -> Int {\n  1\n}\n", "a") => false,
+    is_stub_body("fn a() -> Int {\n  todo() + 1\n}\n", "a") => false,
+    is_stub_body("fn a() -> Int {\n  1\n}\n", "missing") => false
+  }
+{
+  match fn_start(source, name) {
+    None => false,
+    Some(start) => match body_open(source, start) {
+      None => false,
+      Some(open) => match body_close(source, open) {
+        None => false,
+        Some(close) => str.trim(str.slice(source, open + 1, close)) == "todo()",
+      },
+    },
+  }
+}
+
+# Every top-level function `source` declares whose body is still a bare
+# `todo()` stub, in declaration order — the set that must be empty
+# before a package can honestly be called done, independent of whatever
+# any store-backed "verified" status claims.
+fn stub_fn_names(source :: Str) -> List[Str]
+  examples {
+    stub_fn_names("fn a() -> Int {\n  todo()\n}\n\nfn b() -> Int {\n  2\n}\n") => ["a"],
+    stub_fn_names("fn a() -> Int {\n  1\n}\n") => []
+  }
+{
+  list.filter(all_fn_names(source), fn (name :: Str) -> Bool {
+    is_stub_body(source, name)
+  })
+}
+
+# Reproduced live (2026-09-30): a helper `append_extra_fns` correctly
+# carried into the canonical scaffold — `round_cents_scaled`, calling
+# `float.to_int` exactly the way `lex_lang.lex`'s own reference tells an
+# agent to — merge_error'd on `unknown_identifier: float`, identically,
+# on every single retry, no matter how many times the issue was
+# redispatched: `append_extra_fns` carries a new function's TEXT, never
+# the import line it depends on, and neither `replace_fn_block` nor
+# anything else in this module ever looks at the import section of
+# either file. Every retry was doomed before the model ever wrote a
+# line — not a knowledge gap, not model inconsistency, a structural gap
+# in the merge itself. `import_lines`/`append_extra_imports` is the
+# other half of the same fix `append_extra_fns` already is for
+# functions: find every `import` line the child's copy has that the
+# canonical file doesn't (exact line match — these are short, regular
+# lines with no reason to differ only in whitespace), and prepend them.
+fn import_lines(source :: Str) -> List[Str] {
+  list.filter(list.map(str.split(source, "\n"), fn (line :: Str) -> Str {
+    str.trim(line)
+  }), fn (line :: Str) -> Bool {
+    str.starts_with(line, "import ")
+  })
+}
+
+fn extra_import_lines(canonical :: Str, child :: Str) -> List[Str]
+  examples {
+    extra_import_lines("import \"std.str\" as str\n", "import \"std.str\" as str\n\nimport \"std.float\" as float\n") => ["import \"std.float\" as float"],
+    extra_import_lines("import \"std.str\" as str\n", "import \"std.str\" as str\n") => []
+  }
+{
+  let canonical_imports := import_lines(canonical)
+  list.filter(import_lines(child), fn (line :: Str) -> Bool {
+    not list_has(canonical_imports, line)
+  })
+}
+
+# Prepended, not appended — an import line means nothing placed after
+# the code that needs it, and every real `.lex` file in this project
+# already puts every import before every `fn`.
+fn append_extra_imports(canonical :: Str, child :: Str) -> Str {
+  let extra := extra_import_lines(canonical, child)
+  if list.is_empty(extra) {
+    canonical
+  } else {
+    str.join([str.join(extra, "\n"), "\n\n", canonical], "")
+  }
+}
+

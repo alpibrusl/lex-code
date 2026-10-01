@@ -34,6 +34,8 @@ import "../package_flow/apply" as papply
 
 import "../package_flow/parallel" as par
 
+import "../package_flow/merge" as merge
+
 import "../tools/session_health" as health
 
 import "../server/session" as sess
@@ -679,7 +681,7 @@ fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_
 # escalation here (a stuck issue's contract doesn't change by trying a
 # different model N-at-a-time instead of one-at-a-time); `--fallback=`
 # only has meaning for `project_loop`'s sequential path.
-fn project_loop_parallel(project :: Str, primary :: Str, guidance :: Str, concurrency :: Int, fuel :: Int) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
+fn project_loop_parallel(project :: Str, primary :: Str, guidance :: Str, concurrency :: Int, fuel :: Int, last_errors :: List[(Str, Str)]) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
   if fuel <= 0 {
     "budget"
   } else {
@@ -700,13 +702,13 @@ fn project_loop_parallel(project :: Str, primary :: Str, guidance :: Str, concur
             r.id
           })
           let __start := io.print(str.join(["\n[PROJECT] ", project, "  ", int.to_str(board.verified), "/", int.to_str(board.total), " verified — dispatching ", int.to_str(list.len(ids)), " in parallel: ", str.join(ids, ", ")], ""))
-          let outcomes := par.dispatch_and_merge(project, ids, guidance, str.concat("--", primary))
+          let outcomes := par.dispatch_and_merge(project, ids, guidance, str.concat("--", primary), last_errors)
           let lines := list.map(outcomes, fn (o :: par.BatchOutcome) -> Str {
             str.join(["[PROJECT] issue ", o.issue_id, " → ", o.verdict], "")
           })
           let __report := io.print(str.join(lines, "\n"))
           let __reg := regression_pass(project)
-          project_loop_parallel(project, primary, guidance, concurrency, fuel - list.len(ids))
+          project_loop_parallel(project, primary, guidance, concurrency, fuel - list.len(ids), par.update_errors(last_errors, outcomes))
         }
       },
     }
@@ -817,6 +819,17 @@ fn harden(project :: Str, primary :: Str, fallback :: Option[Str], switch_after 
   }
 }
 
+# Reproduced live (2026-09-30): a `--parallel` run reported "6/6
+# verified" and `[PROJECT_VERDICT] done` for a package where four of
+# six functions — including one whose own merge attempt had *just*
+# failed with `Panic("todo() reached")` — were still bare `todo()`
+# stubs in the published file. Per-issue "verified" comes from the VCS
+# store (`lex issue verify`), a separate process this loop doesn't
+# control; trusting it alone means a store-level problem (a shared,
+# unscoped global store across concurrent unrelated projects, in the
+# case that was caught) can make a broken package look finished. This
+# reads the one thing that can't be wrong for someone else's reasons:
+# the actual text of the file about to be called done.
 fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Nil {
   let fallback := pb.flag_value(argv, "--fallback=")
   let switch_after := pb.flag_int(argv, "--switch-after=", 2)
@@ -833,19 +846,29 @@ fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, n
   }
   let concurrency := pb.flag_int(argv, "--parallel=", 1)
   let status := if concurrency > 1 {
-    project_loop_parallel(project, primary, guidance, concurrency, fuel)
+    project_loop_parallel(project, primary, guidance, concurrency, fuel, [])
   } else {
     project_loop(project, primary, fallback, switch_after, max_attempts, [], fuel, guidance)
   }
   let __final := regression_pass(project)
-  let gate := if status == "done" {
-    if has_flag(argv, "--no-harden") {
-      package_gate()
-    } else {
-      harden(project, primary, fallback, switch_after, max_attempts, guidance, argv)
-    }
+  let scaffold_path := str.join(["src/", project, ".lex"], "")
+  let stubs := match io.read(scaffold_path) {
+    Err(_) => [],
+    Ok(source) => merge.stub_fn_names(source),
+  }
+  let gate := if not list.is_empty(stubs) {
+    let __w := io.print(str.join(["[PROJECT] ⚠ still stubbed (todo()) despite the board reporting done: ", str.join(stubs, ", "), " — not safe to call this package finished. If nothing else is running against the same store, run `lex pkg init` here (or pass --store) to give this project its own, then try again."], ""))
+    "fail"
   } else {
-    "skipped"
+    if status == "done" {
+      if has_flag(argv, "--no-harden") {
+        package_gate()
+      } else {
+        harden(project, primary, fallback, switch_after, max_attempts, guidance, argv)
+      }
+    } else {
+      "skipped"
+    }
   }
   io.print(str.join(["[PROJECT_VERDICT]\t", status, "\t", project, "\n[PACKAGE_GATE]\t", gate, "\t", project, "\n"], ""))
 }

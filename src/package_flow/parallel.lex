@@ -53,12 +53,29 @@ import "./board" as pb
 # A private, unique directory to run one issue's Build session in
 # complete isolation from the canonical project and from every other
 # issue's own copy.
-fn copy_dir_for(issue_id :: Str) -> Str {
-  str.join(["/tmp/lex-code-parallel-", issue_id], "")
+#
+# Reproduced live: this used to be keyed by `issue_id` alone — one flat
+# `/tmp/lex-code-parallel-<id>` namespace shared by every project on the
+# machine, no matter how many were running at once. A Build session's own
+# bash/grep/glob tools have no reason to look outside their own copy_dir,
+# but nothing stopped them: two unrelated projects (`billsplit`,
+# `checkout`) run concurrently each had their model narrate specifics
+# about the OTHER project's files by name, because a plain `ls /tmp`
+# turned up the sibling's entire isolated copy sitting right next to its
+# own. Never corrupted an actual merge (that still only ever reads the
+# canonical file plus the copy `merge_issue` was explicitly handed), but
+# wasted turns and, once, sent a session down a real rabbit hole
+# ("the store is shared with parallel sessions" — it was right).
+# Prefixing every path with the project name doesn't require any new
+# state (every caller already has `project` in scope) and turns a
+# same-machine cross-project collision into a same-project collision —
+# the one case an issue's own content-addressed id already prevents.
+fn copy_dir_for(project :: Str, issue_id :: Str) -> Str {
+  str.join(["/tmp/lex-code-parallel-", project, "-", issue_id], "")
 }
 
-fn log_path_for(issue_id :: Str) -> Str {
-  str.join(["/tmp/lex-code-parallel-", issue_id, ".log"], "")
+fn log_path_for(project :: Str, issue_id :: Str) -> Str {
+  str.join(["/tmp/lex-code-parallel-", project, "-", issue_id, ".log"], "")
 }
 
 # `cp -R . dest` (not `cp -R * dest`, which shell-globs and drops
@@ -92,11 +109,11 @@ fn make_isolated_copy(copy_dir :: Str) -> [proc] Result[Unit, Str] {
 # without being named here. Output goes straight to a log file (see
 # module header); `proc.spawn` returns immediately, so the caller can
 # start several of these before waiting on any of them.
-fn spawn_issue_child(copy_dir :: Str, issue_id :: Str, guidance :: Option[Str], provider_flag :: Str) -> [proc, env] Result[ProcessHandle, Str] {
+fn spawn_issue_child(project :: Str, copy_dir :: Str, issue_id :: Str, guidance :: Option[Str], provider_flag :: Str) -> [proc, env] Result[ProcessHandle, Str] {
   match env.get("LEX_CODE_BIN") {
     None => Err("LEX_CODE_BIN is not set — run this through bin/lex-code, not `lex run` directly"),
     Some(bin) => {
-      let log := log_path_for(issue_id)
+      let log := log_path_for(project, issue_id)
       let g := match guidance {
         None => "",
         Some(text) => text,
@@ -113,9 +130,9 @@ type ChildResult = { issue_id :: Str, copy_dir :: Str, log :: Str, exit_code :: 
 # turns of any other concurrently-running child, which keep going on
 # their own). Real concurrency comes from calling this once per
 # already-`spawn`ed handle, all spawned before any of them is waited on.
-fn wait_issue_child(issue_id :: Str, copy_dir :: Str, handle :: ProcessHandle) -> [proc] ChildResult {
+fn wait_issue_child(project :: Str, issue_id :: Str, copy_dir :: Str, handle :: ProcessHandle) -> [proc] ChildResult {
   let st := proc.wait(handle)
-  { issue_id: issue_id, copy_dir: copy_dir, log: log_path_for(issue_id), exit_code: st.code }
+  { issue_id: issue_id, copy_dir: copy_dir, log: log_path_for(project, issue_id), exit_code: st.code }
 }
 
 # `[ISSUE_VERDICT]\t<verdict>\t<id>` is `run_issue`'s own last line
@@ -180,7 +197,7 @@ fn merge_issue(project :: Str, r :: ChildResult) -> [proc, io] Result[Str, Str] 
           }) {
             Err(e) => Err(str.join(["merging issue ", r.issue_id, ": ", e], "")),
             Ok(merged_declared) => {
-              let merged := merge.append_extra_fns(merged_declared, child_source, names)
+              let merged := merge.append_extra_imports(merge.append_extra_fns(merged_declared, child_source, names), child_source)
               let check_path := str.join([".lex/plans/", project, ".merge-check.lex"], "")
               let __d := proc.run("mkdir", ["-p", ".lex/plans"])
               let __w := io.write(check_path, merged)
@@ -232,6 +249,67 @@ fn take_ready(xs :: List[pb.Ready], n :: Int) -> List[pb.Ready] {
 
 type BatchOutcome = { issue_id :: Str, verdict :: Str }
 
+# Reproduced live (2026-09-30): the SAME issue, redispatched after a
+# `merge_error`, gets the exact same task text every time —
+# `contract_prompt` is built purely from the issue's own static fields
+# (id, title, body, acceptance); nothing about a previous attempt's
+# failure, for this issue or any other, is ever recorded or read back.
+# Two separate --parallel runs each spent 7+ retries stuck on their own
+# rounding function, in both cases repeating variations on the same
+# wrong guess with no way to have done otherwise: a fresh session every
+# time, with nothing to learn from because nothing told it what it got
+# wrong last time. Not a memory or session bug (each retry's session_id
+# is genuinely fresh, cli_session_id(), no persisted history) — the
+# opposite one: there is no feedback channel for this at all.
+#
+# `last_errors` closes it: one (issue_id, last verdict) pair per issue
+# still outstanding, carried across `project_loop_parallel`'s recursion
+# and folded into that one issue's own task text on its next dispatch —
+# every OTHER issue in the same batch is unaffected. A verdict clears
+# its own entry (from `update_errors`) once it's no longer a failure, so
+# this never accretes stale history past the attempt that produced it.
+fn error_for(last_errors :: List[(Str, Str)], id :: Str) -> Option[Str] {
+  list.fold(last_errors, None, fn (acc :: Option[Str], e :: (Str, Str)) -> Option[Str] {
+    match acc {
+      Some(_) => acc,
+      None => match e {
+        (eid, msg) => if eid == id {
+          Some(msg)
+        } else {
+          None
+        },
+      },
+    }
+  })
+}
+
+fn guidance_for(base_guidance :: Str, last_errors :: List[(Str, Str)], id :: Str) -> Str {
+  match error_for(last_errors, id) {
+    None => base_guidance,
+    Some(err) => str.join([base_guidance, "\n\nYour own previous attempt at this exact issue failed with this error. Read it carefully and fix the SPECIFIC problem it names — do not just retry the same body again:\n", err], ""),
+  }
+}
+
+# Drop an id's entry once its own verdict is no longer a merge/spawn
+# failure (it may still be `failed`/`inconclusive` from `issue_verify`,
+# which is a different, already-surfaced signal — not a reason to keep
+# repeating a merge error that no longer applies); otherwise replace it
+# with the new one, never accumulate more than one per id.
+fn update_errors(last_errors :: List[(Str, Str)], outcomes :: List[BatchOutcome]) -> List[(Str, Str)] {
+  list.fold(outcomes, last_errors, fn (acc :: List[(Str, Str)], o :: BatchOutcome) -> List[(Str, Str)] {
+    let cleared := list.filter(acc, fn (e :: (Str, Str)) -> Bool {
+      match e {
+        (eid, _) => eid != o.issue_id,
+      }
+    })
+    if str.starts_with(o.verdict, "merge_error: ") or str.starts_with(o.verdict, "spawn_error: ") {
+      list.cons((o.issue_id, o.verdict), cleared)
+    } else {
+      cleared
+    }
+  })
+}
+
 # The whole point: copy + spawn every id in the batch first — nothing in
 # this phase blocks — THEN wait for each (blocking only on that one
 # child; the others keep running), THEN merge one at a time, in-process,
@@ -239,16 +317,17 @@ type BatchOutcome = { issue_id :: Str, verdict :: Str }
 # while this runs. Real overlap comes entirely from spawning before any
 # waiting starts; get that ordering wrong and this degrades silently
 # back to sequential.
-fn dispatch_and_merge(project :: Str, ids :: List[Str], guidance :: Str, provider_flag :: Str) -> [proc, env, io] List[BatchOutcome] {
+fn dispatch_and_merge(project :: Str, ids :: List[Str], guidance :: Str, provider_flag :: Str, last_errors :: List[(Str, Str)]) -> [proc, env, io] List[BatchOutcome] {
   let spawned := list.map(ids, fn (id :: Str) -> [proc, env] (Str, Str, Result[ProcessHandle, Str]) {
-    let copy := copy_dir_for(id)
+    let copy := copy_dir_for(project, id)
     let __mk := make_isolated_copy(copy)
-    (id, copy, spawn_issue_child(copy, id, Some(guidance), provider_flag))
+    let g := guidance_for(guidance, last_errors, id)
+    (id, copy, spawn_issue_child(project, copy, id, Some(g), provider_flag))
   })
   let waited := list.map(spawned, fn (t :: (Str, Str, Result[ProcessHandle, Str])) -> [proc] (Str, Result[ChildResult, Str]) {
     match t {
       (id, copy, Err(e)) => (id, Err(str.join(["spawning issue ", id, " failed: ", e], ""))),
-      (id, copy, Ok(h)) => (id, Ok(wait_issue_child(id, copy, h))),
+      (id, copy, Ok(h)) => (id, Ok(wait_issue_child(project, id, copy, h))),
     }
   })
   list.map(waited, fn (w :: (Str, Result[ChildResult, Str])) -> [proc, io] BatchOutcome {
