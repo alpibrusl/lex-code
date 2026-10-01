@@ -95,7 +95,8 @@ fn until_close(rest :: Str, close :: Str) -> Option[Str]
   examples {
     until_close("a, List[Int]) -> Int", ")") => Some("a, List[Int]"),
     until_close("Int, Str] tail", "]") => Some("Int, Str"),
-    until_close("never closes", ")") => None
+    until_close("never closes", ")") => None,
+    until_close("f(a), g] tail", "]") => Some("f(a), g")
   }
 {
   let r := list.fold(list.range(0, str.len(rest)), ("", 0, false), fn (acc :: (Str, Int, Bool), i :: Int) -> (Str, Int, Bool) {
@@ -134,7 +135,9 @@ fn top_split(s :: Str) -> List[Str]
   examples {
     top_split("a :: Int, b :: Map[Str, Int]") => ["a :: Int", "b :: Map[Str, Int]"],
     top_split("") => [""],
-    top_split("Int, (Str, Str)") => ["Int", "(Str, Str)"]
+    top_split("Int, (Str, Str)") => ["Int", "(Str, Str)"],
+    top_split("Map[Str, Int], b :: Int") => ["Map[Str, Int]", "b :: Int"],
+    top_split("(Str, Str), Int") => ["(Str, Str)", "Int"]
   }
 {
   let r := list.fold(list.range(0, str.len(s)), ([], "", 0), fn (acc :: (List[Str], Str, Int), i :: Int) -> (List[Str], Str, Int) {
@@ -527,7 +530,8 @@ fn line_of_byte(source :: Str, n :: Int) -> Int
     line_of_byte("ab\ncd\n", 0) => 1,
     line_of_byte("ab\ncd\n", 3) => 2,
     line_of_byte("ab\ncd\nef", 6) => 3,
-    line_of_byte("aaaa\nbbbbbb\nc\nd", 7) => 2
+    line_of_byte("aaaa\nbbbbbb\nc\nd", 7) => 2,
+    line_of_byte("a\nb\nc\nd\ne", 8) => 5
   }
 {
   let r := list.fold(str.split(source, "\n"), (0, 1, false), fn (acc :: (Int, Int, Bool), l :: Str) -> (Int, Int, Bool) {
@@ -568,7 +572,8 @@ fn parse_error_byte(msg :: Str) -> Option[Int]
 fn nth_line(source :: Str, n :: Int) -> Str
   examples {
     nth_line("a\nb\nc", 2) => "b",
-    nth_line("a", 5) => ""
+    nth_line("a", 5) => "",
+    nth_line("a\nb\nc\nd", 2) => "b"
   }
 {
   let r := list.fold(str.split(source, "\n"), (1, ""), fn (acc :: (Int, Str), l :: Str) -> (Int, Str) {

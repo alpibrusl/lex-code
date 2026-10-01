@@ -66,7 +66,12 @@ fn unqualified_twin(expected :: Str, got :: Str) -> Option[Str]
     unqualified_twin("Json", "json_value_cbfc1dc9.Json") => Some("Json"),
     unqualified_twin("json_value_cbfc1dc9.Json", "Json") => Some("Json"),
     unqualified_twin("Int", "Str") => None,
-    unqualified_twin("a.Json", "b.Json") => None
+    unqualified_twin("a.Json", "b.Json") => None,
+    unqualified_twin("Json", "x.Str") => None,
+    unqualified_twin("x.Str", "Json") => None,
+    unqualified_twin("Json", "Json") => None,
+    unqualified_twin("Json", "a.Json.x") => None,
+    unqualified_twin("a.Json.x", "Json") => None
   }
 {
   let e_parts := str.split(expected, ".")
@@ -117,6 +122,8 @@ fn translate_lex_error(raw :: Str) -> Str
     translate_lex_error("{\"kind\":\"type_mismatch\",\"expected\":\"Str\",\"got\":\"Option[Str]\"}") => "type_mismatch: got `Option[T]` where `Str` is expected — unwrap with `match ... { Some(v) => v, None => default }`.",
     translate_lex_error("{\"kind\":\"type_mismatch\",\"expected\":\"Int\",\"got\":\"Str\"}") => "[type-mismatch] expected `Int`, got `Str` — check the types at the indicated position.",
     translate_lex_error("{\"kind\":\"unknown_variant\",\"constructor\":\"True\"}") => "fix: use `true` (lowercase) — Lex booleans are lowercase.",
+    translate_lex_error("{\"kind\":\"unknown_variant\",\"constructor\":\"False\"}") => "fix: use `false` (lowercase) — Lex booleans are lowercase.",
+    translate_lex_error("{\"kind\":\"unknown_variant\",\"constructor\":\"Maybe\"}") => "unknown variant 'Maybe' — check the type definition.",
     translate_lex_error("{\"kind\":\"effect_not_declared\",\"rule_tag\":\"effect-not-declared\",\"rule_explanation\":\"A function body invokes an effect the signature does not declare.\"}") => "[effect-not-declared] A function body invokes an effect the signature does not declare.",
     translate_lex_error("  parse error: unrecognized token `&` at line 3  ") => "parse error: `&&` is not valid Lex. Use `a and b` (Lex keyword). Example: `acc and (x == y)`.",
     translate_lex_error("expected LBrace before block, got If") => "parse error: `else if` is not valid in Lex. Write `else { if cond { ... } else { ... } }` instead.",
@@ -294,6 +301,7 @@ fn run_lex_fmt(path :: Str) -> [proc] LintOutcome {
 fn translate_all(raw :: Str) -> Str
   examples {
     translate_all("{\"kind\":\"unknown_identifier\",\"name\":\"list\"}\n{\"kind\":\"unknown_identifier\",\"name\":\"list\"}\n{\"kind\":\"unknown_identifier\",\"name\":\"foo\"}") => "fix: add `import \"std.list\" as list` at the top of the file.\nunknown identifier 'foo' — check for typos or missing import.",
+    translate_all("note\n{\"kind\":\"unknown_identifier\",\"name\":\"foo\"}") => "note\n{\"kind\":\"unknown_identifier\",\"name\":\"foo\"}",
     translate_all("expected LBrace before block, got If") => "parse error: `else if` is not valid in Lex. Write `else { if cond { ... } else { ... } }` instead."
   }
 {

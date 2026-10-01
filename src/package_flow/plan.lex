@@ -136,7 +136,8 @@ fn valid_name(s :: Str) -> Bool
     valid_name("len_to_hex") => true,
     valid_name("") => false,
     valid_name("two words") => false,
-    valid_name("a/b") => false
+    valid_name("a/b") => false,
+    valid_name("a\"b") => false
   }
 {
   if str.is_empty(s) {

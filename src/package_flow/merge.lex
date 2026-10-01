@@ -29,7 +29,9 @@ fn fn_start(source :: Str, name :: Str) -> Option[Int]
   examples {
     fn_start("fn a() -> Int {\n  1\n}\n\nfn b() -> Int {\n  2\n}\n", "b") => Some(23),
     fn_start("fn ab() -> Int { 1 }", "a") => None,
-    fn_start("no such fn here", "a") => None
+    fn_start("no such fn here", "a") => None,
+    fn_start("let s := \"fn a(\"\nfn a() -> Int {\n  1\n}", "a") => Some(17),
+    fn_start("x := \"q\\\" fn a(\"\nfn a() -> Int {\n  1\n}", "a") => Some(17)
   }
 {
   let needle := str.join(["fn ", name, "("], "")
@@ -79,7 +81,9 @@ fn fn_start(source :: Str, name :: Str) -> Option[Int]
 fn next_top_brace(source :: Str, from :: Int) -> Option[Int]
   examples {
     next_top_brace("fn f(x :: Int) -> Int {\n  x\n}", 0) => Some(22),
-    next_top_brace("fn f(r :: { x :: Int }) -> Int {\n  r.x\n}", 0) => Some(31)
+    next_top_brace("fn f(r :: { x :: Int }) -> Int {\n  r.x\n}", 0) => Some(31),
+    next_top_brace("fn f() -> [net(\"a{b\")] Int {\n  1\n}", 0) => Some(27),
+    next_top_brace("fn f() -> [net(\"a\\\"{\")] Int {\n  1\n}", 0) => Some(28)
   }
 {
   let r := list.fold(list.range(from, str.len(source)), (None, 0, false, false), fn (acc :: (Option[Int], Int, Bool, Bool), i :: Int) -> (Option[Int], Int, Bool, Bool) {
@@ -132,7 +136,9 @@ fn body_close(source :: Str, open :: Int) -> Option[Int]
   examples {
     body_close("{\n  x\n}", 0) => Some(6),
     body_close("{ io.print(\"a { b } c\") }", 0) => Some(24),
-    body_close("{ never closes", 0) => None
+    body_close("{ never closes", 0) => None,
+    body_close("{ io.print(\"a\\\" } b\") }", 0) => Some(22),
+    body_close("{ { x } y }", 0) => Some(10)
   }
 {
   let r := list.fold(list.range(open, str.len(source)), (None, 0, false, false), fn (acc :: (Option[Int], Int, Bool, Bool), i :: Int) -> (Option[Int], Int, Bool, Bool) {
