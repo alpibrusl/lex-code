@@ -621,6 +621,121 @@ fn regression_pass(project :: Str) -> [proc, io] Nil {
   }
 }
 
+fn scaffold_file(project :: Str) -> Str {
+  str.join(["src/", project, ".lex"], "")
+}
+
+# A failed in-place attempt can leave the scaffold unparsable (the model ran
+# out of steps mid-edit). Put back what was there before the attempt, so the
+# next attempt, a patch, or a human starts from a file that checks.
+fn restore_if_broken(project :: Str, before :: Str) -> [proc, io] Nil {
+  let path := scaffold_file(project)
+  match proc.run("lex", ["check", path]) {
+    Err(_) => (),
+    Ok(o) => if o.exit_code == 0 {
+      ()
+    } else {
+      let __w := io.write(path, before)
+      io.print(str.join(["[PROJECT] the failed attempt left ", path, " not type-checking — restored it to what it was before the attempt"], ""))
+    },
+  }
+}
+
+# Issues on the board whose every declared function the patch defines.
+fn matching_issues(ready :: List[pb.Ready], defined :: List[Str]) -> [proc] List[Str] {
+  let named := list.map(ready, fn (r :: pb.Ready) -> [proc] (Str, List[Str]) {
+    match par.api_names(r.id) {
+      Err(_) => (r.id, []),
+      Ok(ns) => (r.id, ns),
+    }
+  })
+  list.map(list.filter(named, fn (p :: (Str, List[Str])) -> Bool {
+    match p {
+      (_, ns) => if list.is_empty(ns) {
+        false
+      } else {
+        list.fold(ns, true, fn (acc :: Bool, n :: Str) -> Bool {
+          if acc {
+            merge.list_has(defined, n)
+          } else {
+            false
+          }
+        })
+      },
+    }
+  }), fn (p :: (Str, List[Str])) -> Str {
+    match p {
+      (id, _) => id,
+    }
+  })
+}
+
+# `--patch=FILE`: the human, or the assistant driving lex-code, finishes a
+# unit themselves. The file defines the unit's function(s) (helpers are fine).
+# lex-code does not take the patch on trust: it goes through the same merge,
+# type-check, publish and `lex issue verify` a model's work does, and the
+# hardening and package gates still run after. Ok(verdict) or Err(why).
+fn apply_patch(project :: Str, path :: Str, forced :: Option[Str]) -> [proc, io] Result[(Str, Str), Str] {
+  match io.read(path) {
+    Err(e) => Err(str.join(["cannot read ", path, ": ", e], "")),
+    Ok(source) => {
+      let defined := merge.all_fn_names(source)
+      let target := match forced {
+        Some(id) => Ok(id),
+        None => match fetch_board(project) {
+          Err(e) => Err(e),
+          Ok(board) => {
+            let hits := matching_issues(board.ready, defined)
+            if list.len(hits) == 1 {
+              match list.head(hits) {
+                None => Err("no matching issue"),
+                Some(id) => Ok(id),
+              }
+            } else {
+              if list.is_empty(hits) {
+                Err(str.join([path, " defines ", str.join(defined, ", "), " but no open issue declares exactly those functions — pass --patch-issue=ID"], ""))
+              } else {
+                Err(str.join([path, " matches several open issues (", str.join(hits, ", "), ") — pass --patch-issue=ID"], ""))
+              }
+            }
+          },
+        },
+      }
+      match target {
+        Err(e) => Err(e),
+        Ok(id) => match par.merge_source(project, id, source) {
+          Err(e) => Err(e),
+          Ok(verdict) => Ok((id, verdict)),
+        },
+      }
+    },
+  }
+}
+
+fn apply_patches(project :: Str, argv :: List[Str]) -> [proc, io] Bool {
+  match pb.flag_value(argv, "--patch=") {
+    None => true,
+    Some(paths) => list.fold(str.split(paths, ","), true, fn (ok :: Bool, path :: Str) -> [proc, io] Bool {
+      if not ok {
+        false
+      } else {
+        match apply_patch(project, str.trim(path), pb.flag_value(argv, "--patch-issue=")) {
+          Err(e) => {
+            let __e := io.print(str.join(["[PROJECT] patch ", path, " rejected — nothing was changed:\n", e], ""))
+            false
+          },
+          Ok(r) => match r {
+            (id, verdict) => {
+              let __v := io.print(str.join(["[PROJECT] patch ", path, " applied to issue ", id, " → ", verdict], ""))
+              verdict == "verified"
+            },
+          },
+        }
+      }
+    }),
+  }
+}
+
 fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_after :: Int, max_attempts :: Int, attempts :: List[(Str, Int)], fuel :: Int, guidance :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
   if fuel <= 0 {
     "budget"
@@ -641,8 +756,17 @@ fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_
           PkgRun(id, tag) => {
             let tried := pb.attempts_of(attempts, id)
             let __start := io.print(str.join(["[PROJECT] issue ", id, " — attempt ", int.to_str(tried + 1), " on ", tag], ""))
+            let before := match io.read(scaffold_file(project)) {
+              Err(_) => "",
+              Ok(t) => t,
+            }
             let outcome := run_issue_verdict_full(id, Some(guidance), Build, tag)
             let verdict := outcome.verdict
+            let __rb := if verdict != "verified" and not str.is_empty(before) {
+              restore_if_broken(project, before)
+            } else {
+              ()
+            }
             let __v := io.print(str.join(["[PROJECT] issue ", id, " → ", verdict], ""))
             match tool_bug_check(outcome.session_id) {
               Some(reason) => {
@@ -871,10 +995,15 @@ fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, n
     str.join([base_guidance, "\n\nHint from the human running this build — take it seriously, it comes from reading your earlier failed attempts:\n", hint], "")
   }
   let concurrency := pb.flag_int(argv, "--parallel=", 1)
-  let status := if concurrency > 1 {
-    project_loop_parallel(project, primary, guidance, concurrency, fuel, max_attempts, [], [])
+  let patches_ok := apply_patches(project, argv)
+  let status := if not patches_ok {
+    "stuck"
   } else {
-    project_loop(project, primary, fallback, switch_after, max_attempts, [], fuel, guidance)
+    if concurrency > 1 {
+      project_loop_parallel(project, primary, guidance, concurrency, fuel, max_attempts, [], [])
+    } else {
+      project_loop(project, primary, fallback, switch_after, max_attempts, [], fuel, guidance)
+    }
   }
   let __final := regression_pass(project)
   let scaffold_path := str.join(["src/", project, ".lex"], "")
