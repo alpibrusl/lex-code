@@ -180,50 +180,58 @@ fn api_names(issue_id :: Str) -> [proc] Result[List[Str], Str] {
 fn merge_issue(project :: Str, r :: ChildResult) -> [proc, io] Result[Str, Str] {
   let scaffold_path := str.join(["src/", project, ".lex"], "")
   let copy_scaffold := str.join([r.copy_dir, "/", scaffold_path], "")
-  match api_names(r.issue_id) {
+  match io.read(copy_scaffold) {
+    Err(e) => Err(str.join(["reading ", copy_scaffold, ": ", e], "")),
+    Ok(child_source) => merge_source(project, r.issue_id, child_source),
+  }
+}
+
+# The merge itself, from any source text that defines the issue's functions:
+# a child's scaffold, or a patch the human (or their assistant) wrote. Either
+# way the check, publish and verify below are lex-code's own.
+fn merge_source(project :: Str, issue_id :: Str, child_source :: Str) -> [proc, io] Result[Str, Str] {
+  let scaffold_path := str.join(["src/", project, ".lex"], "")
+  match api_names(issue_id) {
     Err(e) => Err(e),
     Ok(names) => if list.is_empty(names) {
-      Err(str.concat("issue ", str.concat(r.issue_id, " declares no api entries — nothing to merge")))
+      Err(str.concat("issue ", str.concat(issue_id, " declares no api entries — nothing to merge")))
     } else {
-      match io.read(copy_scaffold) {
-        Err(e) => Err(str.join(["reading ", copy_scaffold, ": ", e], "")),
-        Ok(child_source) => match io.read(scaffold_path) {
-          Err(e) => Err(str.join(["reading ", scaffold_path, ": ", e], "")),
-          Ok(canonical_source) => match list.fold(names, Ok(canonical_source), fn (acc :: Result[Str, Str], name :: Str) -> Result[Str, Str] {
-            match acc {
+      match io.read(scaffold_path) {
+        Err(e) => Err(str.join(["reading ", scaffold_path, ": ", e], "")),
+        Ok(canonical_source) => match list.fold(names, Ok(canonical_source), fn (acc :: Result[Str, Str], name :: Str) -> Result[Str, Str] {
+          match acc {
+            Err(e) => Err(e),
+            Ok(src) => merge.replace_fn_block(src, name, child_source),
+          }
+        }) {
+          Err(e) => Err(str.join(["merging issue ", issue_id, ": ", e], "")),
+          Ok(merged_declared) => {
+            let merged := merge.append_extra_imports(merge.append_extra_fns(merged_declared, child_source, names), child_source)
+            let check_path := str.join([".lex/plans/", project, ".merge-check.lex"], "")
+            let __d := proc.run("mkdir", ["-p", ".lex/plans"])
+            let __w := io.write(check_path, merged)
+            match proc.run("lex", ["check", check_path]) {
               Err(e) => Err(e),
-              Ok(src) => merge.replace_fn_block(src, name, child_source),
+              Ok(out) => if out.exit_code != 0 {
+                Err(str.join(["merged ", scaffold_path, " for issue ", issue_id, " doesn't type-check — canonical scaffold left untouched:\n", str.trim(str.concat(out.stdout, out.stderr)), locate_error(merged, str.concat(out.stdout, out.stderr))], ""))
+              } else {
+                let __w2 := io.write(scaffold_path, merged)
+                match proc.run("lex", ["publish", scaffold_path, "--activate"]) {
+                  Err(e) => Err(e),
+                  Ok(pub) => if pub.exit_code != 0 {
+                    Err(str.join(["publishing ", scaffold_path, " for issue ", issue_id, " failed: ", str.trim(str.concat(pub.stdout, pub.stderr))], ""))
+                  } else {
+                    match proc.run("lex", ["--output", "json", "issue", "verify", issue_id]) {
+                      Err(e) => Err(e),
+                      Ok(v) => Ok(match ic.verdict_of(v.stdout) {
+                        None => "unavailable",
+                        Some(word) => word,
+                      }),
+                    }
+                  },
+                }
+              },
             }
-          }) {
-            Err(e) => Err(str.join(["merging issue ", r.issue_id, ": ", e], "")),
-            Ok(merged_declared) => {
-              let merged := merge.append_extra_imports(merge.append_extra_fns(merged_declared, child_source, names), child_source)
-              let check_path := str.join([".lex/plans/", project, ".merge-check.lex"], "")
-              let __d := proc.run("mkdir", ["-p", ".lex/plans"])
-              let __w := io.write(check_path, merged)
-              match proc.run("lex", ["check", check_path]) {
-                Err(e) => Err(e),
-                Ok(out) => if out.exit_code != 0 {
-                  Err(str.join(["merged ", scaffold_path, " for issue ", r.issue_id, " doesn't type-check — canonical scaffold left untouched:\n", str.trim(str.concat(out.stdout, out.stderr))], ""))
-                } else {
-                  let __w2 := io.write(scaffold_path, merged)
-                  match proc.run("lex", ["publish", scaffold_path, "--activate"]) {
-                    Err(e) => Err(e),
-                    Ok(pub) => if pub.exit_code != 0 {
-                      Err(str.join(["publishing ", scaffold_path, " for issue ", r.issue_id, " failed: ", str.trim(str.concat(pub.stdout, pub.stderr))], ""))
-                    } else {
-                      match proc.run("lex", ["--output", "json", "issue", "verify", r.issue_id]) {
-                        Err(e) => Err(e),
-                        Ok(v) => Ok(match ic.verdict_of(v.stdout) {
-                          None => "unavailable",
-                          Some(word) => word,
-                        }),
-                      }
-                    },
-                  }
-                },
-              }
-            },
           },
         },
       }
@@ -308,6 +316,60 @@ fn update_errors(last_errors :: List[(Str, Str)], outcomes :: List[BatchOutcome]
       cleared
     }
   })
+}
+
+# A merge_error points at a line of `.lex/plans/<project>.merge-check.lex`,
+# a file that only exists in the canonical project: the model retrying in
+# its own isolated copy cannot open it, so "line 265" meant nothing to it
+# and the same mistake came back attempt after attempt. Quote the line
+# itself (for a whole-function error that is the `fn` header).
+fn check_error_line(out :: Str) -> Int {
+  list.fold(str.split(out, "\n"), 0, fn (acc :: Int, l :: Str) -> Int {
+    if acc > 0 or not str.starts_with(str.trim(l), "{") {
+      acc
+    } else {
+      match jv.parse(str.trim(l)) {
+        Err(_) => acc,
+        Ok(j) => match jv.get_field(j, "position") {
+          None => acc,
+          Some(pos) => match jv.get_field(pos, "line") {
+            None => acc,
+            Some(n) => match jv.as_int(n) {
+              None => acc,
+              Some(i) => i,
+            },
+          },
+        },
+      }
+    }
+  })
+}
+
+fn line_at(text :: Str, n :: Int) -> Str
+  examples {
+    line_at("a\nb\nc", 2) => "b",
+    line_at("a\nb\nc", 9) => ""
+  }
+{
+  list.fold(list.enumerate(str.split(text, "\n")), "", fn (acc :: Str, p :: (Int, Str)) -> Str {
+    match p {
+      (i, l) => if i + 1 == n {
+        l
+      } else {
+        acc
+      },
+    }
+  })
+}
+
+fn locate_error(merged :: Str, out :: Str) -> Str {
+  let n := check_error_line(out)
+  let src := str.trim(line_at(merged, n))
+  if n <= 0 or str.is_empty(src) {
+    ""
+  } else {
+    str.join(["\nThat position is in the merged file, which you do not have; the offending code is at or inside: `", src, "` — find it in your own file and fix it there."], "")
+  }
 }
 
 # The whole point: copy + spawn every id in the batch first — nothing in
