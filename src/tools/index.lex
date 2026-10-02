@@ -137,8 +137,22 @@ fn vcs_tools() -> List[t.Tool] {
 # os_check is the one tool whose behaviour depends on which mode is
 # calling it — it compares a file's effects against that mode's grant —
 # so the toolset has to be built per mode rather than shared.
+#
+# stdlib_tool/guide_tool/plan_check_tool were missing from this pool even
+# though planner_permission() (rules.lex) already names "lex_stdlib",
+# "lex_guide" and "plan_check" in its allowlist — tools_for_spec() filters
+# THIS list, so a name the permission spec allows but this pool never
+# supplies is silently unreachable. That made every cloud-bucketed
+# provider's Planner agent (Anthropic, OpenAI, Google, Mistral, vLLM,
+# lex-gpu, OpenCode) missing a tool its own prompt tells it to call,
+# while ollama_agent()/litellm_agent() got it via their separate curated
+# planner_dynamic_tools(). Confirmed live (2026-10-02): a real OpenCode
+# planner run (glm-5.3-flash) hit this and said so outright — "No
+# plan_check tool available in my function list... I can't call it" —
+# then burned its remaining plan retries without the self-check tool its
+# own prompt assumed it had.
 fn all_tools_for_mode(mode :: Str) -> List[t.Tool] {
-  list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), remember_tool.tool(), check_tool.tool(), os_check_tool.tool_for_mode(mode), audit_tool.tool(), semantic_search_tool.tool(), find_packages_tool.tool(), package_api_tool.tool(), edit_files_tool.tool(), run_tool.tool(), test_tool.tool(), spec_check_tool.tool(), spec_smt_tool.tool(), sigid_tool.tool(), attest_tool.tool(), effects_tool.tool(), store_merge_tool.tool(), propagate_tool.tool(), guidelines_tool.tool(), bar_check_tool.tool(), github_pr_tool.tool(), github_pr_merge_tool.tool(), issue_tool.show_tool(), issue_tool.verify_tool(), issue_tool.propose_tool()], vcs_tools())
+  list.concat([read_tool.tool(), write_tool.tool(), edit_tool.tool(), grep_tool.tool(), glob_tool.tool(), bash_tool.tool(), todo_tool.tool(), remember_tool.tool(), check_tool.tool(), os_check_tool.tool_for_mode(mode), audit_tool.tool(), semantic_search_tool.tool(), find_packages_tool.tool(), package_api_tool.tool(), edit_files_tool.tool(), run_tool.tool(), test_tool.tool(), spec_check_tool.tool(), spec_smt_tool.tool(), sigid_tool.tool(), attest_tool.tool(), effects_tool.tool(), store_merge_tool.tool(), propagate_tool.tool(), guidelines_tool.tool(), bar_check_tool.tool(), github_pr_tool.tool(), github_pr_merge_tool.tool(), issue_tool.show_tool(), issue_tool.verify_tool(), issue_tool.propose_tool(), stdlib_tool.tool(), guide_tool.tool(), plan_check_tool.tool()], vcs_tools())
 }
 
 # The build agent's own toolset: build's grant forbids nothing, so this
