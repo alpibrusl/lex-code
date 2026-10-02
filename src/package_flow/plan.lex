@@ -23,6 +23,8 @@ import "std.str" as str
 
 import "std.list" as list
 
+import "std.regex" as regex
+
 import "lex-schema/json_value" as jv
 
 import "../issue_contract" as ic
@@ -134,7 +136,8 @@ fn valid_name(s :: Str) -> Bool
     valid_name("len_to_hex") => true,
     valid_name("") => false,
     valid_name("two words") => false,
-    valid_name("a/b") => false
+    valid_name("a/b") => false,
+    valid_name("a\"b") => false
   }
 {
   if str.is_empty(s) {
@@ -449,6 +452,24 @@ fn check_plan(text :: Str) -> Result[Plan, List[Str]]
   }
 }
 
+# The store head records a dependency's type without its module alias
+# (`conn.ConnDb` is `ConnDb`, `jv.Json` is `Json`) and `lex issue verify`
+# compares signatures as text, so a signature filed with the alias can never
+# verify. The source keeps the alias (it needs it to compile); only the
+# declared signature loses it.
+fn strip_aliases(sig :: Str) -> Str
+  examples {
+    strip_aliases("(db :: conn.ConnDb, j :: jv.Json) -> [sql] Result[Int, Str]") => "(db :: ConnDb, j :: Json) -> [sql] Result[Int, Str]",
+    strip_aliases("(n :: Int) -> Str") => "(n :: Int) -> Str",
+    strip_aliases("(a :: List[resp.Response]) -> Nil") => "(a :: List[Response]) -> Nil"
+  }
+{
+  match regex.compile("([^A-Za-z0-9_]|^)[a-z_][a-z0-9_]*\\.([A-Z])") {
+    Err(_) => sig,
+    Ok(re) => regex.replace_all(re, sig, "$1$2"),
+  }
+}
+
 # The argv for `lex issue create` for one unit, its dependencies already
 # filed (so their ids are known). Effectful api entries are declared without
 # an example, as `lex issue create` allows.
@@ -459,7 +480,7 @@ fn create_argv(u :: PlanUnit, project :: Str, dep_ids :: List[Str]) -> List[Str]
 {
   let head := ["issue", "create", "--title", u.title, "--shape", "typed_delta", "--project", project, "--body", u.body]
   let apis := list.fold(u.api, [], fn (acc :: List[Str], a :: Api) -> List[Str] {
-    list.concat(acc, ["--api", str.join([a.name, ":", a.signature], "")])
+    list.concat(acc, ["--api", str.join([a.name, ":", strip_aliases(a.signature)], "")])
   })
   let exs := list.fold(u.examples, [], fn (acc :: List[Str], e :: Str) -> List[Str] {
     list.concat(acc, ["--example", e])

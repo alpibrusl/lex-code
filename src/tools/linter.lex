@@ -56,6 +56,51 @@ fn should_readback(changed :: Bool, lines :: Int) -> Bool
   }
 }
 
+# A package type written without its import alias. The checker names the
+# real type `json_value_cbfc1dc9.Json` and the bare `Json` the model wrote
+# never matches it — in either direction — which reads as nonsense. Returns
+# the bare name when exactly one side is module-qualified and the other side
+# is that same name.
+fn unqualified_twin(expected :: Str, got :: Str) -> Option[Str]
+  examples {
+    unqualified_twin("Json", "json_value_cbfc1dc9.Json") => Some("Json"),
+    unqualified_twin("json_value_cbfc1dc9.Json", "Json") => Some("Json"),
+    unqualified_twin("Int", "Str") => None,
+    unqualified_twin("a.Json", "b.Json") => None,
+    unqualified_twin("Json", "x.Str") => None,
+    unqualified_twin("x.Str", "Json") => None,
+    unqualified_twin("Json", "Json") => None,
+    unqualified_twin("Json", "a.Json.x") => None,
+    unqualified_twin("a.Json.x", "Json") => None
+  }
+{
+  let e_parts := str.split(expected, ".")
+  let g_parts := str.split(got, ".")
+  if list.len(e_parts) == 1 and list.len(g_parts) == 2 {
+    match list.head(list.tail(g_parts)) {
+      Some(name) => if name == expected {
+        Some(name)
+      } else {
+        None
+      },
+      None => None,
+    }
+  } else {
+    if list.len(e_parts) == 2 and list.len(g_parts) == 1 {
+      match list.head(list.tail(e_parts)) {
+        Some(name) => if name == got {
+          Some(name)
+        } else {
+          None
+        },
+        None => None,
+      }
+    } else {
+      None
+    }
+  }
+}
+
 # Translate raw lex check JSON output into a human-readable fix hint.
 #
 # The examples are the branch table. Every case below is a failure mode
@@ -76,10 +121,14 @@ fn translate_lex_error(raw :: Str) -> Str
     translate_lex_error("{\"kind\":\"type_mismatch\",\"expected\":\"Option[Int]\",\"got\":\"Int\"}") => "type_mismatch: `list.head(xs)` returns `Option[T]`, not `T`. Unwrap it first: `match list.head(xs) { Some(v) => ..., None => ... }`. Never compare directly with `==`.",
     translate_lex_error("{\"kind\":\"type_mismatch\",\"expected\":\"Str\",\"got\":\"Option[Str]\"}") => "type_mismatch: got `Option[T]` where `Str` is expected — unwrap with `match ... { Some(v) => v, None => default }`.",
     translate_lex_error("{\"kind\":\"type_mismatch\",\"expected\":\"Int\",\"got\":\"Str\"}") => "[type-mismatch] expected `Int`, got `Str` — check the types at the indicated position.",
+    translate_lex_error("{\"kind\":\"type_mismatch\",\"expected\":\"ctx_161d6dcf.Ctx\",\"got\":\"Ctx\"}") => "type_mismatch: `Ctx` names two distinct types here — either it was written without its import alias (write it as `pkg.Ctx`, using whatever alias this file imported that package under), or a local `type Ctx = pkg.Ctx` was declared to shorten it (Lex treats an alias of a NOMINAL type — any record or variant, not a builtin like Int — as a brand-new distinct type, never a transparent synonym: drop the alias and use the qualified name directly in every signature instead). The checker's own name for it is `ctx_161d6dcf.Ctx` / `Ctx`; fix every signature that mentions it.",
     translate_lex_error("{\"kind\":\"unknown_variant\",\"constructor\":\"True\"}") => "fix: use `true` (lowercase) — Lex booleans are lowercase.",
+    translate_lex_error("{\"kind\":\"unknown_variant\",\"constructor\":\"False\"}") => "fix: use `false` (lowercase) — Lex booleans are lowercase.",
+    translate_lex_error("{\"kind\":\"unknown_variant\",\"constructor\":\"Maybe\"}") => "unknown variant 'Maybe' — check the type definition.",
     translate_lex_error("{\"kind\":\"effect_not_declared\",\"rule_tag\":\"effect-not-declared\",\"rule_explanation\":\"A function body invokes an effect the signature does not declare.\"}") => "[effect-not-declared] A function body invokes an effect the signature does not declare.",
     translate_lex_error("  parse error: unrecognized token `&` at line 3  ") => "parse error: `&&` is not valid Lex. Use `a and b` (Lex keyword). Example: `acc and (x == y)`.",
     translate_lex_error("expected LBrace before block, got If") => "parse error: `else if` is not valid in Lex. Write `else { if cond { ... } else { ... } }` instead.",
+    translate_lex_error("parse error at byte 80: expected expression, got Some(Let)") => "parse error: a match arm (or any branch) that needs `let` must wrap its body in braces: `Some(x) => { let y := x + 1\n y * 2 },` — a bare `=> let ...` does not parse. Better: move the nested work into a small top-level helper fn and call it from the arm.",
     translate_lex_error("  something nobody has a hint for  ") => "something nobody has a hint for"
   }
 {
@@ -157,7 +206,10 @@ fn translate_lex_error(raw :: Str) -> Str
               if str.contains(tm_got, "Option[") {
                 str.concat("type_mismatch: got `Option[T]` where `", str.concat(tm_expected, "` is expected — unwrap with `match ... { Some(v) => v, None => default }`."))
               } else {
-                str.concat("[type-mismatch] expected `", str.concat(tm_expected, str.concat("`, got `", str.concat(tm_got, "` — check the types at the indicated position."))))
+                match unqualified_twin(tm_expected, tm_got) {
+                  Some(name) => str.join(["type_mismatch: `", name, "` names two distinct types here — either it was written without its import alias (write it as `pkg.", name, "`, using whatever alias this file imported that package under), or a local `type ", name, " = pkg.", name, "` was declared to shorten it (Lex treats an alias of a NOMINAL type — any record or variant, not a builtin like Int — as a brand-new distinct type, never a transparent synonym: drop the alias and use the qualified name directly in every signature instead). The checker's own name for it is `", tm_expected, "` / `", tm_got, "`; fix every signature that mentions it."], ""),
+                  None => str.concat("[type-mismatch] expected `", str.concat(tm_expected, str.concat("`, got `", str.concat(tm_got, "` — check the types at the indicated position.")))),
+                }
               }
             }
           } else {
@@ -212,7 +264,11 @@ fn translate_lex_error(raw :: Str) -> Str
                     if str.contains(s, "expected expression, got Some(Comma)") {
                       "parse error: `let` bindings inside a block need NO trailing comma — just write them on separate lines. Commas only appear between match arms."
                     } else {
-                      s
+                      if str.contains(s, "expected expression, got Some(Let)") {
+                        "parse error: a match arm (or any branch) that needs `let` must wrap its body in braces: `Some(x) => { let y := x + 1\n y * 2 },` — a bare `=> let ...` does not parse. Better: move the nested work into a small top-level helper fn and call it from the arm."
+                      } else {
+                        s
+                      }
                     }
                   }
                 }
@@ -240,6 +296,36 @@ fn run_lex_fmt(path :: Str) -> [proc] LintOutcome {
   }
 }
 
+# `lex check` prints one JSON object per error. translate_lex_error reads a
+# single object, so several errors in one file used to reach the model as raw
+# JSON with no hint at all — the very case where the hint matters most.
+fn translate_all(raw :: Str) -> Str
+  examples {
+    translate_all("{\"kind\":\"unknown_identifier\",\"name\":\"list\"}\n{\"kind\":\"unknown_identifier\",\"name\":\"list\"}\n{\"kind\":\"unknown_identifier\",\"name\":\"foo\"}") => "fix: add `import \"std.list\" as list` at the top of the file.\nunknown identifier 'foo' — check for typos or missing import.",
+    translate_all("note\n{\"kind\":\"unknown_identifier\",\"name\":\"foo\"}") => "note\n{\"kind\":\"unknown_identifier\",\"name\":\"foo\"}",
+    translate_all("expected LBrace before block, got If") => "parse error: `else if` is not valid in Lex. Write `else { if cond { ... } else { ... } }` instead."
+  }
+{
+  if str.starts_with(raw, "{") and str.contains(raw, "\n{") {
+    let lines := list.filter(str.split(raw, "\n"), fn (l :: Str) -> Bool {
+      not str.is_empty(str.trim(l))
+    })
+    let hints := list.fold(lines, [], fn (acc :: List[Str], l :: Str) -> List[Str] {
+      let h := translate_lex_error(l)
+      if list.fold(acc, false, fn (seen :: Bool, a :: Str) -> Bool {
+        seen or a == h
+      }) {
+        acc
+      } else {
+        list.concat(acc, [h])
+      }
+    })
+    str.join(hints, "\n")
+  } else {
+    translate_lex_error(raw)
+  }
+}
+
 fn run_lex_check(path :: Str) -> [proc] LintOutcome {
   match proc.run("bash", ["-c", str.concat("\"${LEX:-lex}\" check ", path)]) {
     Err(msg) => LintFail("lex check", str.concat("could not run: ", msg)),
@@ -247,7 +333,7 @@ fn run_lex_check(path :: Str) -> [proc] LintOutcome {
       LintOk("lex check")
     } else {
       let raw := str.trim(str.concat(out.stdout, out.stderr))
-      LintFail("lex check", translate_lex_error(raw))
+      LintFail("lex check", translate_all(raw))
     },
   }
 }

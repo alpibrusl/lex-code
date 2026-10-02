@@ -42,6 +42,10 @@ import "std.map" as map
 
 import "std.env" as env
 
+import "std.int" as int
+
+import "std.time" as time
+
 import "lex-schema/json_value" as jv
 
 import "./merge" as merge
@@ -76,6 +80,17 @@ fn copy_dir_for(project :: Str, issue_id :: Str) -> Str {
 
 fn log_path_for(project :: Str, issue_id :: Str) -> Str {
   str.join(["/tmp/lex-code-parallel-", project, "-", issue_id, ".log"], "")
+}
+
+# The wrapper script (see `spawn_issue_child`) records the child's pid before
+# it starts and its exit code after it ends, so the driver can poll a worker
+# without a blocking `proc.wait`.
+fn pid_path_for(project :: Str, issue_id :: Str) -> Str {
+  str.concat(log_path_for(project, issue_id), ".pid")
+}
+
+fn exit_path_for(project :: Str, issue_id :: Str) -> Str {
+  str.concat(log_path_for(project, issue_id), ".exit")
 }
 
 # `cp -R . dest` (not `cp -R * dest`, which shell-globs and drops
@@ -118,7 +133,7 @@ fn spawn_issue_child(project :: Str, copy_dir :: Str, issue_id :: Str, guidance 
         None => "",
         Some(text) => text,
       }
-      let script := "cd \"$1\" && if [ -n \"$6\" ]; then exec \"$2\" \"$3\" \"--issue=$4\" \"$6\" > \"$5\" 2>&1; else exec \"$2\" \"$3\" \"--issue=$4\" > \"$5\" 2>&1; fi"
+      let script := str.join(["cd \"$1\" || { echo 1 > \"$5.exit\"; exit 1; }", "if [ -n \"$6\" ]; then \"$2\" \"$3\" \"--issue=$4\" \"$6\" > \"$5\" 2>&1 & else \"$2\" \"$3\" \"--issue=$4\" > \"$5\" 2>&1 & fi", "echo $! > \"$5.pid\"", "wait $!", "echo $? > \"$5.exit\""], "\n")
       proc.spawn("bash", ["-c", script, "bash", copy_dir, bin, provider_flag, issue_id, log, g], { cwd: None, env: map.new(), stdin: None })
     },
   }
@@ -310,7 +325,7 @@ fn update_errors(last_errors :: List[(Str, Str)], outcomes :: List[BatchOutcome]
         (eid, _) => eid != o.issue_id,
       }
     })
-    if str.starts_with(o.verdict, "merge_error: ") or str.starts_with(o.verdict, "spawn_error: ") {
+    if str.starts_with(o.verdict, "merge_error: ") or str.starts_with(o.verdict, "spawn_error: ") or str.starts_with(o.verdict, "stalled: ") {
       list.cons((o.issue_id, o.verdict), cleared)
     } else {
       cleared
@@ -372,6 +387,208 @@ fn locate_error(merged :: Str, out :: Str) -> Str {
   }
 }
 
+# ---------------------------------------------------------------------------
+# Watching workers while they run.
+#
+# Reproduced live (2026-10-01): a two-worker build spent ~25 minutes with
+# both workers failing the same trivial write over and over (a `{}` they
+# believed was an empty Map; a guessed std.json shape), 22 bash probes
+# each, zero successful writes. The driver's own log said nothing for the
+# whole time — it sat in a blocking `proc.wait` — so the run looked alive
+# (process up, files being touched) while it was going nowhere, and nothing
+# would ever have stopped it short of the model's own step budget.
+#
+# So the driver now polls instead of blocking. Every tick it reads each
+# worker's own session trail (the worker's `.lex/sessions/cli-*.db` — the
+# newest one created after the worker started, since the copy also carries
+# older sessions) and
+#   - prints a `[HEARTBEAT]` line per worker every few minutes, so the main
+#     log shows what each worker is actually doing;
+#   - stops a worker that is not making progress and files the unit as
+#     stalled with its last error, which the next attempt is given:
+#       * N consecutive failed writes/edits (default 10), or
+#       * N steps since the last successful write/edit (default 25), or
+#       * a hard cap on total steps (default 80).
+# Limits come from LEX_CODE_STALL_FAILS / _STEPS / _MAX_STEPS; the poll
+# interval from LEX_CODE_POLL_MS (default 20000).
+type Probe = { steps :: Int, since_write :: Int, fail_streak :: Int, writes_ok :: Int, repeated :: Bool, last_error :: Str }
+
+type StallLimits = { fails :: Int, since_write :: Int, max_steps :: Int }
+
+fn env_int(name :: Str, default :: Int) -> [env] Int {
+  match env.get(name) {
+    None => default,
+    Some(v) => match str.to_int(str.trim(v)) {
+      None => default,
+      Some(n) => if n > 0 {
+        n
+      } else {
+        default
+      },
+    },
+  }
+}
+
+fn stall_limits() -> [env] StallLimits {
+  { fails: env_int("LEX_CODE_STALL_FAILS", 10), since_write: env_int("LEX_CODE_STALL_STEPS", 25), max_steps: env_int("LEX_CODE_STALL_MAX_STEPS", 80) }
+}
+
+fn probe_script() -> Str {
+  str.join(["d=$(find \"$1/.lex/sessions\" -name 'cli-*.db' -newer \"$2\" 2>/dev/null | head -1)", "[ -n \"$d\" ] || { printf '0\\t0\\t0\\t0\\t0\\t\\n'; exit 0; }", "q() { sqlite3 \"$d\" \"$1\" 2>/dev/null; }", "W=\"(substr(payload_json,16,5)='write' or substr(payload_json,16,4)='edit')\"", "steps=$(q \"select count(*) from events where kind='llm.step'\")", "lastok=$(q \"select coalesce(max(rowid),0) from events where kind='cap.completed' and $W\")", "since=$(q \"select count(*) from events where kind='llm.step' and rowid>$lastok\")", "okn=$(q \"select count(*) from events where kind='cap.completed' and $W\")", "streak=$(q \"select count(*) from events where kind='cap.failed' and $W and rowid>$lastok\")", "errs=$(q \"select replace(replace(payload_json,char(10),' '),char(9),' ') from events where kind='cap.failed' and $W order by rowid desc limit 4\")", "last=$(printf '%s\\n' \"$errs\" | head -1)", "msg=$(printf '%s' \"$last\" | grep -o 'lint\\[lex check\\]: FAILED.*' | sed -E 's/[\"}]+$//' | head -c 300)", "[ -n \"$msg\" ] || msg=$(printf '%s' \"$last\" | tail -c 300)", "nerr=$(printf '%s\\n' \"$errs\" | sed -E 's/.*(lint\\[lex check\\]: FAILED.*)/\\1/' | tr -d '0-9' | sort -u | wc -l | tr -d ' ')", "cnt=$(printf '%s\\n' \"$errs\" | grep -c .)", "same=0; [ \"$cnt\" -ge 4 ] && [ \"$nerr\" = 1 ] && [ \"${streak:-0}\" -ge 4 ] && same=1", "printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' \"${steps:-0}\" \"${since:-0}\" \"${streak:-0}\" \"${okn:-0}\" \"$same\" \"$msg\""], "\n")
+}
+
+fn int_or_zero(s :: Str) -> Int {
+  match str.to_int(str.trim(s)) {
+    None => 0,
+    Some(n) => n,
+  }
+}
+
+fn parse_probe(line :: Str) -> Probe
+  examples {
+    parse_probe("41\t33\t6\t0\t1\tparse error") => { steps: 41, since_write: 33, fail_streak: 6, writes_ok: 0, repeated: true, last_error: "parse error" },
+    parse_probe("") => { steps: 0, since_write: 0, fail_streak: 0, writes_ok: 0, repeated: false, last_error: "" }
+  }
+{
+  let f := str.split(str.trim(line), "\t")
+  let at := fn (i :: Int) -> Str {
+    list.fold(list.enumerate(f), "", fn (acc :: Str, p :: (Int, Str)) -> Str {
+      match p {
+        (j, v) => if j == i {
+          v
+        } else {
+          acc
+        },
+      }
+    })
+  }
+  { steps: int_or_zero(at(0)), since_write: int_or_zero(at(1)), fail_streak: int_or_zero(at(2)), writes_ok: int_or_zero(at(3)), repeated: int_or_zero(at(4)) == 1, last_error: str.trim(at(5)) }
+}
+
+fn probe_child(copy_dir :: Str, pid_path :: Str) -> [proc] Probe {
+  match proc.run("sh", ["-c", probe_script(), "sh", copy_dir, pid_path]) {
+    Err(_) => parse_probe(""),
+    Ok(out) => parse_probe(out.stdout),
+  }
+}
+
+fn stall_reason(p :: Probe, lim :: StallLimits) -> Option[Str]
+  examples {
+    stall_reason({ steps: 10, since_write: 10, fail_streak: 10, writes_ok: 0, repeated: false, last_error: "boom" }, { fails: 10, since_write: 25, max_steps: 80 }) => Some("stopped by the stall guard after 10 failed writes/edits in a row without one succeeding (the file never compiled). Last error: boom"),
+    stall_reason({ steps: 10, since_write: 10, fail_streak: 4, writes_ok: 0, repeated: true, last_error: "boom" }, { fails: 10, since_write: 25, max_steps: 80 }) => Some("stopped by the stall guard: the same error came back on 4 writes/edits in a row (4 failures so far, none succeeding) — retrying the same fix is not working. Last error: boom"),
+    stall_reason({ steps: 30, since_write: 26, fail_streak: 0, writes_ok: 1, repeated: false, last_error: "" }, { fails: 10, since_write: 25, max_steps: 80 }) => Some("stopped by the stall guard after 26 steps without a successful write or edit — it was researching or probing instead of writing"),
+    stall_reason({ steps: 81, since_write: 3, fail_streak: 0, writes_ok: 4, repeated: false, last_error: "" }, { fails: 10, since_write: 25, max_steps: 80 }) => Some("stopped by the stall guard after 81 steps without finishing"),
+    stall_reason({ steps: 12, since_write: 4, fail_streak: 2, writes_ok: 1, repeated: false, last_error: "x" }, { fails: 10, since_write: 25, max_steps: 80 }) => None
+  }
+{
+  if p.fail_streak >= lim.fails {
+    Some(str.join(["stopped by the stall guard after ", int.to_str(p.fail_streak), " failed writes/edits in a row without one succeeding (the file never compiled). Last error: ", p.last_error], ""))
+  } else {
+    if p.repeated {
+      Some(str.join(["stopped by the stall guard: the same error came back on 4 writes/edits in a row (", int.to_str(p.fail_streak), " failures so far, none succeeding) — retrying the same fix is not working. Last error: ", p.last_error], ""))
+    } else {
+      if p.since_write >= lim.since_write {
+        Some(str.join(["stopped by the stall guard after ", int.to_str(p.since_write), " steps without a successful write or edit — it was researching or probing instead of writing"], ""))
+      } else {
+        if p.steps >= lim.max_steps {
+          Some(str.join(["stopped by the stall guard after ", int.to_str(p.steps), " steps without finishing"], ""))
+        } else {
+          None
+        }
+      }
+    }
+  }
+}
+
+fn child_done(project :: Str, issue_id :: Str) -> [proc] Bool {
+  let script := "[ -f \"$1\" ] || { [ -f \"$2\" ] && ! kill -0 \"$(cat \"$2\")\" 2>/dev/null; }"
+  match proc.run("sh", ["-c", script, "sh", exit_path_for(project, issue_id), pid_path_for(project, issue_id)]) {
+    Err(_) => false,
+    Ok(out) => out.exit_code == 0,
+  }
+}
+
+fn kill_child(project :: Str, issue_id :: Str) -> [proc] Unit {
+  let __k := proc.run("sh", ["-c", "[ -f \"$1\" ] && kill \"$(cat \"$1\")\" 2>/dev/null; true", "sh", pid_path_for(project, issue_id)])
+  ()
+}
+
+# The worker's copy directory is rebuilt for the next attempt, taking its
+# session trail with it — which is exactly the evidence needed to see why it
+# stalled. Keep the stalled attempt's trail next to its log.
+fn stalled_trail_path(project :: Str, issue_id :: Str) -> Str {
+  str.concat(log_path_for(project, issue_id), ".stalled.db")
+}
+
+fn save_trail(project :: Str, issue_id :: Str) -> [proc] Unit {
+  let __s := proc.run("sh", ["-c", "d=$(find \"$1/.lex/sessions\" -name 'cli-*.db' -newer \"$2\" 2>/dev/null | head -1); [ -n \"$d\" ] && { rm -f \"$3\"; sqlite3 \"$d\" \".backup '$3'\" 2>/dev/null; }; true", "sh", copy_dir_for(project, issue_id), pid_path_for(project, issue_id), stalled_trail_path(project, issue_id)])
+  ()
+}
+
+fn short_id(id :: Str) -> Str {
+  str.slice(id, 0, 8)
+}
+
+fn heartbeat_line(project :: Str, issue_id :: Str, elapsed_s :: Int, p :: Probe) -> Str {
+  str.join(["[HEARTBEAT] ", project, " ", short_id(issue_id), "  ", int.to_str(elapsed_s / 60), "m  steps=", int.to_str(p.steps), "  successful_writes=", int.to_str(p.writes_ok), "  steps_since_write=", int.to_str(p.since_write), "  failed_writes_in_a_row=", int.to_str(p.fail_streak)], "")
+}
+
+fn is_stalled(stalls :: List[(Str, Str)], id :: Str) -> Bool {
+  match error_for(stalls, id) {
+    Some(_) => true,
+    None => false,
+  }
+}
+
+# One tick: for every still-running, not-yet-stopped worker, probe it,
+# stop it if it tripped a limit, print a heartbeat every `hb_every` ticks.
+# Returns the (id, reason) pairs stopped in this tick.
+fn watch_tick(project :: Str, ids :: List[Str], stalls :: List[(Str, Str)], tick :: Int, hb_every :: Int, elapsed_s :: Int, lim :: StallLimits) -> [proc, io] List[(Str, Str)] {
+  list.fold(ids, [], fn (acc :: List[(Str, Str)], id :: Str) -> [proc, io] List[(Str, Str)] {
+    if is_stalled(stalls, id) or child_done(project, id) {
+      acc
+    } else {
+      let p := probe_child(copy_dir_for(project, id), pid_path_for(project, id))
+      match stall_reason(p, lim) {
+        Some(reason) => {
+          let __save := save_trail(project, id)
+          let __kill := kill_child(project, id)
+          let __say := io.print(str.join([heartbeat_line(project, id, elapsed_s, p), "\n[STALL] ", project, " ", short_id(id), " — ", reason, "\n[STALL] trail kept at ", stalled_trail_path(project, id)], ""))
+          list.cons((id, reason), acc)
+        },
+        None => {
+          let __hb := if tick - tick / hb_every * hb_every == 0 {
+            io.print(heartbeat_line(project, id, elapsed_s, p))
+          } else {
+            ()
+          }
+          acc
+        },
+      }
+    }
+  })
+}
+
+fn watch_loop(project :: Str, ids :: List[Str], stalls :: List[(Str, Str)], tick :: Int, started_ms :: Int, poll_ms :: Int, hb_every :: Int, lim :: StallLimits) -> [proc, io, time] List[(Str, Str)] {
+  let running := list.filter(ids, fn (id :: Str) -> [proc] Bool {
+    not child_done(project, id)
+  })
+  if list.is_empty(running) {
+    stalls
+  } else {
+    let __nap := time.sleep_ms(poll_ms)
+    let elapsed_s := (time.now_ms() - started_ms) / 1000
+    let fresh := watch_tick(project, running, stalls, tick, hb_every, elapsed_s, lim)
+    watch_loop(project, running, list.concat(stalls, fresh), tick + 1, started_ms, poll_ms, hb_every, lim)
+  }
+}
+
+fn watch_children(project :: Str, ids :: List[Str]) -> [proc, io, time, env] List[(Str, Str)] {
+  let poll_ms := env_int("LEX_CODE_POLL_MS", 20000)
+  let hb_every := env_int("LEX_CODE_HEARTBEAT_TICKS", 9)
+  watch_loop(project, ids, [], 1, time.now_ms(), poll_ms, hb_every, stall_limits())
+}
+
 # The whole point: copy + spawn every id in the batch first — nothing in
 # this phase blocks — THEN wait for each (blocking only on that one
 # child; the others keep running), THEN merge one at a time, in-process,
@@ -379,13 +596,23 @@ fn locate_error(merged :: Str, out :: Str) -> Str {
 # while this runs. Real overlap comes entirely from spawning before any
 # waiting starts; get that ordering wrong and this degrades silently
 # back to sequential.
-fn dispatch_and_merge(project :: Str, ids :: List[Str], guidance :: Str, provider_flag :: Str, last_errors :: List[(Str, Str)]) -> [proc, env, io] List[BatchOutcome] {
+fn dispatch_and_merge(project :: Str, ids :: List[Str], guidance :: Str, provider_flag :: Str, last_errors :: List[(Str, Str)]) -> [proc, env, io, time] List[BatchOutcome] {
   let spawned := list.map(ids, fn (id :: Str) -> [proc, env] (Str, Str, Result[ProcessHandle, Str]) {
     let copy := copy_dir_for(project, id)
     let __mk := make_isolated_copy(copy)
+    let __stale := proc.run("rm", ["-f", pid_path_for(project, id), exit_path_for(project, id)])
     let g := guidance_for(guidance, last_errors, id)
     (id, copy, spawn_issue_child(project, copy, id, Some(g), provider_flag))
   })
+  let started := list.filter(ids, fn (id :: Str) -> Bool {
+    list.fold(spawned, false, fn (acc :: Bool, t :: (Str, Str, Result[ProcessHandle, Str])) -> Bool {
+      match t {
+        (tid, _, Ok(_)) => acc or tid == id,
+        (_, _, Err(_)) => acc,
+      }
+    })
+  })
+  let stalls := watch_children(project, started)
   let waited := list.map(spawned, fn (t :: (Str, Str, Result[ProcessHandle, Str])) -> [proc] (Str, Result[ChildResult, Str]) {
     match t {
       (id, copy, Err(e)) => (id, Err(str.join(["spawning issue ", id, " failed: ", e], ""))),
@@ -396,11 +623,15 @@ fn dispatch_and_merge(project :: Str, ids :: List[Str], guidance :: Str, provide
     match w {
       (id, Err(e)) => { issue_id: id, verdict: str.concat("spawn_error: ", e) },
       (id, Ok(r)) => {
-        let verdict := match merge_issue(project, r) {
-          Ok(v) => v,
-          Err(e) => str.concat("merge_error: ", e),
+        let verdict := match error_for(stalls, id) {
+          Some(reason) => str.concat("stalled: ", reason),
+          None => match merge_issue(project, r) {
+            Ok(v) => v,
+            Err(e) => str.concat("merge_error: ", e),
+          },
         }
         let __cl := cleanup(r.copy_dir)
+        let __logs := proc.run("rm", ["-f", pid_path_for(project, id), exit_path_for(project, id)])
         { issue_id: id, verdict: verdict }
       },
     }

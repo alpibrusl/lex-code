@@ -86,7 +86,7 @@ fn typed_delta_section(acc :: jv.Json) -> Str {
   str.join(["Shape: typed_delta. The API delta is the contract:\n", bullets(api), if list.is_empty(examples) {
     ""
   } else {
-    str.join(["These examples are the oracle — each must hold at head. Put them in the function's own `examples { }` block so the store's write-time gate runs them on every publish:\n", bullets(examples)], "")
+    str.join(["These examples are the oracle — each must hold at head. Put each one in the `examples { }` block of the function it calls (the OUTERMOST call: `f(g(x)) => y` belongs to `f`, never to `g`), so the store's write-time gate runs them on every publish:\n", bullets(examples)], "")
   }], "")
 }
 
@@ -187,7 +187,13 @@ fn contract_prompt(issue :: jv.Json) -> Str {
     ""
   } else {
     str.join(["\n", body, "\n"], "")
-  }, "\n", refined, acceptance_section(acc), discovery_step(), closing], "")
+  }, "\n", refined, acceptance_section(acc), workspace_rule(), discovery_step(), closing], "")
+}
+
+# A worker once invented a second project directory, copied the file there,
+# and spent 25 steps failing to resolve imports without a lex.toml.
+fn workspace_rule() -> Str {
+  "\nWork only in the current directory: the project is the lex.toml and src/ here. Never cd elsewhere, copy the project, or create another project directory — the issue is verified against this one.\n"
 }
 
 # The step that keeps an agent from hand-rolling what already ships as a
@@ -215,6 +221,35 @@ fn refine_prompt(issue :: jv.Json) -> Str {
 # `lex --output json issue verify` → the verdict word, or None when the
 # command did not answer (unknown issue, no store). A `failed` verdict
 # exits 1 but is still `"ok": true` — an answer, not an error.
+# The store's typed_delta gate checks an effectful unit's signature only, so a
+# `todo()` body passes as soon as the scaffold's signature matches. A
+# "verified" whose declared functions are still bare stubs is not one.
+fn api_names(issue :: jv.Json) -> List[Str] {
+  list.map(field_list(acceptance_of(issue), "api"), fn (entry :: jv.Json) -> Str {
+    field_text(entry, "name")
+  })
+}
+
+fn demote_hollow(verdict :: Str, names :: List[Str], stubs :: List[Str]) -> Str
+  examples {
+    demote_hollow("verified", ["a"], ["a", "b"]) => "failed",
+    demote_hollow("verified", ["c"], ["a", "b"]) => "verified",
+    demote_hollow("failed", ["a"], ["a"]) => "failed",
+    demote_hollow("verified", [], ["a"]) => "verified"
+  }
+{
+  let hollow := list.filter(names, fn (n :: Str) -> Bool {
+    list.len(list.filter(stubs, fn (s :: Str) -> Bool {
+      s == n
+    })) > 0
+  })
+  if verdict == "verified" and not list.is_empty(hollow) {
+    "failed"
+  } else {
+    verdict
+  }
+}
+
 fn verdict_of(stdout :: Str) -> Option[Str]
   examples {
     verdict_of("{\"ok\": true, \"data\": {\"verdict\": \"failed\", \"detail\": \"x\"}}") => Some("failed"),

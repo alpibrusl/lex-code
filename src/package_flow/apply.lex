@@ -211,7 +211,7 @@ fn write_if_changed(path :: Str, old :: Str, new :: Str) -> [io] Nil {
 fn write_scaffold(p :: plan.Plan) -> [proc, io] Result[Str, Str] {
   let file := str.join(["src/", p.project, ".lex"], "")
   let toml := match io.read("lex.toml") {
-    Err(_) => "",
+    Err(_) => str.join(["[package]\nname = \"", p.project, "\"\nversion = \"0.1.0\"\n"], ""),
     Ok(t) => t,
   }
   let __toml := write_if_changed("lex.toml", toml, chk.toml_with_packages(toml, p.packages))
