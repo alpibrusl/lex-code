@@ -386,6 +386,16 @@ have actually been run end-to-end against this repo:
 | `--ollama` | Ollama (local, native API) | `$OLLAMA_MODEL` (default `qwen3.8:27b-mlx`) | none |
 | `--opencode` | OpenCode Go plan (cloud, direct) | `$OPENCODE_MODEL` | `OPENCODE_API_KEY` |
 
+Every env-var-driven provider's model can also be set on the command line
+instead of a separate `export` — `bin/lex-code` turns the flag into the
+matching export before invoking the agent: `--opencode-model=X`,
+`--ollama-model=X`, `--litellm-model=X`, `--vllm-model=X`,
+`--lex-gpu-model=X`. A generic `--opencode --model=X` resolves against
+whichever provider flag is present (same precedence `select_provider_tag`
+uses to pick the provider itself). Anthropic/OpenAI/Mistral/Google/Vertex
+build their model from a fixed constructor rather than an env var, so
+`--model` with one of those is a hard error for now, not a silent no-op.
+
 ### Local vs. cloud, measured — not assumed
 
 Reproduced live (2026-09-30): the intuitive assumption — a hosted cloud

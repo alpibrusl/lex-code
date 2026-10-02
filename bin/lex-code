@@ -62,5 +62,68 @@ if [ "$lex_os_mode" = "1" ]; then
   fi
 fi
 
+# --<provider>-model=X and the generic --model=X: every env-var-driven
+# provider (ollama/litellm/vllm/lex-gpu/opencode — see their *_model()
+# in src/tools/index.lex and lex-llm/providers.lex) already reads a model
+# override from its own env var, but only if the caller remembers to
+# export it before invoking this script. These flags do that export, so
+# the model can be picked on the same command line as the provider
+# instead of in a separate `export` beforehand. `--model=` alone resolves
+# against whichever provider flag is present, using the exact same
+# first-match precedence as select_provider_tag in src/tui/main.lex
+# (mistral > openai > google > vertex > litellm > ollama > vllm >
+# lex-gpu > opencode, default litellm). anthropic/openai/mistral/
+# google/vertex build their model from a fixed constructor
+# (prov.gpt4o() etc. in src/agents/*.lex), not an env var, so there is
+# nothing to override for them yet — --model with one of those flags is
+# a hard error rather than a silent no-op.
+has_mistral=0; has_openai=0; has_google=0; has_vertex=0; has_litellm=0
+has_ollama=0; has_vllm=0; has_lexgpu=0; has_opencode=0
+generic_model=""
+orig_count=$#
+i=0
+while [ "$i" -lt "$orig_count" ]; do
+  a="$1"
+  shift
+  case "$a" in
+    --opencode-model=*) export OPENCODE_MODEL="${a#--opencode-model=}" ;;
+    --ollama-model=*) export OLLAMA_MODEL="${a#--ollama-model=}" ;;
+    --litellm-model=*) export LITELLM_MODEL="${a#--litellm-model=}" ;;
+    --vllm-model=*) export VLLM_MODEL="${a#--vllm-model=}" ;;
+    --lex-gpu-model=*) export LEX_GPU_MODEL="${a#--lex-gpu-model=}" ;;
+    --model=*) generic_model="${a#--model=}" ;;
+    --mistral) has_mistral=1; set -- "$@" "$a" ;;
+    --openai) has_openai=1; set -- "$@" "$a" ;;
+    --google) has_google=1; set -- "$@" "$a" ;;
+    --vertex) has_vertex=1; set -- "$@" "$a" ;;
+    --litellm) has_litellm=1; set -- "$@" "$a" ;;
+    --ollama) has_ollama=1; set -- "$@" "$a" ;;
+    --vllm) has_vllm=1; set -- "$@" "$a" ;;
+    --lex-gpu) has_lexgpu=1; set -- "$@" "$a" ;;
+    --opencode) has_opencode=1; set -- "$@" "$a" ;;
+    *) set -- "$@" "$a" ;;
+  esac
+  i=$((i + 1))
+done
+
+if [ -n "$generic_model" ]; then
+  if [ "$has_mistral" = 1 ] || [ "$has_openai" = 1 ] || [ "$has_google" = 1 ] || [ "$has_vertex" = 1 ]; then
+    echo "lex-code: --model is not supported yet with --mistral/--openai/--google/--vertex (their model is a fixed constructor in src/agents/*.lex, not an env var) — drop --model or switch providers" >&2
+    exit 1
+  elif [ "$has_litellm" = 1 ]; then
+    export LITELLM_MODEL="$generic_model"
+  elif [ "$has_ollama" = 1 ]; then
+    export OLLAMA_MODEL="$generic_model"
+  elif [ "$has_vllm" = 1 ]; then
+    export VLLM_MODEL="$generic_model"
+  elif [ "$has_lexgpu" = 1 ]; then
+    export LEX_GPU_MODEL="$generic_model"
+  elif [ "$has_opencode" = 1 ]; then
+    export OPENCODE_MODEL="$generic_model"
+  else
+    export LITELLM_MODEL="$generic_model"
+  fi
+fi
+
 exec lex run --max-steps "$LEX_CODE_MAX_STEPS" --allow-effects "$LEX_CODE_EFFECTS" \
   "$SCRIPT_DIR/../src/tui/main.lex" main -- "$@"
