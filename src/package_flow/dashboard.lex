@@ -202,17 +202,38 @@ fn apply_attempt(s :: LogState, line :: Str) -> LogState {
   }
 }
 
-fn apply_verdict(s :: LogState, line :: Str) -> LogState {
-  if str.contains(line, "[PROJECT] issue ") and str.contains(line, " → ") {
+# The verdict word is read by CONTAINS, never by slicing past the arrow:
+# `str.find`'s returned index and `str.len`'s count use different units for
+# a multi-byte character like `→` (3 UTF-8 bytes), so the previous
+# `suffix_after(line, "→ ")` sliced 2 bytes short — turning "verified" into
+# "rified", which then failed `v == "verified"` and silently reported
+# every verified unit as failed. The only two words `main.lex` ever prints
+# here are "verified" and "failed" (confirmed against its own source), so
+# checking for each by substring sidesteps the offset entirely rather than
+# computing one.
+fn apply_verdict(s :: LogState, line :: Str) -> LogState
+  examples {
+    apply_verdict(empty_state(), "[PROJECT] issue abc123 → verified") => { attempts: [], verdicts: [("abc123", "verified")], agg: "", stuck: "", gate: "", exited: "", activity: [] },
+    apply_verdict(empty_state(), "[PROJECT] issue abc123 → failed") => { attempts: [], verdicts: [("abc123", "failed")], agg: "", stuck: "", gate: "", exited: "", activity: [] },
+    apply_verdict(empty_state(), "nothing here") => empty_state(),
+    apply_verdict(empty_state(), "some other line mentioning → failed in passing") => empty_state(),
+    apply_verdict(empty_state(), "[PROJECT] issue abc123 → pending") => empty_state()
+  }
+{
+  if str.contains(line, "[PROJECT] issue ") and str.contains(line, "→ verified") {
     match between(line, "[PROJECT] issue ", " →") {
       None => s,
-      Some(id) => match suffix_after(line, "→ ") {
-        None => s,
-        Some(v) => { attempts: s.attempts, verdicts: assoc_set(s.verdicts, id, v), agg: s.agg, stuck: s.stuck, gate: s.gate, exited: s.exited, activity: s.activity },
-      },
+      Some(id) => { attempts: s.attempts, verdicts: assoc_set(s.verdicts, id, "verified"), agg: s.agg, stuck: s.stuck, gate: s.gate, exited: s.exited, activity: s.activity },
     }
   } else {
-    s
+    if str.contains(line, "[PROJECT] issue ") and str.contains(line, "→ failed") {
+      match between(line, "[PROJECT] issue ", " →") {
+        None => s,
+        Some(id) => { attempts: s.attempts, verdicts: assoc_set(s.verdicts, id, "failed"), agg: s.agg, stuck: s.stuck, gate: s.gate, exited: s.exited, activity: s.activity },
+      }
+    } else {
+      s
+    }
   }
 }
 
