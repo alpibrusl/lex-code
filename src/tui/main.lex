@@ -36,6 +36,8 @@ import "../package_flow/parallel" as par
 
 import "../package_flow/merge" as merge
 
+import "../package_flow/dashboard" as dash
+
 import "../tools/session_health" as health
 
 import "../server/session" as sess
@@ -1584,10 +1586,27 @@ fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, ap
       Some(name) => run_package_apply(name),
       None => match pb.flag_value(argv, "--session-health=") {
         Some(path) => health.run_session_health(path),
-        None => run_main_rest(argv, inv, provider_tag, mode),
+        None => match pb.flag_value(argv, "--dashboard=") {
+          Some(name) => run_dashboard(name, argv),
+          None => run_main_rest(argv, inv, provider_tag, mode),
+        },
       },
     },
   }
+}
+
+# `--dashboard=NAME`: a read-only, live HTML view of a `--package --auto`
+# run already in progress — the plan file, the issue store and whatever
+# log file its stdout was redirected to (`--log=`, default `NAME.log`
+# in the current directory). Never drives, retries or edits anything;
+# see package_flow/dashboard.lex.
+fn run_dashboard(name :: Str, argv :: List[Str]) -> [net, fs_read, fs_walk, fs_write, time, io] Nil {
+  let log_path := match pb.flag_value(argv, "--log=") {
+    Some(p) => p,
+    None => str.concat(name, ".log"),
+  }
+  let port := pb.flag_int(argv, "--port=", 7800)
+  dash.serve_dashboard(name, log_path, port)
 }
 
 fn run_main_rest(argv :: List[Str], inv :: Invocation, provider_tag :: Str, mode :: sess.AgentMode) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random, concurrent] Nil {
@@ -1644,6 +1663,7 @@ fn dispatch(inv :: Invocation, mode :: sess.AgentMode, provider_tag :: Str) -> [
       io.print(str.concat("           --package-check=P                  validate a plan: structure, consistency, real type check", "\n"))
       io.print(str.concat("  hardening: --no-harden | --harden-rounds=N | --harden-turns=N   invariants are checked and violations fixed automatically by default", "\n"))
       io.print(str.concat("           --package-apply=P                  file that reviewed plan as issues", "\n"))
+      io.print(str.concat("           --dashboard=P [--log=F] [--port=N] read-only live view of a running --auto build (default log: P.log, port: 7800)", "\n"))
       io.print(str.concat("           --project=P [--fallback=TAG]       drive the project to done, escalating a stuck issue to TAG", "\n"))
       io.print(str.concat("Ctrl-D to exit", "\n"))
       if inv.multi {
