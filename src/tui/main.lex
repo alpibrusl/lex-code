@@ -616,14 +616,36 @@ fn fetch_board(project :: Str) -> [proc] Result[pb.Board, Str] {
   }
 }
 
+# `lex issue verify --verified-only` has a known hang (lex-lang#1089): a
+# compile_program hot loop, observed burning 100% CPU for 40+ minutes with
+# zero progress on a project with only 6 verified issues, on top of every
+# OTHER step in this file that already respects a budget (turns, steps,
+# LLM_TIMEOUT_MS). `process.run`/`process.wait` have no timeout of their
+# own — confirmed against the Rust handler, both are a fully blocking
+# `Command::output()`/`child.wait()` — so the only way to bound this from
+# Lex is a POSIX self-timeout: run the real command in the background,
+# race it against a `sleep` watcher that SIGKILLs it, propagate whichever
+# finishes first. `project` and the timeout travel as `sh -c script sh
+# "$@"` positional params, never interpolated into the script text, so a
+# project name can never reach the shell as anything but an inert argv
+# string.
+fn regression_timeout_secs() -> Int {
+  180
+}
+
 # Re-verify every issue of the project. Closing one issue can quietly break
 # an earlier one (an agent turn that rewrites a file whole can drop another
 # issue's verified function); nothing else re-checks them. The board then
 # offers any regressed issue again.
 fn regression_pass(project :: Str) -> [proc, io] Nil {
-  match proc.run("lex", ["issue", "verify", "--project", project, "--verified-only"]) {
+  let script := "lex issue verify --project \"$1\" --verified-only & pid=$!; ( sleep \"$2\"; kill -9 \"$pid\" 2>/dev/null ) & watcher=$!; wait \"$pid\" 2>/dev/null; status=$?; kill \"$watcher\" 2>/dev/null; exit $status"
+  match proc.run("sh", ["-c", script, "sh", project, int.to_str(regression_timeout_secs())]) {
     Err(e) => io.print(str.concat("regression pass unavailable: ", e)),
-    Ok(out) => io.print(str.join(["[REGRESSION]\n", str.trim(str.concat(out.stdout, out.stderr))], "")),
+    Ok(out) => if out.exit_code == 137 {
+      io.print(str.join(["[REGRESSION] timed out after ", int.to_str(regression_timeout_secs()), "s (lex-lang#1089) — not re-verified this pass, continuing\n", str.trim(str.concat(out.stdout, out.stderr))], ""))
+    } else {
+      io.print(str.join(["[REGRESSION]\n", str.trim(str.concat(out.stdout, out.stderr))], ""))
+    },
   }
 }
 
