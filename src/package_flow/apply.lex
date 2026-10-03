@@ -413,33 +413,39 @@ fn one_invariant_plan() -> plan.Plan {
   { project: "p", types: [], packages: [], policy: { error_type: "" }, units: [{ key: "u", title: "t", body: "", api: [], examples: [], invariants: [{ name: "i", params: [{ name: "a", ty: "Bool" }, { name: "b", ty: "Bool" }], expr: "a" }], deps: [] }] }
 }
 
+# What the acceptance run found: the gate word and, when it failed, the lines a
+# repair attempt needs (one per scenario that did not hold, or the reason the
+# program never started).
+type AcceptOutcome = { gate :: Str, problems :: List[Str] }
+
 # The closing gate that runs the assembled program. "none" = the plan wrote no
 # acceptance file (a library, say), "pass" = every scenario held, "fail" = the
 # program did not start or a scenario did not hold. Prints what it found.
-fn acceptance_gate(project :: Str) -> [proc, io, net, time, env] Str {
+fn acceptance_run(project :: Str) -> [proc, io, net, time, env] AcceptOutcome {
   match io.read(acc.acceptance_path(project)) {
-    Err(_) => "none",
+    Err(_) => { gate: "none", problems: [] },
     Ok(text) => match acc.parse_acceptance(text) {
       Err(e) => {
         let __p := io.print(str.join(["[ACCEPTANCE] ", e], ""))
-        "fail"
+        { gate: "fail", problems: [e] }
       },
       Ok(a) => {
         let errs := acc.acceptance_errors(a)
         if not list.is_empty(errs) {
           let __p := io.print(str.join(["[ACCEPTANCE] the acceptance file is not sound:\n  - ", str.join(errs, "\n  - ")], ""))
-          "fail"
+          { gate: "fail", problems: errs }
         } else {
           let file := str.join(["src/", project, ".lex"], "")
           let needed := required_effects_of(file)
           if list.is_empty(needed) {
-            let __p := io.print(str.join(["[ACCEPTANCE] cannot run ", file, ": `lex check` reports no required effects (does it type-check?)"], ""))
-            "fail"
+            let msg := str.join(["cannot run ", file, ": `lex check` reports no required effects (does it type-check?)"], "")
+            let __p := io.print(str.concat("[ACCEPTANCE] ", msg))
+            { gate: "fail", problems: [msg] }
           } else {
             match acc.run_acceptance(file, a, str.join(needed, ",")) {
               Err(e) => {
                 let __p := io.print(str.join(["[ACCEPTANCE] 0/", int.to_str(list.len(a.scenarios)), " — ", e], ""))
-                "fail"
+                { gate: "fail", problems: [e] }
               },
               Ok(r) => {
                 let __p := io.print(str.join(["[ACCEPTANCE] ", int.to_str(r.passed), "/", int.to_str(r.total), " scenarios hold", if list.is_empty(r.failures) {
@@ -448,9 +454,9 @@ fn acceptance_gate(project :: Str) -> [proc, io, net, time, env] Str {
                   str.concat(":\n  - ", str.join(r.failures, "\n  - "))
                 }], ""))
                 if list.is_empty(r.failures) {
-                  "pass"
+                  { gate: "pass", problems: [] }
                 } else {
-                  "fail"
+                  { gate: "fail", problems: r.failures }
                 }
               },
             }
@@ -459,5 +465,9 @@ fn acceptance_gate(project :: Str) -> [proc, io, net, time, env] Str {
       },
     },
   }
+}
+
+fn acceptance_gate(project :: Str) -> [proc, io, net, time, env] Str {
+  acceptance_run(project).gate
 }
 
