@@ -399,8 +399,15 @@ a model as one task: here is what the whole program does wrong, edit any functio
 to fix it. It gets `--repair-rounds` tries (default 2). Each round is snapshotted,
 and one that leaves the file not type-checking is rolled back — a round that
 merely passes fewer scenarios is not. It helps and it is not
-a cure: on the invoices build it took acceptance from 10/16 to 11/16 and the
-run still ended `gate_failed`.
+a cure. For a failing scenario the prompt includes how to reproduce it — the
+server command with the gate's own env and a `curl` for the first failing request —
+and says to debug in a copy, because a 500 body is usually generic and the cause
+(a swallowed database error) is invisible without running it. On the invoices
+build, repair without that moved acceptance from 10/16 to 11/16 and the run ended
+`gate_failed`; with it, a repair-only rerun on that same package went 11/16 → 16/16
+and `done` (the cause was one query not naming its table). One package, one model,
+and the rerun started from an already-repaired file, so read it as "the gap was
+visibility", not as a rate.
 
 A provider that returns nothing (a rate limit, a rejected key) stops the run
 with the provider named instead of burning attempts; verified issues are kept.

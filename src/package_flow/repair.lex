@@ -175,16 +175,39 @@ fn lexweb_notes() -> Str {
   str.join(["Notes on using lex-web (each of these cost a real run a failed attempt):\n", "- A parameter named like an imported module alias shadows it: with `ctx :: ctx.Ctx`, the call `ctx.query_map(ctx)` is read as a field access on the record. Name parameters differently (`c`, `req`).\n", "- `lex-web/router` registers handlers with a fixed, WIDE effect row, so a handler declared `[sql]` is rejected and the wide row leaks into `main` (an undeclared `approval`). For narrow handlers use `lex-web/router_pure`: `route_named(r, \"GET\", \"/things/:id\", \"get_one\")`, then `dispatch_with(r, raw_req, fn (name :: Str, c :: ctx.Ctx) -> [sql] resp.Response { ... })`; path params use `:id`.\n", "- lex-web's `serve[E]` cannot take an effectful handler (lex-web#61). Serve with `net.serve_fn_with(port, handler, { http2: false, inline_vm: false, host: host })`; the handler takes the runtime `Request` and returns the runtime `Response`, so build the lex-web request as `{ body: req.body, method: req.method, path: req.path, query: req.query, headers: req.headers }` and wrap the answer as `{ status: r.status, body: BodyStr(r.body), headers: r.headers }`.\n", "- `main` must declare every effect it reaches and no others (e.g. `[net, sql, env, fs_write]`); opening SQLite declares `fs_write`.\n", "- One SQL statement per `exec_raw` call: a `;`-separated pair is not run as two, and the second one fails.\n"], "")
 }
 
+# The same idea for lex-orm. Found 2026-10-03 on the invoices build: every query
+# named its table with `q.with_table(.., "invoices")` except the insert, so the
+# insert went to "invoice" (the schema title, lower-cased) and every create
+# answered 500 while its unit still verified — a unit's examples never ran SQL.
+fn lexorm_notes() -> Str {
+  "Notes on using lex-orm (each of these cost a real run a failed attempt):\n- A repo's table name defaults to the schema TITLE lower-cased (`title: \"Invoice\"` -> table `invoice`), not the table you created. Name it explicitly with `q.with_table(repo, \"invoices\")` on EVERY query — select, insert, update and delete — or one of them hits a table that does not exist (\"no such table\").\n"
+}
+
 fn notes_for(lex_toml :: Str) -> Str
   examples {
     notes_for("") => "",
-    notes_for("[dependencies]\nlex-schema = { git = \"x\" }\n") => ""
+    notes_for("[dependencies]\nlex-schema = { git = \"x\" }\n") => "",
+    notes_for("[dependencies]\nlex-orm = { git = \"x\" }\n") => lexorm_notes()
   }
 {
-  if str.contains(lex_toml, "lex-web") {
+  let web := if str.contains(lex_toml, "lex-web") {
     lexweb_notes()
   } else {
     ""
+  }
+  let orm := if str.contains(lex_toml, "lex-orm") {
+    lexorm_notes()
+  } else {
+    ""
+  }
+  if str.is_empty(web) {
+    orm
+  } else {
+    if str.is_empty(orm) {
+      web
+    } else {
+      str.join([web, "\n", orm], "")
+    }
   }
 }
 

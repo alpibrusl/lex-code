@@ -456,7 +456,12 @@ fn acceptance_run(project :: Str) -> [proc, io, net, time, env] AcceptOutcome {
                 if list.is_empty(r.failures) {
                   { gate: "pass", problems: [] }
                 } else {
-                  { gate: "fail", problems: r.failures }
+                  let how := acc.repro_line(file, a, str.join(needed, ","), r.failures)
+                  { gate: "fail", problems: if str.is_empty(how) {
+                    r.failures
+                  } else {
+                    list.concat(r.failures, [how])
+                  } }
                 }
               },
             }

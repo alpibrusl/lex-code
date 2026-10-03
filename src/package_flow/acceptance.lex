@@ -333,6 +333,53 @@ fn run_scenario(port :: Int, s :: Scenario) -> [net] Option[Str] {
   }
 }
 
+# One line telling a repairing model exactly how to see a failing scenario for
+# itself: the server command with the env the gate uses, and the first failing
+# scenario as a curl. Written because a repair run spent its rounds guessing at
+# a generic `{"error":"internal server error"}` while a three-call reproduction
+# (run the server, send the request, make the handler show its error) names the
+# cause. Charsets in a scenario are validated, so nothing here needs shell quoting.
+fn repro_line(file :: Str, a :: Acceptance, grants :: Str, failures :: List[Str]) -> Str
+  examples {
+    repro_line("src/x.lex", { entry: "main", port_env: "P", env: [("DB", "{tmp}/a.db")], scenarios: [{ name: "make", method: "POST", path: "/things", headers: [("Content-Type", "application/json")], body: "{}", pad: 0, status: 201, contains: "", excludes: "" }] }, "net,sql", ["make: expected status 201, got 500 — {}"]) => "to reproduce by hand: start the program with `DB=/tmp/repro/a.db P=7777 lex run --allow-effects net,sql src/x.lex main` in the background, then send the first failing scenario: `curl -s -i -X POST -H 'Content-Type: application/json' --data '{}' http://127.0.0.1:7777/things`. A 500 body is usually generic, so debug in a COPY (`mkdir -p /tmp/repro && cp -R lex.toml src /tmp/repro/`, run it from there) where you make the handler return the underlying error in its body; apply only the real fix to the package, so no debugging output can stay in it.",
+    repro_line("src/x.lex", { entry: "main", port_env: "P", env: [], scenarios: [] }, "net", []) => ""
+  }
+{
+  let first := list.fold(a.scenarios, None, fn (found :: Option[Scenario], sc :: Scenario) -> Option[Scenario] {
+    match found {
+      Some(_) => found,
+      None => if list.fold(failures, false, fn (hit :: Bool, f :: Str) -> Bool {
+        hit or str.starts_with(f, str.concat(sc.name, ": "))
+      }) {
+        Some(sc)
+      } else {
+        None
+      },
+    }
+  })
+  match first {
+    None => "",
+    Some(sc) => {
+      let env_words := list.map(list.concat(a.env, [(a.port_env, "{port}")]), fn (kv :: (Str, Str)) -> Str {
+        match kv {
+          (k, v) => str.join([k, "=", expand(v, 7777, "/tmp/repro")], ""),
+        }
+      })
+      let hdrs := list.map(sc.headers, fn (h :: (Str, Str)) -> Str {
+        match h {
+          (k, v) => str.join(["-H '", k, ": ", v, "' "], ""),
+        }
+      })
+      let data := if str.is_empty(sc.body) {
+        ""
+      } else {
+        str.join(["--data '", fill(sc.body, sc.pad), "' "], "")
+      }
+      str.join(["to reproduce by hand: start the program with `", str.join(env_words, " "), " lex run --allow-effects ", grants, " ", file, " ", a.entry, "` in the background, then send the first failing scenario: `curl -s -i -X ", sc.method, " ", str.join(hdrs, ""), data, "http://127.0.0.1:7777", sc.path, "`. A 500 body is usually generic, so debug in a COPY (`mkdir -p /tmp/repro && cp -R lex.toml src /tmp/repro/`, run it from there) where you make the handler return the underlying error in its body; apply only the real fix to the package, so no debugging output can stay in it."], "")
+    },
+  }
+}
+
 fn drain_stderr(h :: ProcessHandle, left :: Int, acc :: List[Str]) -> [proc] List[Str] {
   if left <= 0 {
     acc
