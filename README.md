@@ -432,8 +432,9 @@ What it shows:
 - **Token usage per task** — prompt and completion tokens for each unit (summed
   over every attempt, so a retried unit shows what *all* its tries cost), for the
   planner, and for the whole run. It is read from the `[USAGE]` lines the run
-  prints, so it only counts what the provider reports: Ollama and Gemini do, and
-  a provider that reports nothing shows `-`, not zero.
+  prints, so it only counts what the provider reports: Ollama and Gemini do. A turn
+  whose provider reported nothing shows "not reported" rather than zero, and a unit
+  with no attempt yet shows `-`.
 
 What it does not show (yet): the model's output or the diff of an attempt. Those
 are in the session trail (`.lex/sessions/`) and the stage's own output.
