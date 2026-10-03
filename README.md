@@ -429,8 +429,15 @@ What it shows:
   `stuck — gave up on: …` banner naming the units that ran out of attempts —
   which is your cue to resume with `--hint` or `--patch`.
 
-What it does not show (yet): the model's output, the diff of an attempt, or token
-counts. Those are in the session trail (`.lex/sessions/`) and the stage's own output.
+- **Token usage per task** — prompt and completion tokens for each unit (summed
+  over every attempt, so a retried unit shows what *all* its tries cost), for the
+  planner, and for the whole run. It is read from the `[USAGE]` lines the run
+  prints, so it only counts what the provider reports: Ollama and Gemini do. A turn
+  whose provider reported nothing shows "not reported" rather than zero, and a unit
+  with no attempt yet shows `-`.
+
+What it does not show (yet): the model's output or the diff of an attempt. Those
+are in the session trail (`.lex/sessions/`) and the stage's own output.
 
 ### Found by actually using it (2026-09-30)
 
