@@ -319,6 +319,7 @@ fn handle_delta(session_id :: Str, delta :: d.Delta) -> [io] Unit {
     ToolArgChunk(_, _) => (),
     FinishDelta(_) => (),
     UsageDelta(_, _, _) => (),
+    ThinkingDelta(_) => (),
   }
 }
 

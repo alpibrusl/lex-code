@@ -126,6 +126,7 @@ fn print_step(step :: d.Step) -> [io] Unit {
       ToolArgChunk(_, _) => (),
       FinishDelta(_) => (),
       UsageDelta(_) => (),
+      ThinkingDelta(_) => (),
     },
     StepToolExec(name, _) => io.print(str.concat("[running: ", str.concat(name, "]"))),
     StepToolResult(_, ok) => if ok {
