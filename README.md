@@ -391,6 +391,15 @@ a second `.lex` file and the first file's functions drop out of it, and their
 issues read "absent at head". So every issue is told to put its code in
 `src/<project>.lex`. Units split the work, not the files.
 
+**A contradictory invariant does not end the run.** If hardening finds an invariant
+that fails on every probed input, that is a defect in the plan (its examples and the
+invariant ask for opposite things), not in the code, and no attempt could close an
+issue for it. It is reported as `[PLAN] contradiction`, skipped — it is **not
+enforced** — and the run goes on to the acceptance gate and repair. Such a run can
+end `done` only if the real program passed acceptance; fix the plan to enforce the
+invariant. (Before this, one garbled invariant ended a 2.5-hour build before the
+program was ever run.)
+
 **Integration repair.** Units verify one at a time, so a failure that only exists
 once they share a file has no unit to blame — in a real run, 10 of 10 units
 verified and the assembled file still had three errors. After the build, a
@@ -405,9 +414,11 @@ and says to debug in a copy, because a 500 body is usually generic and the cause
 (a swallowed database error) is invisible without running it. On the invoices
 build, repair without that moved acceptance from 10/16 to 11/16 and the run ended
 `gate_failed`; with it, a repair-only rerun on that same package went 11/16 → 16/16
-and `done` (the cause was one query not naming its table). One package, one model,
-and the rerun started from an already-repaired file, so read it as "the gap was
-visibility", not as a rate.
+and `done` (the cause was one query not naming its table). On a second, from-scratch
+build with different bugs (create dropped the customer, a SQL parameter of the wrong
+type) it went 11/16 → 14/16 → 16/16 and `done`, and left no debugging code behind.
+Two packages, one local model, thinking on: read it as "the gap was visibility", not
+as a success rate.
 
 A provider that returns nothing (a rate limit, a rejected key) stops the run
 with the provider named instead of burning attempts; verified issues are kept.

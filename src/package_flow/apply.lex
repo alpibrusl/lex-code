@@ -405,6 +405,34 @@ fn contradicted_invariants(p :: plan.Plan, failing :: List[Str]) -> List[Str]
   })
 }
 
+# The failing calls that are NOT part of a contradiction: what hardening can
+# still ask a model to fix once the contradicted invariants are set aside.
+fn without_contradicted(p :: plan.Plan, failing :: List[Str]) -> List[Str]
+  examples {
+    without_contradicted(empty_plan_for_tests(), ["inv_u_i(true)"]) => ["inv_u_i(true)"],
+    without_contradicted(one_invariant_plan(), ["inv_u_i(true, true)", "inv_u_i(true, false)", "inv_u_i(false, true)", "inv_u_i(false, false)"]) => [],
+    without_contradicted(one_invariant_plan(), ["inv_u_i(true, true)", "inv_u_i(false, false)"]) => ["inv_u_i(true, true)", "inv_u_i(false, false)"]
+  }
+{
+  let dead := contradicted_invariants(p, failing)
+  let prefixes := list.fold(p.units, [], fn (acc0 :: List[Str], u :: plan.PlanUnit) -> List[Str] {
+    list.fold(u.invariants, acc0, fn (acc1 :: List[Str], i :: plan.Invariant) -> List[Str] {
+      if list.fold(dead, false, fn (hit :: Bool, d :: Str) -> Bool {
+        hit or d == str.join([u.key, ": ", i.name], "")
+      }) {
+        list.concat(acc1, [str.concat(chk.invariant_fn_name(u.key, i.name), "(")])
+      } else {
+        acc1
+      }
+    })
+  })
+  list.filter(failing, fn (call :: Str) -> Bool {
+    not list.fold(prefixes, false, fn (hit :: Bool, pre :: Str) -> Bool {
+      hit or str.starts_with(call, pre)
+    })
+  })
+}
+
 fn empty_plan_for_tests() -> plan.Plan {
   { project: "p", types: [], packages: [], policy: { error_type: "" }, units: [] }
 }

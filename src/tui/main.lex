@@ -989,16 +989,22 @@ fn harden_round(project :: Str, plan :: pplan.Plan, primary :: Str, fallback :: 
       }
     } else {
       let contradicted := papply.contradicted_invariants(plan, r.failing)
-      if not list.is_empty(contradicted) {
-        let __c := io.print(str.join(["\n[PLAN] contradiction: ", int.to_str(list.len(contradicted)), " invariant(s) fail on EVERY probed input, so this is not a code bug — the unit's examples (fixed once filed) and the invariant ask for opposite things:\n  - ", str.join(contradicted, "\n  - "), "\nNot filing ", int.to_str(list.len(r.failing)), " issues no attempt could close. Fix the plan (the examples or the invariant) and re-run."], ""))
-        "fail"
+      let rest := papply.without_contradicted(plan, r.failing)
+      let __c := if list.is_empty(contradicted) {
+        ()
+      } else {
+        let __p := io.print(str.join(["\n[PLAN] contradiction: ", int.to_str(list.len(contradicted)), " invariant(s) fail on EVERY probed input, so this is not a code bug — the unit's examples (fixed once filed) and the invariant ask for opposite things:\n  - ", str.join(contradicted, "\n  - "), "\nSkipping them: no attempt could close an issue for them. They are NOT enforced; fix the plan (the examples or the invariant) to enforce them."], ""))
+        ()
+      }
+      if list.is_empty(rest) {
+        "contradicted"
       } else {
         if rounds_left <= 0 {
-          let __gv := io.print(str.join(["[PROJECT] hardening: gave up after the round budget, still failing:\n  ", str.join(r.failing, "\n  ")], ""))
+          let __gv := io.print(str.join(["[PROJECT] hardening: gave up after the round budget, still failing:\n  ", str.join(rest, "\n  ")], ""))
           "fail"
         } else {
-          let __rep := io.print(str.join(["\n[PROJECT] hardening found ", int.to_str(list.len(r.failing)), " violation(s) out of ", int.to_str(r.calls_checked), " checks — filing them as issues:"], ""))
-          let filed := file_invariant_issues(project, r.failing)
+          let __rep := io.print(str.join(["\n[PROJECT] hardening found ", int.to_str(list.len(rest)), " violation(s) out of ", int.to_str(r.calls_checked), " checks — filing them as issues:"], ""))
+          let filed := file_invariant_issues(project, rest)
           let status2 := project_loop(project, primary, fallback, switch_after, max_attempts, [], harden_fuel, guidance)
           let __reg := regression_pass(project)
           if status2 == "done" {
@@ -1132,8 +1138,12 @@ fn gate_after_stubs(stubs :: List[Str], project :: Str, status :: Str, argv :: L
       } else {
         harden(project, primary, fallback, switch_after, max_attempts, guidance, argv)
       }
-      if has_flag(argv, "--no-acceptance") or not (base == "pass" or base == "none") {
-        base
+      if has_flag(argv, "--no-acceptance") or not (base == "pass" or base == "none" or base == "contradicted") {
+        if base == "contradicted" {
+          "fail"
+        } else {
+          base
+        }
       } else {
         let first := papply.acceptance_run(project)
         let last := if first.gate == "fail" and rounds > 0 {
@@ -1145,7 +1155,15 @@ fn gate_after_stubs(stubs :: List[Str], project :: Str, status :: Str, argv :: L
         if last.gate == "fail" {
           "fail"
         } else {
-          base
+          if base == "contradicted" {
+            if last.gate == "pass" {
+              "pass"
+            } else {
+              "fail"
+            }
+          } else {
+            base
+          }
         }
       }
     } else {
