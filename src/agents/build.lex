@@ -19,8 +19,6 @@ import "lex-llm/provider" as prov
 
 import "lex-llm/providers" as providers
 
-import "lex-llm/providers/vertex" as vtx
-
 import "../tools/index" as tools
 
 import "../permissions/rules" as rules
@@ -95,7 +93,7 @@ fn opencode_agent() -> [env] ag.AgentLoop {
 }
 
 fn vertex_agent() -> [env] ag.AgentLoop {
-  let base := { name: "build", goal: bp.system(), model: vtx.gemini_35_flash(), provider: providers.vertex(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
+  let base := { name: "build", goal: bp.system(), model: prov.make_model_ref("vertex", providers.vertex_model()), provider: providers.vertex(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 
