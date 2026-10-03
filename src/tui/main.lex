@@ -38,6 +38,8 @@ import "../package_flow/merge" as merge
 
 import "../package_flow/dashboard" as dash
 
+import "../package_flow/repair" as rep
+
 import "../tools/session_health" as health
 
 import "../server/session" as sess
@@ -1041,11 +1043,19 @@ fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, n
     Err(_) => false,
     Ok(o) => str.trim(o.stdout) == "yes",
   }
-  let base_guidance := if scaffolded {
+  let notes := match io.read("lex.toml") {
+    Err(_) => "",
+    Ok(t) => rep.notes_for(t),
+  }
+  let base_guidance := str.join([if scaffolded {
     pb.scaffold_guidance(project)
   } else {
     pb.module_guidance(project)
-  }
+  }, if str.is_empty(notes) {
+    ""
+  } else {
+    str.concat("\n\n", notes)
+  }], "")
   let hint := match pb.flag_value(argv, "--hint=") {
     Some(h) => h,
     None => match pb.flag_value(argv, "--hint-file=") {
@@ -1074,21 +1084,44 @@ fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, n
   }
   let __final := regression_pass(project)
   let scaffold_path := str.join(["src/", project, ".lex"], "")
+  let rounds := pb.flag_int(argv, "--repair-rounds=", 2)
+  let first_errors := assembled_check_errors(project)
+  let repair_wanted := status == "done" and rounds > 0 and not list.is_empty(first_errors)
+  let status2 := if repair_wanted {
+    let __left := repair_assembled(project, primary, notes, rounds, first_errors)
+    let __reg := regression_pass(project)
+    project_loop(project, primary, fallback, switch_after, max_attempts, [], pb.flag_int(argv, "--repair-turns=", 20), guidance)
+  } else {
+    status
+  }
+  let assembled_errors := if repair_wanted {
+    assembled_check_errors(project)
+  } else {
+    first_errors
+  }
   let stubs := match io.read(scaffold_path) {
     Err(_) => [],
     Ok(source) => merge.stub_fn_names(source),
   }
-  let assembled_errors := assembled_check_errors(project)
   let gate := if not list.is_empty(assembled_errors) {
-    let __a := io.print(str.join(["[PROJECT] ⚠ the assembled ", scaffold_path, " does not type-check, even though every unit verified on its own:\n", str.join(assembled_errors, "\n"), "\n"], ""))
+    let __a := io.print(str.join(["[PROJECT] ⚠ the assembled ", scaffold_path, " does not type-check, even though every unit verified on its own:\n  - ", str.join(assembled_errors, "\n  - "), "\n"], ""))
     "fail"
   } else {
-    gate_after_stubs(stubs, project, status, argv, primary, fallback, switch_after, max_attempts, guidance)
+    gate_after_stubs(stubs, project, status2, argv, primary, fallback, switch_after, max_attempts, guidance, notes, rounds)
   }
-  io.print(str.join(["[PROJECT_VERDICT]\t", final_verdict(status, gate), "\t", project, "\n[PACKAGE_GATE]\t", gate, "\t", project, "\n"], ""))
+  let status3 := match fetch_board(project) {
+    Err(_) => status2,
+    Ok(b) => if status2 == "done" and not b.done {
+      let __s := io.print("[PROJECT] ⚠ a repair left a unit unverified — not done")
+      "stuck"
+    } else {
+      status2
+    },
+  }
+  io.print(str.join(["[PROJECT_VERDICT]\t", final_verdict(status3, gate), "\t", project, "\n[PACKAGE_GATE]\t", gate, "\t", project, "\n"], ""))
 }
 
-fn gate_after_stubs(stubs :: List[Str], project :: Str, status :: Str, argv :: List[Str], primary :: Str, fallback :: Option[Str], switch_after :: Int, max_attempts :: Int, guidance :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
+fn gate_after_stubs(stubs :: List[Str], project :: Str, status :: Str, argv :: List[Str], primary :: Str, fallback :: Option[Str], switch_after :: Int, max_attempts :: Int, guidance :: Str, notes :: Str, rounds :: Int) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
   if not list.is_empty(stubs) {
     let __w := io.print(str.join(["[PROJECT] ⚠ still stubbed (todo()) despite the board reporting done: ", str.join(stubs, ", "), " — not safe to call this package finished. If nothing else is running against the same store, run `lex pkg init` here (or pass --store) to give this project its own, then try again."], ""))
     "fail"
@@ -1102,9 +1135,14 @@ fn gate_after_stubs(stubs :: List[Str], project :: Str, status :: Str, argv :: L
       if has_flag(argv, "--no-acceptance") or not (base == "pass" or base == "none") {
         base
       } else {
-        let acceptance := papply.acceptance_gate(project)
-        let __a := io.print(str.join(["[ACCEPTANCE]\t", acceptance, "\t", project], ""))
-        if acceptance == "fail" {
+        let first := papply.acceptance_run(project)
+        let last := if first.gate == "fail" and rounds > 0 {
+          repair_acceptance(project, primary, notes, rounds, first)
+        } else {
+          first
+        }
+        let __a := io.print(str.join(["[ACCEPTANCE]\t", last.gate, "\t", project], ""))
+        if last.gate == "fail" {
           "fail"
         } else {
           base
@@ -1122,14 +1160,65 @@ fn gate_after_stubs(stubs :: List[Str], project :: Str, status :: Str, argv :: L
 # serve[E] with an effectful handler (lex-web#61), and the run still printed
 # `[PROJECT_VERDICT] done` because the gate that would have caught it came back
 # "unavailable" and nothing treated that as a problem.
-fn assembled_check_errors(project :: Str) -> [proc] List[Str] {
-  match proc.run("lex", ["check", str.join(["src/", project, ".lex"], "")]) {
+fn assembled_check_errors(project :: Str) -> [proc, io] List[Str] {
+  let path := str.join(["src/", project, ".lex"], "")
+  match proc.run("lex", ["check", path]) {
     Err(e) => [str.concat("could not run lex check: ", e)],
     Ok(o) => if o.exit_code == 0 {
       []
     } else {
-      [str.trim(str.concat(o.stdout, o.stderr))]
+      let raw := [str.trim(str.concat(o.stdout, o.stderr))]
+      match proc.run("lex", ["--output", "json", "check", path]) {
+        Err(_) => raw,
+        Ok(j) => match io.read(path) {
+          Err(_) => raw,
+          Ok(source) => {
+            let described := rep.describe_check_errors(source, j.stdout)
+            if list.is_empty(described) {
+              raw
+            } else {
+              described
+            }
+          },
+        },
+      }
     },
+  }
+}
+
+# Integration repair: the assembled program is wrong in a way no single unit
+# owns, so hand the whole list back to a model as one task (see repair.lex).
+# Returns what is still wrong after at most `rounds` attempts.
+fn repair_assembled(project :: Str, tag :: Str, notes :: Str, rounds :: Int, problems :: List[Str]) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] List[Str] {
+  if list.is_empty(problems) or rounds <= 0 {
+    problems
+  } else {
+    let __r := io.print(str.join(["\n[REPAIR] the assembled package has ", int.to_str(list.len(problems)), " problem(s); handing them to the model (", int.to_str(rounds), " round(s) left):\n  - ", str.join(problems, "\n  - ")], ""))
+    let __t := run_mode_turn(rep.assembled_prompt(project, problems, notes), tag, Build)
+    repair_assembled(project, tag, notes, rounds - 1, assembled_check_errors(project))
+  }
+}
+
+fn repair_acceptance(project :: Str, tag :: Str, notes :: Str, rounds :: Int, outcome :: papply.AcceptOutcome) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] papply.AcceptOutcome {
+  if outcome.gate != "fail" or rounds <= 0 {
+    outcome
+  } else {
+    let path := str.join(["src/", project, ".lex"], "")
+    let backup := match io.read(path) {
+      Ok(t) => t,
+      Err(_) => "",
+    }
+    let was_clean := list.is_empty(assembled_check_errors(project))
+    let __r := io.print(str.join(["\n[REPAIR] the running package fails its acceptance scenarios; handing them to the model (", int.to_str(rounds), " round(s) left)"], ""))
+    let __t := run_mode_turn(rep.acceptance_prompt(project, outcome.problems, notes), tag, Build)
+    let broke := assembled_check_errors(project)
+    if was_clean and not list.is_empty(broke) and not str.is_empty(backup) {
+      let __w := io.write(path, backup)
+      let __p := io.print(str.join(["[REPAIR] that round left ", path, " not type-checking — restored it to what it was before the round:\n  - ", str.join(broke, "\n  - ")], ""))
+      repair_acceptance(project, tag, notes, rounds - 1, { gate: outcome.gate, problems: list.concat(outcome.problems, [str.concat("an earlier attempt at this broke the file and was reverted; keep `lex check` clean. It had: ", str.join(broke, "; "))]) })
+    } else {
+      repair_acceptance(project, tag, notes, rounds - 1, papply.acceptance_run(project))
+    }
   }
 }
 
@@ -1761,6 +1850,7 @@ fn dispatch(inv :: Invocation, mode :: sess.AgentMode, provider_tag :: Str) -> [
       io.print(str.concat("           --package \"<brief>\" --name=P --auto   plan, check, scaffold, file and drive — no human step", "\n"))
       io.print(str.concat("           --package-check=P                  validate a plan: structure, consistency, real type check", "\n"))
       io.print(str.concat("           --acceptance-check=P               start the built package and replay its acceptance scenarios", "\n"))
+      io.print(str.concat("           --repair-rounds=N                  repair attempts when the assembled package fails to type-check or fails acceptance (default 2, 0 = off)", "\n"))
       io.print(str.concat("  hardening: --no-harden | --harden-rounds=N | --harden-turns=N   invariants are checked and violations fixed automatically by default", "\n"))
       io.print(str.concat("           --package-apply=P                  file that reviewed plan as issues", "\n"))
       io.print(str.concat("           --dashboard=P [--log=F] [--port=N] read-only live view of a running --auto build (default log: P.log, port: 7800)", "\n"))
