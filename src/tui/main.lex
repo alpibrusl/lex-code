@@ -182,6 +182,7 @@ fn print_step(step :: d.Step) -> [io] Nil {
       ToolArgChunk(_, _) => (),
       FinishDelta(_) => (),
       UsageDelta(_) => (),
+      ThinkingDelta(_) => (),
     },
     StepToolExec(name, _) => {
       let __flushed := flush_remaining()
@@ -1458,6 +1459,7 @@ fn run_headless(task :: Str, provider_tag :: Str) -> [env, io, net, llm, proc, s
             ToolArgChunk(_, _) => "",
             FinishDelta(r) => str.join(["[dbg:finish:", r, "]\n"], ""),
             UsageDelta(_) => "",
+            ThinkingDelta(_) => "",
           },
           StepToolExec(n, _) => str.join(["[dbg:exec:", n, "]\n"], ""),
           StepToolResult(_, ok) => if ok {
