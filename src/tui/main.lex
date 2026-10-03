@@ -490,7 +490,14 @@ fn run_mode_turn(task :: Str, provider_tag :: Str, mode :: sess.AgentMode) -> [e
     Err(e) => io.print(str.concat(str.concat("error: ", e), "\n")),
     Ok(session) => {
       let __reset := write_buf("")
-      let __printed := run_turn_flushed(session, task, provider_tag)
+      let turn := run_turn_flushed(session, task, provider_tag)
+      let label := match mode {
+        Planner => "plan",
+        _ => "task",
+      }
+      let __usage := match turn_usage(turn.steps) {
+        (p, c) => io.print(str.join(["\n[USAGE]\t", int.to_str(p), "\t", int.to_str(c), "\t", label], "")),
+      }
       io.print(str.join(["\n(trail: .lex/sessions/", session_id, ".db)"], ""))
     },
   }
