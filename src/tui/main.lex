@@ -649,6 +649,12 @@ fn fetch_board(project :: Str) -> [proc] Result[pb.Board, Str] {
 # "$@"` positional params, never interpolated into the script text, so a
 # project name can never reach the shell as anything but an inert argv
 # string.
+#
+# The watcher's stdio is sent to /dev/null on purpose: `kill $watcher` stops the
+# subshell but not its `sleep` child, and a `sleep` that still holds the output
+# pipe keeps `proc.run` waiting until it expires — so every pass cost the whole
+# timeout (3.0 minutes, constant) even though the command takes under a second.
+# Measured on a real run: 11 passes = 33 of 127 minutes.
 fn regression_timeout_secs() -> Int {
   180
 }
@@ -658,7 +664,7 @@ fn regression_timeout_secs() -> Int {
 # issue's verified function); nothing else re-checks them. The board then
 # offers any regressed issue again.
 fn regression_pass(project :: Str) -> [proc, io] Nil {
-  let script := "lex issue verify --project \"$1\" --verified-only & pid=$!; ( sleep \"$2\"; kill -9 \"$pid\" 2>/dev/null ) & watcher=$!; wait \"$pid\" 2>/dev/null; status=$?; kill \"$watcher\" 2>/dev/null; exit $status"
+  let script := "lex issue verify --project \"$1\" --verified-only & pid=$!; ( sleep \"$2\" >/dev/null 2>&1; kill -9 \"$pid\" 2>/dev/null ) >/dev/null 2>&1 & watcher=$!; wait \"$pid\" 2>/dev/null; status=$?; pkill -P \"$watcher\" 2>/dev/null; kill \"$watcher\" 2>/dev/null; exit $status"
   match proc.run("sh", ["-c", script, "sh", project, int.to_str(regression_timeout_secs())]) {
     Err(e) => io.print(str.concat("regression pass unavailable: ", e)),
     Ok(out) => if out.exit_code == 137 {
