@@ -353,6 +353,7 @@ would notice. A regressed issue simply comes back on the board.
 | `--fallback=TAG` `--switch-after=N` | after N failures on an issue, hand it to another provider, e.g. `--ollama --fallback=opencode` (default 2) |
 | `--max-turns=N` | budget for the whole run (default 40) |
 | `--plan-tries=N` | repair rounds the planner gets when its plan fails validation (default 3) |
+| `--repair-rounds=N` | how many times the assembled package may be handed back to the model as one integration task when it fails to type-check or fails acceptance (default 2, `0` = off). The model may edit any function; a round that leaves the file not type-checking is rolled back |
 | `--harden-rounds=N` / `--harden-turns=N` | how many rounds, and how many agent turns per round, hardening may spend fixing invariant violations (defaults 3 and 10) |
 | `--no-harden` | skip the closing turn that writes property tests |
 | `--no-acceptance` | skip the closing acceptance run (below) |
@@ -389,6 +390,17 @@ round-trip and property tests and running them.
 a second `.lex` file and the first file's functions drop out of it, and their
 issues read "absent at head". So every issue is told to put its code in
 `src/<project>.lex`. Units split the work, not the files.
+
+**Integration repair.** Units verify one at a time, so a failure that only exists
+once they share a file has no unit to blame — in a real run, 10 of 10 units
+verified and the assembled file still had three errors. After the build, a
+failing type-check — and later a failing acceptance scenario — is handed back to
+a model as one task: here is what the whole program does wrong, edit any function
+to fix it. It gets `--repair-rounds` tries (default 2). Each round is snapshotted,
+and one that leaves the file not type-checking is rolled back — a round that
+merely passes fewer scenarios is not. It helps and it is not
+a cure: on the invoices build it took acceptance from 10/16 to 11/16 and the
+run still ended `gate_failed`.
 
 A provider that returns nothing (a rate limit, a rejected key) stops the run
 with the provider named instead of burning attempts; verified issues are kept.
