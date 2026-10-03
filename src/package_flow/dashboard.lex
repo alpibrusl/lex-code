@@ -658,9 +658,14 @@ fn handler(req :: Request, project_name :: Str, log_path :: Str) -> [fs_read, fs
 }
 
 # `lex-code --dashboard=NAME [--log=PATH] [--port=N]` serves this at
-# http://127.0.0.1:PORT. Read-only: writes nothing but its own start
-# timestamp (`.lex/dashboard-NAME.start.ts`, used only to show elapsed
-# time — never read by anything else lex-code does).
+# http://127.0.0.1:PORT (loopback only). Read-only: writes nothing but its
+# own start timestamp (`.lex/dashboard-NAME.start.ts`, used only to show
+# elapsed time — never read by anything else lex-code does).
+#
+# The dashboard has no authentication and serves plan specs and run
+# activity, so it must not be reachable from the network. `net.serve_fn`
+# binds 0.0.0.0; `net.serve_fn_with` takes the host, so loopback is
+# stated explicitly here.
 fn serve_dashboard(project_name :: Str, log_path :: Str, port :: Int) -> [net, fs_read, fs_walk, fs_write, time, io] Nil {
   let start_path := str.join([".lex/dashboard-", project_name, ".start.ts"], "")
   let __w := if fs.exists(start_path) {
@@ -670,8 +675,8 @@ fn serve_dashboard(project_name :: Str, log_path :: Str, port :: Int) -> [net, f
     ()
   }
   let __p := io.print(str.join(["dashboard: http://127.0.0.1:", int.to_str(port), "  (watching ", log_path, ")"], ""))
-  net.serve_fn(port, fn (req :: Request) -> [fs_read, fs_walk, time] { status :: Int, body :: ResponseBody, headers :: Map[Str, Str] } {
+  net.serve_fn_with(port, fn (req :: Request) -> [fs_read, fs_walk, time] { status :: Int, body :: ResponseBody, headers :: Map[Str, Str] } {
     handler(req, project_name, log_path)
-  })
+  }, { http2: false, inline_vm: false, host: "127.0.0.1" })
 }
 

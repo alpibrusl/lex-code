@@ -410,9 +410,10 @@ store, and the **log file the run's stdout was redirected to** — `lex-code`
 prints its progress to stdout and keeps no log of its own, so a run you start
 without redirecting has nothing to watch. Use `--log=FILE` if the log is not
 `P.log` in the current directory and `--port=N` if 7800 is taken. **It has no
-authentication and currently listens on all network interfaces** (it prints
-`127.0.0.1`, but the server binds `0.0.0.0`), so anyone on your network can read the
-plan and activity while it runs — run it on a trusted network or behind a firewall.
+authentication, so it listens on the loopback interface only** (`127.0.0.1`) —
+other machines on your network cannot reach it. To watch a build running on
+another machine, forward the port (`ssh -L 7800:127.0.0.1:7800 host`) rather than
+exposing it.
 The page polls every two seconds; closing it does not affect the build.
 
 What it shows:
