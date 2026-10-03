@@ -336,8 +336,11 @@ would notice. A regressed issue simply comes back on the board.
 | `--max-turns=N` | budget for the whole run (default 40) |
 | `--no-harden` | skip the closing turn that writes property tests |
 
-It ends with machine-readable lines: `[PROJECT_VERDICT]  done|stuck|budget|error|provider_error`
-and `[PACKAGE_GATE]  pass|fail|none` (`lex test` over `tests/`). Verified is
+It ends with machine-readable lines: `[PROJECT_VERDICT]  done|built|gate_failed|stuck|budget|error|provider_error`
+and `[PACKAGE_GATE]  pass|fail|unavailable|none|skipped` (`lex test` over `tests/`).
+`done` means every unit verified **and** the assembled file type-checks **and** the
+gate ran and passed. `built` = every unit verified but the gate could not run;
+`gate_failed` = it ran and failed. Neither is finished. Verified is
 necessary, not sufficient — an issue's examples are a finite list and code can
 satisfy them without being right — which is why the run ends by asking for
 round-trip and property tests and running them.

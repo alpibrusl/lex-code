@@ -1058,7 +1058,18 @@ fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, n
     Err(_) => [],
     Ok(source) => merge.stub_fn_names(source),
   }
-  let gate := if not list.is_empty(stubs) {
+  let assembled_errors := assembled_check_errors(project)
+  let gate := if not list.is_empty(assembled_errors) {
+    let __a := io.print(str.join(["[PROJECT] ⚠ the assembled ", scaffold_path, " does not type-check, even though every unit verified on its own:\n", str.join(assembled_errors, "\n"), "\n"], ""))
+    "fail"
+  } else {
+    gate_after_stubs(stubs, project, status, argv, primary, fallback, switch_after, max_attempts, guidance)
+  }
+  io.print(str.join(["[PROJECT_VERDICT]\t", final_verdict(status, gate), "\t", project, "\n[PACKAGE_GATE]\t", gate, "\t", project, "\n"], ""))
+}
+
+fn gate_after_stubs(stubs :: List[Str], project :: Str, status :: Str, argv :: List[Str], primary :: Str, fallback :: Option[Str], switch_after :: Int, max_attempts :: Int, guidance :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
+  if not list.is_empty(stubs) {
     let __w := io.print(str.join(["[PROJECT] ⚠ still stubbed (todo()) despite the board reporting done: ", str.join(stubs, ", "), " — not safe to call this package finished. If nothing else is running against the same store, run `lex pkg init` here (or pass --store) to give this project its own, then try again."], ""))
     "fail"
   } else {
@@ -1072,7 +1083,52 @@ fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, n
       "skipped"
     }
   }
-  io.print(str.join(["[PROJECT_VERDICT]\t", status, "\t", project, "\n[PACKAGE_GATE]\t", gate, "\t", project, "\n"], ""))
+}
+
+# Verified is per unit; the package is the assembled file. A unit can pass its
+# own check and still leave a file that does not type-check as a whole —
+# observed live (2026-10-03): 20/20 units verified, `main` called lex-web's
+# serve[E] with an effectful handler (lex-web#61), and the run still printed
+# `[PROJECT_VERDICT] done` because the gate that would have caught it came back
+# "unavailable" and nothing treated that as a problem.
+fn assembled_check_errors(project :: Str) -> [proc] List[Str] {
+  match proc.run("lex", ["check", str.join(["src/", project, ".lex"], "")]) {
+    Err(e) => [str.concat("could not run lex check: ", e)],
+    Ok(o) => if o.exit_code == 0 {
+      []
+    } else {
+      [str.trim(str.concat(o.stdout, o.stderr))]
+    },
+  }
+}
+
+# `done` only means "finished" if the closing gate actually ran and passed. A
+# gate that could not run says nothing about the package, and a failing one says
+# it is not finished — neither may be reported as `done`. Other statuses
+# (stuck, budget, error, ...) are already not-done and pass through unchanged.
+fn final_verdict(status :: Str, gate :: Str) -> Str
+  examples {
+    final_verdict("done", "pass") => "done",
+    final_verdict("done", "none") => "done",
+    final_verdict("done", "unavailable") => "built",
+    final_verdict("done", "fail") => "gate_failed",
+    final_verdict("stuck", "skipped") => "stuck",
+    final_verdict("budget", "unavailable") => "budget"
+  }
+{
+  if status == "done" {
+    if gate == "unavailable" {
+      "built"
+    } else {
+      if gate == "fail" {
+        "gate_failed"
+      } else {
+        status
+      }
+    }
+  } else {
+    status
+  }
 }
 
 # `--once --multi --pipeline=NAME "task"` — a graph pipeline run non-
