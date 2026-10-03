@@ -251,7 +251,7 @@ $ lex-code --dashboard=invoices              #    watch it live at 127.0.0.1:780
     and a panel per unit with its spec, signatures and examples. When a unit runs out of attempts it
     says so by name — that is the moment to resume with a hint or a patch.</p>
     <p>It is a view, not a log viewer: it does not show model output or diffs, it needs the run's
-    stdout redirected to a file (<code>&gt; invoices.log</code>), and it has no login, so keep it on a trusted network. Details in the
+    stdout redirected to a file (<code>&gt; invoices.log</code>), and it has no login, so it listens on this machine only (127.0.0.1). Details in the
     <a href="https://github.com/alpibrusl/lex-code#watching-a-build-the-dashboard">README</a>.</p>
     <p>Honestly: this is an experiment. On a from-scratch API build, all 20 units verified and the
     assembled program still never started — which is why the acceptance step exists. It has mostly been
