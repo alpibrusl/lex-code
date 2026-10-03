@@ -22,6 +22,14 @@ import "./plan" as plan
 
 import "./check" as chk
 
+import "./acceptance" as acc
+
+import "std.time" as time
+
+import "std.env" as env
+
+import "std.regex" as regex
+
 fn id_of(made :: List[(Str, Str)], key :: Str) -> Str
   examples {
     id_of([("a", "1"), ("b", "2")], "b") => "2",
@@ -184,12 +192,51 @@ fn full_check(text :: Str) -> [proc, io] Result[plan.Plan, List[Str]] {
     Err(errs) => Err(errs),
     Ok(p) => match compile_check(p) {
       Err(e) => Err([e]),
-      Ok(errs) => if list.is_empty(errs) {
-        Ok(p)
-      } else {
-        Err(errs)
+      Ok(errs) => {
+        let all := list.concat(errs, acceptance_problems(p))
+        if list.is_empty(all) {
+          Ok(p)
+        } else {
+          Err(all)
+        }
       },
     },
+  }
+}
+
+# A plan with a network handler describes a program that has to RUN, and no
+# unit check shows that it does (see acceptance.lex). So such a plan must come
+# with black-box scenarios, and any acceptance file that is there must be sound.
+fn declares_net(sig :: Str) -> Bool
+  examples {
+    declares_net("() -> [sql, net, env] Nil") => true,
+    declares_net("(c :: Ctx) -> [net] Response") => true,
+    declares_net("(n :: Int) -> [sql] Int") => false,
+    declares_net("(n :: Int) -> Int") => false
+  }
+{
+  regex.is_match_str("-> \\[[^]]*\\bnet\\b", sig)
+}
+
+fn needs_acceptance(p :: plan.Plan) -> Bool {
+  list.fold(p.units, false, fn (acc0 :: Bool, u :: plan.PlanUnit) -> Bool {
+    acc0 or list.fold(u.api, false, fn (acc1 :: Bool, a :: plan.Api) -> Bool {
+      acc1 or declares_net(a.signature)
+    })
+  })
+}
+
+fn acceptance_problems(p :: plan.Plan) -> [io] List[Str] {
+  let path := acc.acceptance_path(p.project)
+  match io.read(path) {
+    Err(_) => if needs_acceptance(p) {
+      [str.join(["this plan has network handlers, so it must say what the finished program is expected to DO: write ", path, " — black-box scenarios taken from the brief's own requirements (see ACCEPTANCE in the instructions)"], "")]
+    } else {
+      []
+    },
+    Ok(text) => list.map(acc.check_text(text), fn (e :: Str) -> Str {
+      str.join([path, ": ", e], "")
+    }),
   }
 }
 
@@ -327,5 +374,90 @@ fn combos_total(p :: plan.Plan) -> Int {
       acc2 + list.len(chk.combos(i.params))
     })
   })
+}
+
+# An invariant that fails on EVERY probed input is not a bug in the code, it is
+# a contradiction in the plan: the unit's examples are its immutable oracle, so
+# the implementation satisfied them, and the invariant asks for the opposite.
+# Observed live: `sql_builders` examples said each builder returns `[]` params
+# while its invariants said 4, 2, 1 and 2 — hardening filed 52 issues, none of
+# which any attempt could ever close. Returns "<unit>: <invariant>" for each.
+fn contradicted_invariants(p :: plan.Plan, failing :: List[Str]) -> List[Str]
+  examples {
+    contradicted_invariants(empty_plan_for_tests(), []) => [],
+    contradicted_invariants(one_invariant_plan(), ["inv_u_i(true, true)", "inv_u_i(true, false)", "inv_u_i(false, true)", "inv_u_i(false, false)"]) => ["u: i"],
+    contradicted_invariants(one_invariant_plan(), ["inv_u_i(true, true)", "inv_u_i(false, false)"]) => []
+  }
+{
+  list.fold(p.units, [], fn (acc0 :: List[Str], u :: plan.PlanUnit) -> List[Str] {
+    list.fold(u.invariants, acc0, fn (acc1 :: List[Str], i :: plan.Invariant) -> List[Str] {
+      let prefix := str.concat(chk.invariant_fn_name(u.key, i.name), "(")
+      let total := list.len(chk.combos(i.params))
+      let bad := list.len(list.filter(failing, fn (call :: Str) -> Bool {
+        str.starts_with(call, prefix)
+      }))
+      if total >= 3 and bad == total {
+        list.concat(acc1, [str.join([u.key, ": ", i.name], "")])
+      } else {
+        acc1
+      }
+    })
+  })
+}
+
+fn empty_plan_for_tests() -> plan.Plan {
+  { project: "p", types: [], packages: [], policy: { error_type: "" }, units: [] }
+}
+
+fn one_invariant_plan() -> plan.Plan {
+  { project: "p", types: [], packages: [], policy: { error_type: "" }, units: [{ key: "u", title: "t", body: "", api: [], examples: [], invariants: [{ name: "i", params: [{ name: "a", ty: "Bool" }, { name: "b", ty: "Bool" }], expr: "a" }], deps: [] }] }
+}
+
+# The closing gate that runs the assembled program. "none" = the plan wrote no
+# acceptance file (a library, say), "pass" = every scenario held, "fail" = the
+# program did not start or a scenario did not hold. Prints what it found.
+fn acceptance_gate(project :: Str) -> [proc, io, net, time, env] Str {
+  match io.read(acc.acceptance_path(project)) {
+    Err(_) => "none",
+    Ok(text) => match acc.parse_acceptance(text) {
+      Err(e) => {
+        let __p := io.print(str.join(["[ACCEPTANCE] ", e], ""))
+        "fail"
+      },
+      Ok(a) => {
+        let errs := acc.acceptance_errors(a)
+        if not list.is_empty(errs) {
+          let __p := io.print(str.join(["[ACCEPTANCE] the acceptance file is not sound:\n  - ", str.join(errs, "\n  - ")], ""))
+          "fail"
+        } else {
+          let file := str.join(["src/", project, ".lex"], "")
+          let needed := required_effects_of(file)
+          if list.is_empty(needed) {
+            let __p := io.print(str.join(["[ACCEPTANCE] cannot run ", file, ": `lex check` reports no required effects (does it type-check?)"], ""))
+            "fail"
+          } else {
+            match acc.run_acceptance(file, a, str.join(needed, ",")) {
+              Err(e) => {
+                let __p := io.print(str.join(["[ACCEPTANCE] 0/", int.to_str(list.len(a.scenarios)), " — ", e], ""))
+                "fail"
+              },
+              Ok(r) => {
+                let __p := io.print(str.join(["[ACCEPTANCE] ", int.to_str(r.passed), "/", int.to_str(r.total), " scenarios hold", if list.is_empty(r.failures) {
+                  ""
+                } else {
+                  str.concat(":\n  - ", str.join(r.failures, "\n  - "))
+                }], ""))
+                if list.is_empty(r.failures) {
+                  "pass"
+                } else {
+                  "fail"
+                }
+              },
+            }
+          }
+        }
+      },
+    },
+  }
 }
 
