@@ -25,22 +25,53 @@ import "std.list" as list
 # The index of `f` in the first `"fn ", name, "("` that appears outside
 # any string literal, or None. Requires the exact `name(` boundary so
 # `fn_start(src, "parse")` doesn't match `fn parse_extra(...)`.
+# std.str mixes units: `str.len` and `str.char_at` count BYTES, `str.slice` and
+# `str.split` count CODEPOINTS (lex-lang#890). Every scanner below walks the
+# source by index and hands that index to `str.slice` or returns it to a
+# caller that does, so each one has to stay in codepoints from start to
+# finish. Mixing them is invisible on ASCII and shifts every index by one
+# per extra byte once the file holds a single multi-byte character — an em
+# dash in a comment is enough (observed live: `fn main` "not found" in a
+# 20-unit package whose comments held four).
+fn cp_len(s :: Str) -> Int
+  examples {
+    cp_len("abc") => 3,
+    cp_len("a—b") => 3,
+    cp_len("") => 0
+  }
+{
+  list.len(str.split(s, ""))
+}
+
+fn cp_at(s :: Str, i :: Int) -> Str
+  examples {
+    cp_at("a—b", 1) => "—",
+    cp_at("a—b", 2) => "b",
+    cp_at("a—b", 3) => ""
+  }
+{
+  str.slice(s, i, i + 1)
+}
+
 fn fn_start(source :: Str, name :: Str) -> Option[Int]
   examples {
     fn_start("fn a() -> Int {\n  1\n}\n\nfn b() -> Int {\n  2\n}\n", "b") => Some(23),
     fn_start("fn ab() -> Int { 1 }", "a") => None,
     fn_start("no such fn here", "a") => None,
     fn_start("let s := \"fn a(\"\nfn a() -> Int {\n  1\n}", "a") => Some(17),
-    fn_start("x := \"q\\\" fn a(\"\nfn a() -> Int {\n  1\n}", "a") => Some(17)
+    fn_start("x := \"q\\\" fn a(\"\nfn a() -> Int {\n  1\n}", "a") => Some(17),
+    fn_start("# a — b\nfn a() -> Int {\n  1\n}", "a") => Some(8),
+    fn_start("# — — — —\nfn a() -> Int {\n  1\n}\n\nfn b() -> Int {\n  2\n}\n", "b") => Some(33)
   }
 {
   let needle := str.join(["fn ", name, "("], "")
-  let n := str.len(needle)
-  let r := list.fold(list.range(0, str.len(source)), (None, false, false), fn (acc :: (Option[Int], Bool, Bool), i :: Int) -> (Option[Int], Bool, Bool) {
+  let n := cp_len(needle)
+  let total := cp_len(source)
+  let r := list.fold(list.range(0, total), (None, false, false), fn (acc :: (Option[Int], Bool, Bool), i :: Int) -> (Option[Int], Bool, Bool) {
     match acc {
       (Some(found), in_str, esc) => (Some(found), in_str, esc),
       (None, in_str, esc) => {
-        let c := str.char_at(source, i)
+        let c := cp_at(source, i)
         if esc {
           (None, in_str, false)
         } else {
@@ -54,7 +85,7 @@ fn fn_start(source :: Str, name :: Str) -> Option[Int]
             if c == "\"" {
               (None, true, false)
             } else {
-              if i + n <= str.len(source) and str.slice(source, i, i + n) == needle {
+              if i + n <= total and str.slice(source, i, i + n) == needle {
                 (Some(i), false, false)
               } else {
                 (None, false, false)
@@ -86,11 +117,11 @@ fn next_top_brace(source :: Str, from :: Int) -> Option[Int]
     next_top_brace("fn f() -> [net(\"a\\\"{\")] Int {\n  1\n}", 0) => Some(28)
   }
 {
-  let r := list.fold(list.range(from, str.len(source)), (None, 0, false, false), fn (acc :: (Option[Int], Int, Bool, Bool), i :: Int) -> (Option[Int], Int, Bool, Bool) {
+  let r := list.fold(list.range(from, cp_len(source)), (None, 0, false, false), fn (acc :: (Option[Int], Int, Bool, Bool), i :: Int) -> (Option[Int], Int, Bool, Bool) {
     match acc {
       (Some(found), depth, in_str, esc) => (Some(found), depth, in_str, esc),
       (None, depth, in_str, esc) => {
-        let c := str.char_at(source, i)
+        let c := cp_at(source, i)
         if esc {
           (None, depth, in_str, false)
         } else {
@@ -138,14 +169,16 @@ fn body_close(source :: Str, open :: Int) -> Option[Int]
     body_close("{ io.print(\"a { b } c\") }", 0) => Some(24),
     body_close("{ never closes", 0) => None,
     body_close("{ io.print(\"a\\\" } b\") }", 0) => Some(22),
-    body_close("{ { x } y }", 0) => Some(10)
+    body_close("{ { x } y }", 0) => Some(10),
+    body_close("—{ x }", 1) => Some(5),
+    body_close("# — — —\nfn a() {\n  1\n}", 15) => Some(21)
   }
 {
-  let r := list.fold(list.range(open, str.len(source)), (None, 0, false, false), fn (acc :: (Option[Int], Int, Bool, Bool), i :: Int) -> (Option[Int], Int, Bool, Bool) {
+  let r := list.fold(list.range(open, cp_len(source)), (None, 0, false, false), fn (acc :: (Option[Int], Int, Bool, Bool), i :: Int) -> (Option[Int], Int, Bool, Bool) {
     match acc {
       (Some(found), depth, in_str, esc) => (Some(found), depth, in_str, esc),
       (None, depth, in_str, esc) => {
-        let c := str.char_at(source, i)
+        let c := cp_at(source, i)
         if esc {
           (None, depth, in_str, false)
         } else {
@@ -256,7 +289,7 @@ fn replace_fn_block(canonical :: Str, name :: Str, replacement :: Str) -> Result
         None => Err(str.join(["`fn ", name, "`'s body never closes in the canonical source"], "")),
         Some(close) => match fn_block(replacement, name) {
           None => Err(str.join(["no well-formed `fn ", name, "` block in the replacement source"], "")),
-          Some(new_block) => Ok(str.join([str.slice(canonical, 0, start), new_block, str.slice(canonical, close + 1, str.len(canonical))], "")),
+          Some(new_block) => Ok(str.join([str.slice(canonical, 0, start), new_block, str.slice(canonical, close + 1, cp_len(canonical))], "")),
         },
       },
     },
@@ -284,7 +317,7 @@ fn is_ident_char(c :: Str) -> Bool {
 }
 
 fn ident_end(source :: Str, i :: Int) -> Int {
-  if i < str.len(source) and is_ident_char(str.char_at(source, i)) {
+  if is_ident_char(cp_at(source, i)) {
     ident_end(source, i + 1)
   } else {
     i
@@ -298,9 +331,9 @@ fn ident_end(source :: Str, i :: Int) -> Int {
 # a declaration has an identifier, not `(`, immediately after `fn `.
 fn named_fn_at(source :: Str, at :: Int) -> Option[Str] {
   let after := at + 3
-  if after < str.len(source) and is_ident_start_char(str.char_at(source, after)) {
+  if is_ident_start_char(cp_at(source, after)) {
     let end := ident_end(source, after)
-    if end < str.len(source) and str.char_at(source, end) == "(" {
+    if cp_at(source, end) == "(" {
       Some(str.slice(source, after, end))
     } else {
       None

@@ -335,9 +335,32 @@ would notice. A regressed issue simply comes back on the board.
 | `--fallback=TAG` `--switch-after=N` | after N failures on an issue, hand it to another provider, e.g. `--ollama --fallback=opencode` (default 2) |
 | `--max-turns=N` | budget for the whole run (default 40) |
 | `--no-harden` | skip the closing turn that writes property tests |
+| `--no-acceptance` | skip the closing acceptance run (below) |
+| `--acceptance-check=P` | run only that closing step on an already-built package: start it, replay its scenarios, print `[ACCEPTANCE] pass\|fail\|none` |
 
-It ends with machine-readable lines: `[PROJECT_VERDICT]  done|stuck|budget|error|provider_error`
-and `[PACKAGE_GATE]  pass|fail|none` (`lex test` over `tests/`). Verified is
+**Acceptance: does the assembled program actually run?** Units verify one at a
+time, and that does not show the whole thing works — on a real from-scratch run
+20 of 20 units verified and the package still never started. A plan with a
+network handler therefore carries `.lex/plans/<project>.acceptance.json`:
+black-box scenarios (a request, and the status — and optionally a substring or an
+absent secret — that must come back) taken from the brief's own requirements and
+written *before* the units. After the build and hardening, lex-code starts the real
+package on a free loopback port with a fresh temp dir, replays the scenarios in
+order against that one server, stops it, and fails the gate if the program does not
+come up or a scenario does not hold. Plans without a `net` unit (libraries) need no
+file. Env names/values, headers and paths in the file are restricted character
+sets, and the runner only ever connects to `127.0.0.1`.
+
+Hardening also stops early on a **plan contradiction**: an invariant that fails on
+*every* probed input is the plan disagreeing with itself (its examples are fixed
+once filed), not a code bug, so lex-code reports it instead of filing dozens of
+issues no attempt could close.
+
+It ends with machine-readable lines: `[PROJECT_VERDICT]  done|built|gate_failed|stuck|budget|error|provider_error`
+and `[PACKAGE_GATE]  pass|fail|unavailable|none|skipped` (`lex test` over `tests/`).
+`done` means every unit verified **and** the assembled file type-checks **and** the
+gate ran and passed. `built` = every unit verified but the gate could not run;
+`gate_failed` = it ran and failed. Neither is finished. Verified is
 necessary, not sufficient — an issue's examples are a finite list and code can
 satisfy them without being right — which is why the run ends by asking for
 round-trip and property tests and running them.

@@ -979,19 +979,25 @@ fn harden_round(project :: Str, plan :: pplan.Plan, primary :: Str, fallback :: 
         "pass"
       }
     } else {
-      if rounds_left <= 0 {
-        let __gv := io.print(str.join(["[PROJECT] hardening: gave up after the round budget, still failing:\n  ", str.join(r.failing, "\n  ")], ""))
+      let contradicted := papply.contradicted_invariants(plan, r.failing)
+      if not list.is_empty(contradicted) {
+        let __c := io.print(str.join(["\n[PLAN] contradiction: ", int.to_str(list.len(contradicted)), " invariant(s) fail on EVERY probed input, so this is not a code bug — the unit's examples (fixed once filed) and the invariant ask for opposite things:\n  - ", str.join(contradicted, "\n  - "), "\nNot filing ", int.to_str(list.len(r.failing)), " issues no attempt could close. Fix the plan (the examples or the invariant) and re-run."], ""))
         "fail"
       } else {
-        let __rep := io.print(str.join(["\n[PROJECT] hardening found ", int.to_str(list.len(r.failing)), " violation(s) out of ", int.to_str(r.calls_checked), " checks — filing them as issues:"], ""))
-        let filed := file_invariant_issues(project, r.failing)
-        let status2 := project_loop(project, primary, fallback, switch_after, max_attempts, [], harden_fuel, guidance)
-        let __reg := regression_pass(project)
-        if status2 == "done" {
-          harden_round(project, plan, primary, fallback, switch_after, max_attempts, guidance, rounds_left - 1, harden_fuel)
-        } else {
-          let __st := io.print(str.join(["[PROJECT] hardening: fixing the violations did not finish (", status2, ")"], ""))
+        if rounds_left <= 0 {
+          let __gv := io.print(str.join(["[PROJECT] hardening: gave up after the round budget, still failing:\n  ", str.join(r.failing, "\n  ")], ""))
           "fail"
+        } else {
+          let __rep := io.print(str.join(["\n[PROJECT] hardening found ", int.to_str(list.len(r.failing)), " violation(s) out of ", int.to_str(r.calls_checked), " checks — filing them as issues:"], ""))
+          let filed := file_invariant_issues(project, r.failing)
+          let status2 := project_loop(project, primary, fallback, switch_after, max_attempts, [], harden_fuel, guidance)
+          let __reg := regression_pass(project)
+          if status2 == "done" {
+            harden_round(project, plan, primary, fallback, switch_after, max_attempts, guidance, rounds_left - 1, harden_fuel)
+          } else {
+            let __st := io.print(str.join(["[PROJECT] hardening: fixing the violations did not finish (", status2, ")"], ""))
+            "fail"
+          }
         }
       }
     },
@@ -1065,21 +1071,88 @@ fn run_project(project :: Str, argv :: List[Str], primary :: Str) -> [env, io, n
     Err(_) => [],
     Ok(source) => merge.stub_fn_names(source),
   }
-  let gate := if not list.is_empty(stubs) {
+  let assembled_errors := assembled_check_errors(project)
+  let gate := if not list.is_empty(assembled_errors) {
+    let __a := io.print(str.join(["[PROJECT] ⚠ the assembled ", scaffold_path, " does not type-check, even though every unit verified on its own:\n", str.join(assembled_errors, "\n"), "\n"], ""))
+    "fail"
+  } else {
+    gate_after_stubs(stubs, project, status, argv, primary, fallback, switch_after, max_attempts, guidance)
+  }
+  io.print(str.join(["[PROJECT_VERDICT]\t", final_verdict(status, gate), "\t", project, "\n[PACKAGE_GATE]\t", gate, "\t", project, "\n"], ""))
+}
+
+fn gate_after_stubs(stubs :: List[Str], project :: Str, status :: Str, argv :: List[Str], primary :: Str, fallback :: Option[Str], switch_after :: Int, max_attempts :: Int, guidance :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
+  if not list.is_empty(stubs) {
     let __w := io.print(str.join(["[PROJECT] ⚠ still stubbed (todo()) despite the board reporting done: ", str.join(stubs, ", "), " — not safe to call this package finished. If nothing else is running against the same store, run `lex pkg init` here (or pass --store) to give this project its own, then try again."], ""))
     "fail"
   } else {
     if status == "done" {
-      if has_flag(argv, "--no-harden") {
+      let base := if has_flag(argv, "--no-harden") {
         package_gate()
       } else {
         harden(project, primary, fallback, switch_after, max_attempts, guidance, argv)
+      }
+      if has_flag(argv, "--no-acceptance") or not (base == "pass" or base == "none") {
+        base
+      } else {
+        let acceptance := papply.acceptance_gate(project)
+        let __a := io.print(str.join(["[ACCEPTANCE]\t", acceptance, "\t", project], ""))
+        if acceptance == "fail" {
+          "fail"
+        } else {
+          base
+        }
       }
     } else {
       "skipped"
     }
   }
-  io.print(str.join(["[PROJECT_VERDICT]\t", status, "\t", project, "\n[PACKAGE_GATE]\t", gate, "\t", project, "\n"], ""))
+}
+
+# Verified is per unit; the package is the assembled file. A unit can pass its
+# own check and still leave a file that does not type-check as a whole —
+# observed live (2026-10-03): 20/20 units verified, `main` called lex-web's
+# serve[E] with an effectful handler (lex-web#61), and the run still printed
+# `[PROJECT_VERDICT] done` because the gate that would have caught it came back
+# "unavailable" and nothing treated that as a problem.
+fn assembled_check_errors(project :: Str) -> [proc] List[Str] {
+  match proc.run("lex", ["check", str.join(["src/", project, ".lex"], "")]) {
+    Err(e) => [str.concat("could not run lex check: ", e)],
+    Ok(o) => if o.exit_code == 0 {
+      []
+    } else {
+      [str.trim(str.concat(o.stdout, o.stderr))]
+    },
+  }
+}
+
+# `done` only means "finished" if the closing gate actually ran and passed. A
+# gate that could not run says nothing about the package, and a failing one says
+# it is not finished — neither may be reported as `done`. Other statuses
+# (stuck, budget, error, ...) are already not-done and pass through unchanged.
+fn final_verdict(status :: Str, gate :: Str) -> Str
+  examples {
+    final_verdict("done", "pass") => "done",
+    final_verdict("done", "none") => "done",
+    final_verdict("done", "unavailable") => "built",
+    final_verdict("done", "fail") => "gate_failed",
+    final_verdict("stuck", "skipped") => "stuck",
+    final_verdict("budget", "unavailable") => "budget"
+  }
+{
+  if status == "done" {
+    if gate == "unavailable" {
+      "built"
+    } else {
+      if gate == "fail" {
+        "gate_failed"
+      } else {
+        status
+      }
+    }
+  } else {
+    status
+  }
 }
 
 # `--once --multi --pipeline=NAME "task"` — a graph pipeline run non-
@@ -1587,19 +1660,30 @@ fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, ap
   let inv := plan_invocation(argv)
   let provider_tag := inv.provider
   let mode := inv.mode
-  match pb.flag_value(argv, "--package-check=") {
-    Some(name) => run_package_check(name),
-    None => match pb.flag_value(argv, "--package-apply=") {
-      Some(name) => run_package_apply(name),
-      None => match pb.flag_value(argv, "--session-health=") {
-        Some(path) => health.run_session_health(path),
-        None => match pb.flag_value(argv, "--dashboard=") {
-          Some(name) => run_dashboard(name, argv),
-          None => run_main_rest(argv, inv, provider_tag, mode),
+  match pb.flag_value(argv, "--acceptance-check=") {
+    Some(name) => run_acceptance_check(name),
+    None => match pb.flag_value(argv, "--package-check=") {
+      Some(name) => run_package_check(name),
+      None => match pb.flag_value(argv, "--package-apply=") {
+        Some(name) => run_package_apply(name),
+        None => match pb.flag_value(argv, "--session-health=") {
+          Some(path) => health.run_session_health(path),
+          None => match pb.flag_value(argv, "--dashboard=") {
+            Some(name) => run_dashboard(name, argv),
+            None => run_main_rest(argv, inv, provider_tag, mode),
+          },
         },
       },
     },
   }
+}
+
+# `--acceptance-check=P`: start the assembled package and replay its acceptance
+# scenarios, with no model involved. Last line for scripts:
+# [ACCEPTANCE] pass|fail|none <project>.
+fn run_acceptance_check(name :: Str) -> [proc, io, net, time, env] Nil {
+  let result := papply.acceptance_gate(name)
+  io.print(str.join(["[ACCEPTANCE]\t", result, "\t", name], ""))
 }
 
 # `--dashboard=NAME`: a read-only, live HTML view of a `--package --auto`
@@ -1668,6 +1752,7 @@ fn dispatch(inv :: Invocation, mode :: sess.AgentMode, provider_tag :: Str) -> [
       io.print(str.concat("package:   --package \"<brief>\" --name=P   draw a graph of typed issues into .lex/plans/P.json (nothing filed)", "\n"))
       io.print(str.concat("           --package \"<brief>\" --name=P --auto   plan, check, scaffold, file and drive — no human step", "\n"))
       io.print(str.concat("           --package-check=P                  validate a plan: structure, consistency, real type check", "\n"))
+      io.print(str.concat("           --acceptance-check=P               start the built package and replay its acceptance scenarios", "\n"))
       io.print(str.concat("  hardening: --no-harden | --harden-rounds=N | --harden-turns=N   invariants are checked and violations fixed automatically by default", "\n"))
       io.print(str.concat("           --package-apply=P                  file that reviewed plan as issues", "\n"))
       io.print(str.concat("           --dashboard=P [--log=F] [--port=N] read-only live view of a running --auto build (default log: P.log, port: 7800)", "\n"))
