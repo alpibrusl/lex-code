@@ -316,6 +316,24 @@ lex-code --package-apply=textkit               # after you have read the plan: f
 lex-code --project=textkit --ollama            # drive it to done
 ```
 
+**You can stop after any stage and pick up later.** Each one is its own command,
+and everything between them is a file you can read and edit:
+
+| Stage | Command | What it does | Ends with |
+|---|---|---|---|
+| 1. Plan | `lex-code --package "<brief>" --name=P --ollama` | An agent drafts `.lex/plans/P.json` (and, for a server, `P.acceptance.json`), checks it, and repairs it up to `--plan-tries=N` times (default 3). **Files nothing.** | `[PLAN] valid` or `invalid` |
+| 2. Check | `lex-code --package-check=P` | Re-validates the plan file — after you or an agent edited it. No model. | `[PLAN_CHECK] ok` or `invalid` |
+| 3. File | `lex-code --package-apply=P` | Files the reviewed plan as issues and writes the scaffold. No model. | the issue ids |
+| 4. Build | `lex-code --project=P --ollama` | Drives the issues to done, then re-verifies, hardens and runs acceptance. Resumable: verified units are kept. | `[PROJECT_VERDICT]` |
+| one unit | `lex-code --issue=<id>` | One attempt on one issue. | `[ISSUE_VERDICT]` |
+| by hand | `lex-code --project=P --patch=FILE --patch-issue=ID` | You (or your assistant) write a unit; lex-code verifies it like any other. | the unit's verdict |
+| gate only | `lex-code --acceptance-check=P` | Starts the built package and replays its scenarios. | `[ACCEPTANCE] pass\|fail\|none` |
+| everything | `lex-code --package "<brief>" --name=P --auto` | Stages 1–4 with no human step. | `[PROJECT_VERDICT]` |
+| watch | `lex-code --dashboard=P [--log=F] [--port=N]` | A read-only live view of a running build (default log `P.log`, port 7800). See [Watching a build](#watching-a-build-the-dashboard). | — |
+
+There is no way yet to save a half-finished plan and resume it, or to build only some
+of a project's units from `--project` (use `--issue` for one at a time).
+
 The plan is JSON — units, each with signatures, examples and `deps` — and it
 is checked before it can be filed (every example must call a declared
 function, no cycles, a pure function needs an example, a function is declared
@@ -334,6 +352,8 @@ would notice. A regressed issue simply comes back on the board.
 | `--patch=FILE[,FILE]` / `--patch-issue=ID` | finish a stuck unit yourself (or have your assistant do it): FILE defines the unit's function(s), lex-code splices it in and runs its own check, publish and `issue verify` on it — the patch is never taken on trust, and the hardening and package gates still run after. Rejected patches change nothing. The issue is inferred from the function names unless `--patch-issue` is given |
 | `--fallback=TAG` `--switch-after=N` | after N failures on an issue, hand it to another provider, e.g. `--ollama --fallback=opencode` (default 2) |
 | `--max-turns=N` | budget for the whole run (default 40) |
+| `--plan-tries=N` | repair rounds the planner gets when its plan fails validation (default 3) |
+| `--harden-rounds=N` / `--harden-turns=N` | how many rounds, and how many agent turns per round, hardening may spend fixing invariant violations (defaults 3 and 10) |
 | `--no-harden` | skip the closing turn that writes property tests |
 | `--no-acceptance` | skip the closing acceptance run (below) |
 | `--acceptance-check=P` | run only that closing step on an already-built package: start it, replay its scenarios, print `[ACCEPTANCE] pass\|fail\|none` |
@@ -372,6 +392,52 @@ issues read "absent at head". So every issue is told to put its code in
 
 A provider that returns nothing (a rate limit, a rejected key) stops the run
 with the provider named instead of burning attempts; verified issues are kept.
+
+### Watching a build: the dashboard
+
+A package build runs for a long time, so there is a live view of it. It is
+**read-only**: it never drives, retries or edits anything, and it writes
+nothing but a start timestamp (`.lex/dashboard-P.start.ts`, used to show elapsed
+time).
+
+```sh
+lex-code --project=invoices --ollama > invoices.log 2>&1 &   # or --auto; any run's stdout
+lex-code --dashboard=invoices                                 # → http://127.0.0.1:7800
+```
+
+It reads three things you already have: the plan (`.lex/plans/P.json`), the issue
+store, and the **log file the run's stdout was redirected to** — `lex-code`
+prints its progress to stdout and keeps no log of its own, so a run you start
+without redirecting has nothing to watch. Use `--log=FILE` if the log is not
+`P.log` in the current directory and `--port=N` if 7800 is taken. **It has no
+authentication and currently listens on all network interfaces** (it prints
+`127.0.0.1`, but the server binds `0.0.0.0`), so anyone on your network can read the
+plan and activity while it runs — run it on a trusted network or behind a firewall.
+The page polls every two seconds; closing it does not affect the build.
+
+What it shows:
+
+- **Flow stepper** — plan → file → build → regression → gate, with the current
+  stage highlighted and a failed stage in red (the gate step reads `gate: pass|fail`
+  once the run ends).
+- **Table, kanban and graph views** of the units. Status is `ready`, `running`,
+  `failed` or `verified`, with the attempt number; the graph lays units out by
+  dependency level and colours them the same way.
+- **Unit panel** — click any unit for its spec, signatures, examples,
+  invariants and dependencies, as the plan has them.
+- **Recent activity**, the elapsed time, the run's aggregate line, and a
+  `stuck — gave up on: …` banner naming the units that ran out of attempts —
+  which is your cue to resume with `--hint` or `--patch`.
+
+- **Token usage per task** — prompt and completion tokens for each unit (summed
+  over every attempt, so a retried unit shows what *all* its tries cost), for the
+  planner, and for the whole run. It is read from the `[USAGE]` lines the run
+  prints, so it only counts what the provider reports: Ollama and Gemini do. A turn
+  whose provider reported nothing shows "not reported" rather than zero, and a unit
+  with no attempt yet shows `-`.
+
+What it does not show (yet): the model's output or the diff of an attempt. Those
+are in the session trail (`.lex/sessions/`) and the stage's own output.
 
 ### Found by actually using it (2026-09-30)
 
