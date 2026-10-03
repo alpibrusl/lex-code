@@ -76,6 +76,7 @@
     <a href="#why">Why</a>
     <a href="#issues">Issues</a>
     <a href="#try">Try it</a>
+    <a href="#package">Whole packages</a>
     <a href="#delegate">Add to your agent</a>
     <a href="#different">Where it fits</a>
     <a href="https://github.com/alpibrusl/lex-code#readme">Docs</a>
@@ -217,6 +218,45 @@ lex-code "--issue=$ISSUE_ID" --ollama          # streams what the agent does
         Memory, once something's worth remembering across sessions, right in the sidebar.</p>
       </div>
     </div>
+  </section>
+
+  <section class="block" id="package">
+    <h2>A whole package, in stages you can stop at</h2>
+    <p>One issue is one function. For a package, lex-code first plans a graph of typed issues,
+    then builds them in order — and every step in between is a command and a file you can read, edit
+    and re-run. Nothing is filed until you say so.</p>
+    <pre>$ lex-code --package "a small invoice REST API ..." --name=invoices --ollama
+  # 1. plan   .lex/plans/invoices.json — units, signatures, examples; checked and repaired. Files nothing.
+$ lex-code --package-check=invoices          # 2. re-validate after you edit it — no model involved
+$ lex-code --package-apply=invoices          # 3. file the reviewed plan as issues
+$ lex-code --project=invoices --ollama > invoices.log 2>&1 &   # 4. build, re-verify, harden, run acceptance
+$ lex-code --dashboard=invoices              #    watch it live at 127.0.0.1:7800 (read-only)</pre>
+    <p>Or <code>--auto</code> runs all four with no human step. If a unit gets stuck, resume with
+    <code>--hint</code> or write the unit yourself with <code>--patch</code>: verified units are kept, and a
+    patch goes through the same verification as a model's work.</p>
+    <div class="pillars">
+      <div class="pillar"><h3>The plan is checked before anything runs</h3><p>Examples must call declared
+      functions, there are no cycles, and known unbuildable shapes (an example that can never hold, a
+      type alias that can never match) are rejected mechanically — before a single unit is built.</p></div>
+      <div class="pillar"><h3>"Verified" is not the end</h3><p>Units verify one at a time, so the run ends by
+      checking the assembled file type-checks, running property tests, and — for a server — starting the real
+      program and replaying scenarios taken from the brief.</p></div>
+      <div class="pillar"><h3>Every step is traceable</h3><p>Each attempt keeps a session trail, and the
+      dashboard shows what is verified, what is running, and what failed — live, read-only.</p></div>
+    </div>
+    <h3>Watch it work</h3>
+    <p>The dashboard is a local page that follows a running build. It reads the plan, the issue store and the
+    run's log, and changes nothing. You get the flow
+    (plan → file → build → regression → gate), every unit as a table, a kanban board or a dependency graph,
+    and a panel per unit with its spec, signatures and examples. When a unit runs out of attempts it
+    says so by name — that is the moment to resume with a hint or a patch.</p>
+    <p>It is a view, not a log viewer: it does not show model output or diffs, it needs the run's
+    stdout redirected to a file (<code>&gt; invoices.log</code>), and it has no login, so keep it on a trusted network. Details in the
+    <a href="https://github.com/alpibrusl/lex-code#watching-a-build-the-dashboard">README</a>.</p>
+    <p>Honestly: this is an experiment. On a from-scratch API build, all 20 units verified and the
+    assembled program still never started — which is why the acceptance step exists. It has mostly been
+    exercised with one local 27B model, and a stuck unit still needs a human hint. The README has the
+    <a href="https://github.com/alpibrusl/lex-code#building-a-whole-package">stage-by-stage reference</a>.</p>
   </section>
 
   <section class="block" id="delegate">
