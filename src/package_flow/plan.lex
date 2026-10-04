@@ -529,6 +529,35 @@ fn projects_off_call(example :: Str) -> Bool
   end.bad
 }
 
+# An invariant that cannot fail checks nothing, and hardening then reports "all
+# hold" about it. A planner wrote `token_list_len(s) == 0 or true` and `not
+# is_valid_create(s) or true` (a "reject unknown fields" check that rejects
+# nothing): both pass for every input. Only the constant forms are caught
+# here, because they are certain; a subtler tautology is not guessed at.
+fn vacuous_invariant(expr :: Str) -> Bool
+  examples {
+    vacuous_invariant("f(x) == 0 or true") => true,
+    vacuous_invariant("not g(x) or true") => true,
+    vacuous_invariant("f(x) > 0 and false") => true,
+    vacuous_invariant("true") => true,
+    vacuous_invariant("f(x) == 0 or trueish(x)") => false,
+    vacuous_invariant("f(x) == g(x)") => false,
+    vacuous_invariant("f(x) and truth(x)") => false
+  }
+{
+  regex.is_match_str("(^|[^A-Za-z0-9_])(or +true|and +false)($|[^A-Za-z0-9_])", expr) or regex.is_match_str("^ *true *$", expr)
+}
+
+fn vacuous_invariant_errors(u :: PlanUnit) -> List[Str] {
+  list.fold(u.invariants, [], fn (acc :: List[Str], i :: Invariant) -> List[Str] {
+    if vacuous_invariant(i.expr) {
+      list.concat(acc, [str.join(["unit `", u.key, "`: invariant `", i.name, "` can never fail (`", i.expr, "`), so it checks nothing and hardening would report it as holding. State the property it is named for, as a comparison that can be false"], "")])
+    } else {
+      acc
+    }
+  })
+}
+
 fn example_shape_errors(u :: PlanUnit) -> List[Str] {
   list.fold(u.examples, [], fn (acc :: List[Str], e :: Str) -> List[Str] {
     if projects_off_call(e) {
@@ -602,7 +631,8 @@ fn unit_errors(u :: PlanUnit, all_keys :: List[Str], all_api :: List[Str]) -> Li
   })
   let literal_err := example_literal_errors(u)
   let shape_err := example_shape_errors(u)
-  list.concat(list.concat(list.concat(list.concat(list.concat(list.concat(list.concat(key_err, title_err), api_err), size_err), example_err), literal_err), shape_err), dep_err)
+  let vacuous_err := vacuous_invariant_errors(u)
+  list.concat(list.concat(list.concat(list.concat(list.concat(list.concat(list.concat(list.concat(key_err, title_err), api_err), size_err), example_err), literal_err), shape_err), vacuous_err), dep_err)
 }
 
 # Dependency order: a unit comes after everything it depends on. Units that
