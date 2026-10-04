@@ -405,6 +405,34 @@ fn contradicted_invariants(p :: plan.Plan, failing :: List[Str]) -> List[Str]
   })
 }
 
+# The failing calls that are NOT part of a contradiction: what hardening can
+# still ask a model to fix once the contradicted invariants are set aside.
+fn without_contradicted(p :: plan.Plan, failing :: List[Str]) -> List[Str]
+  examples {
+    without_contradicted(empty_plan_for_tests(), ["inv_u_i(true)"]) => ["inv_u_i(true)"],
+    without_contradicted(one_invariant_plan(), ["inv_u_i(true, true)", "inv_u_i(true, false)", "inv_u_i(false, true)", "inv_u_i(false, false)"]) => [],
+    without_contradicted(one_invariant_plan(), ["inv_u_i(true, true)", "inv_u_i(false, false)"]) => ["inv_u_i(true, true)", "inv_u_i(false, false)"]
+  }
+{
+  let dead := contradicted_invariants(p, failing)
+  let prefixes := list.fold(p.units, [], fn (acc0 :: List[Str], u :: plan.PlanUnit) -> List[Str] {
+    list.fold(u.invariants, acc0, fn (acc1 :: List[Str], i :: plan.Invariant) -> List[Str] {
+      if list.fold(dead, false, fn (hit :: Bool, d :: Str) -> Bool {
+        hit or d == str.join([u.key, ": ", i.name], "")
+      }) {
+        list.concat(acc1, [str.concat(chk.invariant_fn_name(u.key, i.name), "(")])
+      } else {
+        acc1
+      }
+    })
+  })
+  list.filter(failing, fn (call :: Str) -> Bool {
+    not list.fold(prefixes, false, fn (hit :: Bool, pre :: Str) -> Bool {
+      hit or str.starts_with(call, pre)
+    })
+  })
+}
+
 fn empty_plan_for_tests() -> plan.Plan {
   { project: "p", types: [], packages: [], policy: { error_type: "" }, units: [] }
 }
@@ -413,33 +441,39 @@ fn one_invariant_plan() -> plan.Plan {
   { project: "p", types: [], packages: [], policy: { error_type: "" }, units: [{ key: "u", title: "t", body: "", api: [], examples: [], invariants: [{ name: "i", params: [{ name: "a", ty: "Bool" }, { name: "b", ty: "Bool" }], expr: "a" }], deps: [] }] }
 }
 
+# What the acceptance run found: the gate word and, when it failed, the lines a
+# repair attempt needs (one per scenario that did not hold, or the reason the
+# program never started).
+type AcceptOutcome = { gate :: Str, problems :: List[Str] }
+
 # The closing gate that runs the assembled program. "none" = the plan wrote no
 # acceptance file (a library, say), "pass" = every scenario held, "fail" = the
 # program did not start or a scenario did not hold. Prints what it found.
-fn acceptance_gate(project :: Str) -> [proc, io, net, time, env] Str {
+fn acceptance_run(project :: Str) -> [proc, io, net, time, env] AcceptOutcome {
   match io.read(acc.acceptance_path(project)) {
-    Err(_) => "none",
+    Err(_) => { gate: "none", problems: [] },
     Ok(text) => match acc.parse_acceptance(text) {
       Err(e) => {
         let __p := io.print(str.join(["[ACCEPTANCE] ", e], ""))
-        "fail"
+        { gate: "fail", problems: [e] }
       },
       Ok(a) => {
         let errs := acc.acceptance_errors(a)
         if not list.is_empty(errs) {
           let __p := io.print(str.join(["[ACCEPTANCE] the acceptance file is not sound:\n  - ", str.join(errs, "\n  - ")], ""))
-          "fail"
+          { gate: "fail", problems: errs }
         } else {
           let file := str.join(["src/", project, ".lex"], "")
           let needed := required_effects_of(file)
           if list.is_empty(needed) {
-            let __p := io.print(str.join(["[ACCEPTANCE] cannot run ", file, ": `lex check` reports no required effects (does it type-check?)"], ""))
-            "fail"
+            let msg := str.join(["cannot run ", file, ": `lex check` reports no required effects (does it type-check?)"], "")
+            let __p := io.print(str.concat("[ACCEPTANCE] ", msg))
+            { gate: "fail", problems: [msg] }
           } else {
             match acc.run_acceptance(file, a, str.join(needed, ",")) {
               Err(e) => {
                 let __p := io.print(str.join(["[ACCEPTANCE] 0/", int.to_str(list.len(a.scenarios)), " — ", e], ""))
-                "fail"
+                { gate: "fail", problems: [e] }
               },
               Ok(r) => {
                 let __p := io.print(str.join(["[ACCEPTANCE] ", int.to_str(r.passed), "/", int.to_str(r.total), " scenarios hold", if list.is_empty(r.failures) {
@@ -448,9 +482,14 @@ fn acceptance_gate(project :: Str) -> [proc, io, net, time, env] Str {
                   str.concat(":\n  - ", str.join(r.failures, "\n  - "))
                 }], ""))
                 if list.is_empty(r.failures) {
-                  "pass"
+                  { gate: "pass", problems: [] }
                 } else {
-                  "fail"
+                  let how := acc.repro_line(file, a, str.join(needed, ","), r.failures)
+                  { gate: "fail", problems: if str.is_empty(how) {
+                    r.failures
+                  } else {
+                    list.concat(r.failures, [how])
+                  } }
                 }
               },
             }
@@ -459,5 +498,9 @@ fn acceptance_gate(project :: Str) -> [proc, io, net, time, env] Str {
       },
     },
   }
+}
+
+fn acceptance_gate(project :: Str) -> [proc, io, net, time, env] Str {
+  acceptance_run(project).gate
 }
 

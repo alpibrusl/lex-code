@@ -88,8 +88,29 @@ fn pairs_field(j :: jv.Json, key :: Str) -> List[(Str, Str)] {
   }
 }
 
+# A planner writes the request it means ("a SQL-injection attempt in the filter")
+# with the raw characters in the path — `?customer=x' OR '1'='1` — which is not a
+# valid request target and which the path check below rightly refuses. A run
+# lost 85 minutes to exactly this: planning got down to ONE problem, this, and
+# ran out of tries. The encoding is mechanical and lossless, so do it here rather
+# than send a model round-trip for it. ASCII only; anything else is left for the
+# check to refuse.
+fn encode_path(p :: Str) -> Str
+  examples {
+    encode_path("/invoices?customer=x' OR '1'='1") => "/invoices?customer=x%27%20OR%20%271%27=%271",
+    encode_path("/invoices/1") => "/invoices/1",
+    encode_path("/a%20b") => "/a%20b"
+  }
+{
+  list.fold([(" ", "%20"), ("'", "%27"), ("\"", "%22"), ("<", "%3C"), (">", "%3E"), ("[", "%5B"), ("]", "%5D"), ("{", "%7B"), ("}", "%7D"), ("|", "%7C"), ("\\", "%5C"), ("^", "%5E"), ("`", "%60"), (";", "%3B"), ("(", "%28"), (")", "%29"), ("*", "%2A"), ("!", "%21"), ("$", "%24"), ("@", "%40"), ("#", "%23")], p, fn (acc :: Str, pr :: (Str, Str)) -> Str {
+    match pr {
+      (raw, enc) => str.replace(acc, raw, enc),
+    }
+  })
+}
+
 fn parse_scenario(j :: jv.Json) -> Scenario {
-  { name: ic.field_text(j, "name"), method: ic.field_text(j, "method"), path: ic.field_text(j, "path"), headers: pairs_field(j, "headers"), body: ic.field_text(j, "body"), pad: int_field(j, "pad"), status: int_field(j, "expect_status"), contains: ic.field_text(j, "expect_body_contains"), excludes: ic.field_text(j, "expect_body_excludes") }
+  { name: ic.field_text(j, "name"), method: ic.field_text(j, "method"), path: encode_path(ic.field_text(j, "path")), headers: pairs_field(j, "headers"), body: ic.field_text(j, "body"), pad: int_field(j, "pad"), status: int_field(j, "expect_status"), contains: ic.field_text(j, "expect_body_contains"), excludes: ic.field_text(j, "expect_body_excludes") }
 }
 
 fn parse_acceptance(text :: Str) -> Result[Acceptance, Str]
@@ -330,6 +351,53 @@ fn run_scenario(port :: Int, s :: Scenario) -> [net] Option[Str] {
   match send(port, s.method, s.path, s.headers, fill(s.body, s.pad)) {
     Err(e) => Some(str.join([s.name, ": ", e], "")),
     Ok(got) => scenario_failure(s, got),
+  }
+}
+
+# One line telling a repairing model exactly how to see a failing scenario for
+# itself: the server command with the env the gate uses, and the first failing
+# scenario as a curl. Written because a repair run spent its rounds guessing at
+# a generic `{"error":"internal server error"}` while a three-call reproduction
+# (run the server, send the request, make the handler show its error) names the
+# cause. Charsets in a scenario are validated, so nothing here needs shell quoting.
+fn repro_line(file :: Str, a :: Acceptance, grants :: Str, failures :: List[Str]) -> Str
+  examples {
+    repro_line("src/x.lex", { entry: "main", port_env: "P", env: [("DB", "{tmp}/a.db")], scenarios: [{ name: "make", method: "POST", path: "/things", headers: [("Content-Type", "application/json")], body: "{}", pad: 0, status: 201, contains: "", excludes: "" }] }, "net,sql", ["make: expected status 201, got 500 — {}"]) => "to reproduce by hand: start the program with `DB=/tmp/repro/a.db P=7777 lex run --allow-effects net,sql src/x.lex main` in the background, then send the first failing scenario: `curl -s -i -X POST -H 'Content-Type: application/json' --data '{}' http://127.0.0.1:7777/things`. A 500 body is usually generic, so debug in a COPY (`mkdir -p /tmp/repro && cp -R lex.toml src /tmp/repro/`, run it from there) where you make the handler return the underlying error in its body; apply only the real fix to the package, so no debugging output can stay in it.",
+    repro_line("src/x.lex", { entry: "main", port_env: "P", env: [], scenarios: [] }, "net", []) => ""
+  }
+{
+  let first := list.fold(a.scenarios, None, fn (found :: Option[Scenario], sc :: Scenario) -> Option[Scenario] {
+    match found {
+      Some(_) => found,
+      None => if list.fold(failures, false, fn (hit :: Bool, f :: Str) -> Bool {
+        hit or str.starts_with(f, str.concat(sc.name, ": "))
+      }) {
+        Some(sc)
+      } else {
+        None
+      },
+    }
+  })
+  match first {
+    None => "",
+    Some(sc) => {
+      let env_words := list.map(list.concat(a.env, [(a.port_env, "{port}")]), fn (kv :: (Str, Str)) -> Str {
+        match kv {
+          (k, v) => str.join([k, "=", expand(v, 7777, "/tmp/repro")], ""),
+        }
+      })
+      let hdrs := list.map(sc.headers, fn (h :: (Str, Str)) -> Str {
+        match h {
+          (k, v) => str.join(["-H '", k, ": ", v, "' "], ""),
+        }
+      })
+      let data := if str.is_empty(sc.body) {
+        ""
+      } else {
+        str.join(["--data '", fill(sc.body, sc.pad), "' "], "")
+      }
+      str.join(["to reproduce by hand: start the program with `", str.join(env_words, " "), " lex run --allow-effects ", grants, " ", file, " ", a.entry, "` in the background, then send the first failing scenario: `curl -s -i -X ", sc.method, " ", str.join(hdrs, ""), data, "http://127.0.0.1:7777", sc.path, "`. A 500 body is usually generic, so debug in a COPY (`mkdir -p /tmp/repro && cp -R lex.toml src /tmp/repro/`, run it from there) where you make the handler return the underlying error in its body; apply only the real fix to the package, so no debugging output can stay in it."], "")
+    },
   }
 }
 

@@ -336,7 +336,9 @@ of a project's units from `--project` (use `--issue` for one at a time).
 
 The plan is JSON — units, each with signatures, examples and `deps` — and it
 is checked before it can be filed (every example must call a declared
-function, no cycles, a pure function needs an example, a function is declared
+function, an example is a bare call — `f(x).field => ..` can never verify —
+an invariant can fail — `... or true` checks nothing —
+no cycles, a pure function needs an example, a function is declared
 by exactly one unit). Filing is deterministic on purpose: an LLM does not get
 to decide, unreviewed, what "done" means.
 
@@ -353,6 +355,7 @@ would notice. A regressed issue simply comes back on the board.
 | `--fallback=TAG` `--switch-after=N` | after N failures on an issue, hand it to another provider, e.g. `--ollama --fallback=opencode` (default 2) |
 | `--max-turns=N` | budget for the whole run (default 40) |
 | `--plan-tries=N` | repair rounds the planner gets when its plan fails validation (default 3) |
+| `--repair-rounds=N` | how many times the assembled package may be handed back to the model as one integration task when it fails to type-check or fails acceptance (default 2, `0` = off). The model may edit any function; a round that leaves the file not type-checking is rolled back |
 | `--harden-rounds=N` / `--harden-turns=N` | how many rounds, and how many agent turns per round, hardening may spend fixing invariant violations (defaults 3 and 10) |
 | `--no-harden` | skip the closing turn that writes property tests |
 | `--no-acceptance` | skip the closing acceptance run (below) |
@@ -369,14 +372,20 @@ package on a free loopback port with a fresh temp dir, replays the scenarios in
 order against that one server, stops it, and fails the gate if the program does not
 come up or a scenario does not hold. Plans without a `net` unit (libraries) need no
 file. Env names/values, headers and paths in the file are restricted character
-sets, and the runner only ever connects to `127.0.0.1`.
+sets (raw spaces, quotes and the like in a path are percent-encoded for you, so a
+"SQL injection in the filter" scenario can be written naturally), and the runner only
+ever connects to `127.0.0.1`.
 
-Hardening also stops early on a **plan contradiction**: an invariant that fails on
-*every* probed input is the plan disagreeing with itself (its examples are fixed
-once filed), not a code bug, so lex-code reports it instead of filing dozens of
-issues no attempt could close.
+Hardening treats a **plan contradiction** as a plan defect, not a failure of the
+run: an invariant that fails on *every* probed input is the plan disagreeing with
+itself (its examples are fixed once filed), not a code bug, and no attempt could close
+an issue for it. It is reported as `[PLAN] contradiction`, skipped — it is **not
+enforced** — and the run goes on to the acceptance gate and repair. Such a run can
+end `done` only if the real program passed acceptance; fix the plan to enforce the
+invariant. (One garbled invariant once ended a 2.5-hour build, all units verified,
+before the program was ever run.)
 
-It ends with machine-readable lines: `[PROJECT_VERDICT]  done|built|gate_failed|stuck|budget|error|provider_error`
+It ends with machine-readable lines: `[PROJECT_VERDICT]  done|built|gate_failed|stuck|budget|error|provider_error|no_plan`
 and `[PACKAGE_GATE]  pass|fail|unavailable|none|skipped` (`lex test` over `tests/`).
 `done` means every unit verified **and** the assembled file type-checks **and** the
 gate ran and passed. `built` = every unit verified but the gate could not run;
@@ -389,6 +398,39 @@ round-trip and property tests and running them.
 a second `.lex` file and the first file's functions drop out of it, and their
 issues read "absent at head". So every issue is told to put its code in
 `src/<project>.lex`. Units split the work, not the files.
+
+**Integration repair.** Units verify one at a time, so a failure that only exists
+once they share a file has no unit to blame — in a real run, 10 of 10 units
+verified and the assembled file still had three errors. After the build, a
+failing type-check — and later a failing acceptance scenario — is handed back to
+a model as one task: here is what the whole program does wrong, edit any function
+to fix it. It gets `--repair-rounds` tries (default 2). Each round is snapshotted,
+and one that leaves the file not type-checking is rolled back — a round that
+merely passes fewer scenarios is not. It helps and it is not
+a cure. For a failing scenario the prompt includes how to reproduce it — the
+server command with the gate's own env and a `curl` for the first failing request —
+and says to debug in a copy, because a 500 body is usually generic and the cause
+(a swallowed database error) is invisible without running it. On the invoices
+build, repair without that moved acceptance from 10/16 to 11/16 and the run ended
+`gate_failed`; with it, a repair-only rerun on that same package went 11/16 → 16/16
+and `done` (the cause was one query not naming its table). On a second, from-scratch
+build with different bugs (create dropped the customer, a SQL parameter of the wrong
+type) it went 11/16 → 14/16 → 16/16 and `done`, and left no debugging code behind.
+Two packages, one local model, thinking on: read it as "the gap was visibility", not
+as a success rate.
+
+**A failed attempt is only retried if the code was what failed.** After an attempt
+that does not verify, lex-code asks the store why (no model involved). If the store
+rejected the unit's own examples — an example is immutable once filed, so no edit can
+fix it — or the verify command itself broke, it prints `not retrying issue … plan
+defect` (or `tooling failure`) with the store's message, uses up that unit's budget,
+and carries on with every unit that does not depend on it; the run ends `stuck`,
+naming the cause. Everything else is retried as before. It is deliberately
+conservative: it never guesses from how a failure *looks* (a padding bug and a
+miscounted example print the same expected-versus-got), only from what the store
+says. Why: across five earlier invoices runs, ten units needed a second attempt;
+one recovered (on the third), nine used all four and failed, mostly for reasons no
+retry could change. `--parallel` does not use this yet.
 
 A provider that returns nothing (a rate limit, a rejected key) stops the run
 with the provider named instead of burning attempts; verified issues are kept.
