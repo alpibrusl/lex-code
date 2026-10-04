@@ -897,6 +897,11 @@ for production interop.
 | `bash` | Run a shell command |
 | `todo_write` | Write structured TODO list |
 
+`write_file` and `edit_file` replace a file atomically — the new content is written beside
+it and renamed over it — so a run that is killed mid-edit leaves the old file or the new one,
+never a truncated one (which would stall a whole package build, whose units share one source
+file). A file's mode and a symbolic link are kept as they were.
+
 ### Lex tools
 
 | Tool | Description |

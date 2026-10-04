@@ -14,6 +14,8 @@ import "lex-schema/error" as e
 
 import "lex-schema/schema" as s
 
+import "../atomic" as atomic
+
 import "../util" as util
 
 import "../linter" as linter
@@ -275,7 +277,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
           Err(msg) => Err(e.single("", "io_error", msg)),
           Ok(content) => match replace_once(content, old_str, new_str, str.ends_with(path, ".lex")) {
             Err(reason) => Err(e.single("", "edit_error", reason)),
-            Ok(updated) => match io.write(path, updated) {
+            Ok(updated) => match atomic.write_atomic(path, updated) {
               Err(msg) => Err(e.single("", "io_error", msg)),
               Ok(_) => {
                 let lint := linter.run(path)
