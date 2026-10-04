@@ -370,14 +370,20 @@ package on a free loopback port with a fresh temp dir, replays the scenarios in
 order against that one server, stops it, and fails the gate if the program does not
 come up or a scenario does not hold. Plans without a `net` unit (libraries) need no
 file. Env names/values, headers and paths in the file are restricted character
-sets, and the runner only ever connects to `127.0.0.1`.
+sets (raw spaces, quotes and the like in a path are percent-encoded for you, so a
+"SQL injection in the filter" scenario can be written naturally), and the runner only
+ever connects to `127.0.0.1`.
 
-Hardening also stops early on a **plan contradiction**: an invariant that fails on
-*every* probed input is the plan disagreeing with itself (its examples are fixed
-once filed), not a code bug, so lex-code reports it instead of filing dozens of
-issues no attempt could close.
+Hardening treats a **plan contradiction** as a plan defect, not a failure of the
+run: an invariant that fails on *every* probed input is the plan disagreeing with
+itself (its examples are fixed once filed), not a code bug, and no attempt could close
+an issue for it. It is reported as `[PLAN] contradiction`, skipped — it is **not
+enforced** — and the run goes on to the acceptance gate and repair. Such a run can
+end `done` only if the real program passed acceptance; fix the plan to enforce the
+invariant. (One garbled invariant once ended a 2.5-hour build, all units verified,
+before the program was ever run.)
 
-It ends with machine-readable lines: `[PROJECT_VERDICT]  done|built|gate_failed|stuck|budget|error|provider_error`
+It ends with machine-readable lines: `[PROJECT_VERDICT]  done|built|gate_failed|stuck|budget|error|provider_error|no_plan`
 and `[PACKAGE_GATE]  pass|fail|unavailable|none|skipped` (`lex test` over `tests/`).
 `done` means every unit verified **and** the assembled file type-checks **and** the
 gate ran and passed. `built` = every unit verified but the gate could not run;
@@ -390,15 +396,6 @@ round-trip and property tests and running them.
 a second `.lex` file and the first file's functions drop out of it, and their
 issues read "absent at head". So every issue is told to put its code in
 `src/<project>.lex`. Units split the work, not the files.
-
-**A contradictory invariant does not end the run.** If hardening finds an invariant
-that fails on every probed input, that is a defect in the plan (its examples and the
-invariant ask for opposite things), not in the code, and no attempt could close an
-issue for it. It is reported as `[PLAN] contradiction`, skipped — it is **not
-enforced** — and the run goes on to the acceptance gate and repair. Such a run can
-end `done` only if the real program passed acceptance; fix the plan to enforce the
-invariant. (Before this, one garbled invariant ended a 2.5-hour build before the
-program was ever run.)
 
 **Integration repair.** Units verify one at a time, so a failure that only exists
 once they share a file has no unit to blame — in a real run, 10 of 10 units

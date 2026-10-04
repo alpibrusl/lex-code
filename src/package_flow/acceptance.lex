@@ -88,8 +88,29 @@ fn pairs_field(j :: jv.Json, key :: Str) -> List[(Str, Str)] {
   }
 }
 
+# A planner writes the request it means ("a SQL-injection attempt in the filter")
+# with the raw characters in the path — `?customer=x' OR '1'='1` — which is not a
+# valid request target and which the path check below rightly refuses. A run
+# lost 85 minutes to exactly this: planning got down to ONE problem, this, and
+# ran out of tries. The encoding is mechanical and lossless, so do it here rather
+# than send a model round-trip for it. ASCII only; anything else is left for the
+# check to refuse.
+fn encode_path(p :: Str) -> Str
+  examples {
+    encode_path("/invoices?customer=x' OR '1'='1") => "/invoices?customer=x%27%20OR%20%271%27=%271",
+    encode_path("/invoices/1") => "/invoices/1",
+    encode_path("/a%20b") => "/a%20b"
+  }
+{
+  list.fold([(" ", "%20"), ("'", "%27"), ("\"", "%22"), ("<", "%3C"), (">", "%3E"), ("[", "%5B"), ("]", "%5D"), ("{", "%7B"), ("}", "%7D"), ("|", "%7C"), ("\\", "%5C"), ("^", "%5E"), ("`", "%60"), (";", "%3B"), ("(", "%28"), (")", "%29"), ("*", "%2A"), ("!", "%21"), ("$", "%24"), ("@", "%40"), ("#", "%23")], p, fn (acc :: Str, pr :: (Str, Str)) -> Str {
+    match pr {
+      (raw, enc) => str.replace(acc, raw, enc),
+    }
+  })
+}
+
 fn parse_scenario(j :: jv.Json) -> Scenario {
-  { name: ic.field_text(j, "name"), method: ic.field_text(j, "method"), path: ic.field_text(j, "path"), headers: pairs_field(j, "headers"), body: ic.field_text(j, "body"), pad: int_field(j, "pad"), status: int_field(j, "expect_status"), contains: ic.field_text(j, "expect_body_contains"), excludes: ic.field_text(j, "expect_body_excludes") }
+  { name: ic.field_text(j, "name"), method: ic.field_text(j, "method"), path: encode_path(ic.field_text(j, "path")), headers: pairs_field(j, "headers"), body: ic.field_text(j, "body"), pad: int_field(j, "pad"), status: int_field(j, "expect_status"), contains: ic.field_text(j, "expect_body_contains"), excludes: ic.field_text(j, "expect_body_excludes") }
 }
 
 fn parse_acceptance(text :: Str) -> Result[Acceptance, Str]
