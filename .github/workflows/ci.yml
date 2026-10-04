@@ -119,6 +119,13 @@ jobs:
         run: lex test --allow-effects crypto,fs_read,fs_write,io,random,sql,time tests
         working-directory: lex-code
 
+      # The overnight supervisor's decisions (resume, escalate, stall, outage,
+      # file guard, round ceiling), against a stand-in for lex-code that plays a
+      # scripted sequence of rounds. No model, no network; seconds.
+      - name: Overnight supervisor (stub)
+        run: bash scripts/test-overnight.sh < /dev/null
+        working-directory: lex-code
+
       # The minimum bar (src/bar/ledger.lex), applied to lex-code
       # itself. Only `fail` verdicts break the build — `partial` is the
       # honest state for an item a probe can only half-answer, and a

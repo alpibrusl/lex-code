@@ -481,6 +481,61 @@ What it shows:
 What it does not show (yet): the model's output or the diff of an attempt. Those
 are in the session trail (`.lex/sessions/`) and the stage's own output.
 
+### Running it overnight
+
+A whole package on a local model takes hours, and `--auto` stops at the first thing
+that needs a person: a unit that is stuck, a step budget that ran out, a gate that
+failed, a provider that blinked. On a real invoices build (a local 27B, about four
+hours) those decisions were made by hand — resume, resume again, give a hint. If
+the tokens are free and the time is not, a supervisor can make the routine ones:
+
+```sh
+lex-code-overnight --name=invoices --brief-file=brief.txt --ollama
+lex-code-overnight --name=invoices --ollama      # a plan exists: resume it
+cat .lex/overnight/REPORT.md                      # in the morning
+```
+
+It plans if there is no plan (and files it), then runs build rounds, resuming after
+`stuck`, `gate_failed`, `budget` or a kill **while a round makes progress** — more
+units verified or more acceptance scenarios holding. A round with none switches a
+local model's thinking on (it verified a hard unit 4/4 where thinking-off managed
+2/4 — four trials each, one model); a second round in a row without progress stops
+the run. A provider that stops answering is waited for with backoff, not counted as
+a failure. A round that hangs is killed at its own ceiling, the machine is kept awake
+(`caffeinate`), and a shared file left unparseable by a kill mid-edit is put back
+from the last copy that parsed. Anything else on the command line goes to `lex-code`
+(`--ollama`, `--lex-os`, ...).
+
+| option | |
+|---|---|
+| `--max-hours=N` / `--round-hours=N` | the whole run's limit (10) and one round's ceiling (3) |
+| `--stall-rounds=N` | rounds without progress before stopping (2) |
+| `--steps=N` | agent steps per task for a local model (80; lex-code's own default is 60) |
+| `--outage-minutes=N` | how long to wait for a provider that is down (90) |
+| `--on-finish=CMD` | run when it ends; env `LEX_OVERNIGHT_PROJECT`, `_REASON`, `_REPORT` |
+| `--no-escalate`, `--no-caffeinate` | never switch thinking on; do not keep the machine awake |
+
+`--steps` is not higher on purpose. Past about a hundred steps a local model's context
+is long enough that a single step outran a five-minute provider timeout and ended a
+repair round with nothing applied; shorter rounds, each starting from a fresh context,
+did better, so `--repair-rounds` defaults to 6 here (give your own to override) and
+`LLM_TIMEOUT_MS` to 15 minutes. `LEX_MAX_STEPS` sets the same budget for a plain
+`lex-code` run.
+
+`lex-code --report=P [--log=F] [--rounds=F]` is the report on its own: one Markdown
+page with the verdict, every unit's attempts and tokens (read from the issue store, so
+a resumed build is counted correctly), the last acceptance result, what was set aside
+(skipped invariants, plan defects) and what each round did. It is how the 12M-token
+cost of one unit becomes visible.
+
+Limits, honestly. It will sometimes end the night `stuck`; the report then says where.
+Switching thinking on and the repair-round count are guesses backed by small runs, not
+measured defaults. It runs shell commands unattended: the permission gate applies, but
+run it in a dedicated project directory (or `--lex-os`), not in a checkout you care
+about. Exit status: 0 done, 1 stopped without finishing, 2 usage, 3 no plan, 4 provider
+stayed down. `scripts/test-overnight.sh` tests its decisions with a stand-in for
+`lex-code`, in seconds.
+
 ### Found by actually using it (2026-09-30)
 
 "It dogfoods its own guarantees" (above) is a claim; this is what that
