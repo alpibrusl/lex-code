@@ -894,7 +894,7 @@ for production interop.
 | `edit_file` | Targeted string replacement |
 | `grep` | Search file contents by regex |
 | `glob` | List files matching a glob |
-| `bash` | Run a shell command |
+| `bash` | Run a shell command (killed after 300 s; a background process outlives the call, but only for what is left of those 300 s) |
 | `todo_write` | Write structured TODO list |
 
 ### Lex tools
