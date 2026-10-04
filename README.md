@@ -336,7 +336,9 @@ of a project's units from `--project` (use `--issue` for one at a time).
 
 The plan is JSON — units, each with signatures, examples and `deps` — and it
 is checked before it can be filed (every example must call a declared
-function, no cycles, a pure function needs an example, a function is declared
+function, an example is a bare call — `f(x).field => ..` can never verify —
+an invariant can fail — `... or true` checks nothing —
+no cycles, a pure function needs an example, a function is declared
 by exactly one unit). Filing is deterministic on purpose: an LLM does not get
 to decide, unreviewed, what "done" means.
 
@@ -353,6 +355,7 @@ would notice. A regressed issue simply comes back on the board.
 | `--fallback=TAG` `--switch-after=N` | after N failures on an issue, hand it to another provider, e.g. `--ollama --fallback=opencode` (default 2) |
 | `--max-turns=N` | budget for the whole run (default 40) |
 | `--plan-tries=N` | repair rounds the planner gets when its plan fails validation (default 3) |
+| `--repair-rounds=N` | how many times the assembled package may be handed back to the model as one integration task when it fails to type-check or fails acceptance (default 2, `0` = off). The model may edit any function; a round that leaves the file not type-checking is rolled back |
 | `--harden-rounds=N` / `--harden-turns=N` | how many rounds, and how many agent turns per round, hardening may spend fixing invariant violations (defaults 3 and 10) |
 | `--no-harden` | skip the closing turn that writes property tests |
 | `--no-acceptance` | skip the closing acceptance run (below) |
@@ -369,14 +372,20 @@ package on a free loopback port with a fresh temp dir, replays the scenarios in
 order against that one server, stops it, and fails the gate if the program does not
 come up or a scenario does not hold. Plans without a `net` unit (libraries) need no
 file. Env names/values, headers and paths in the file are restricted character
-sets, and the runner only ever connects to `127.0.0.1`.
+sets (raw spaces, quotes and the like in a path are percent-encoded for you, so a
+"SQL injection in the filter" scenario can be written naturally), and the runner only
+ever connects to `127.0.0.1`.
 
-Hardening also stops early on a **plan contradiction**: an invariant that fails on
-*every* probed input is the plan disagreeing with itself (its examples are fixed
-once filed), not a code bug, so lex-code reports it instead of filing dozens of
-issues no attempt could close.
+Hardening treats a **plan contradiction** as a plan defect, not a failure of the
+run: an invariant that fails on *every* probed input is the plan disagreeing with
+itself (its examples are fixed once filed), not a code bug, and no attempt could close
+an issue for it. It is reported as `[PLAN] contradiction`, skipped — it is **not
+enforced** — and the run goes on to the acceptance gate and repair. Such a run can
+end `done` only if the real program passed acceptance; fix the plan to enforce the
+invariant. (One garbled invariant once ended a 2.5-hour build, all units verified,
+before the program was ever run.)
 
-It ends with machine-readable lines: `[PROJECT_VERDICT]  done|built|gate_failed|stuck|budget|error|provider_error`
+It ends with machine-readable lines: `[PROJECT_VERDICT]  done|built|gate_failed|stuck|budget|error|provider_error|no_plan`
 and `[PACKAGE_GATE]  pass|fail|unavailable|none|skipped` (`lex test` over `tests/`).
 `done` means every unit verified **and** the assembled file type-checks **and** the
 gate ran and passed. `built` = every unit verified but the gate could not run;
@@ -389,6 +398,39 @@ round-trip and property tests and running them.
 a second `.lex` file and the first file's functions drop out of it, and their
 issues read "absent at head". So every issue is told to put its code in
 `src/<project>.lex`. Units split the work, not the files.
+
+**Integration repair.** Units verify one at a time, so a failure that only exists
+once they share a file has no unit to blame — in a real run, 10 of 10 units
+verified and the assembled file still had three errors. After the build, a
+failing type-check — and later a failing acceptance scenario — is handed back to
+a model as one task: here is what the whole program does wrong, edit any function
+to fix it. It gets `--repair-rounds` tries (default 2). Each round is snapshotted,
+and one that leaves the file not type-checking is rolled back — a round that
+merely passes fewer scenarios is not. It helps and it is not
+a cure. For a failing scenario the prompt includes how to reproduce it — the
+server command with the gate's own env and a `curl` for the first failing request —
+and says to debug in a copy, because a 500 body is usually generic and the cause
+(a swallowed database error) is invisible without running it. On the invoices
+build, repair without that moved acceptance from 10/16 to 11/16 and the run ended
+`gate_failed`; with it, a repair-only rerun on that same package went 11/16 → 16/16
+and `done` (the cause was one query not naming its table). On a second, from-scratch
+build with different bugs (create dropped the customer, a SQL parameter of the wrong
+type) it went 11/16 → 14/16 → 16/16 and `done`, and left no debugging code behind.
+Two packages, one local model, thinking on: read it as "the gap was visibility", not
+as a success rate.
+
+**A failed attempt is only retried if the code was what failed.** After an attempt
+that does not verify, lex-code asks the store why (no model involved). If the store
+rejected the unit's own examples — an example is immutable once filed, so no edit can
+fix it — or the verify command itself broke, it prints `not retrying issue … plan
+defect` (or `tooling failure`) with the store's message, uses up that unit's budget,
+and carries on with every unit that does not depend on it; the run ends `stuck`,
+naming the cause. Everything else is retried as before. It is deliberately
+conservative: it never guesses from how a failure *looks* (a padding bug and a
+miscounted example print the same expected-versus-got), only from what the store
+says. Why: across five earlier invoices runs, ten units needed a second attempt;
+one recovered (on the third), nine used all four and failed, mostly for reasons no
+retry could change. `--parallel` does not use this yet.
 
 A provider that returns nothing (a rate limit, a rejected key) stops the run
 with the provider named instead of burning attempts; verified issues are kept.
@@ -439,6 +481,61 @@ What it shows:
 
 What it does not show (yet): the model's output or the diff of an attempt. Those
 are in the session trail (`.lex/sessions/`) and the stage's own output.
+
+### Running it overnight
+
+A whole package on a local model takes hours, and `--auto` stops at the first thing
+that needs a person: a unit that is stuck, a step budget that ran out, a gate that
+failed, a provider that blinked. On a real invoices build (a local 27B, about four
+hours) those decisions were made by hand — resume, resume again, give a hint. If
+the tokens are free and the time is not, a supervisor can make the routine ones:
+
+```sh
+lex-code-overnight --name=invoices --brief-file=brief.txt --ollama
+lex-code-overnight --name=invoices --ollama      # a plan exists: resume it
+cat .lex/overnight/REPORT.md                      # in the morning
+```
+
+It plans if there is no plan (and files it), then runs build rounds, resuming after
+`stuck`, `gate_failed`, `budget` or a kill **while a round makes progress** — more
+units verified or more acceptance scenarios holding. A round with none switches a
+local model's thinking on (it verified a hard unit 4/4 where thinking-off managed
+2/4 — four trials each, one model); a second round in a row without progress stops
+the run. A provider that stops answering is waited for with backoff, not counted as
+a failure. A round that hangs is killed at its own ceiling, the machine is kept awake
+(`caffeinate`), and a shared file left unparseable by a kill mid-edit is put back
+from the last copy that parsed. Anything else on the command line goes to `lex-code`
+(`--ollama`, `--lex-os`, ...).
+
+| option | |
+|---|---|
+| `--max-hours=N` / `--round-hours=N` | the whole run's limit (10) and one round's ceiling (3) |
+| `--stall-rounds=N` | rounds without progress before stopping (2) |
+| `--steps=N` | agent steps per task for a local model (80; lex-code's own default is 60) |
+| `--outage-minutes=N` | how long to wait for a provider that is down (90) |
+| `--on-finish=CMD` | run when it ends; env `LEX_OVERNIGHT_PROJECT`, `_REASON`, `_REPORT` |
+| `--no-escalate`, `--no-caffeinate` | never switch thinking on; do not keep the machine awake |
+
+`--steps` is not higher on purpose. Past about a hundred steps a local model's context
+is long enough that a single step outran a five-minute provider timeout and ended a
+repair round with nothing applied; shorter rounds, each starting from a fresh context,
+did better, so `--repair-rounds` defaults to 6 here (give your own to override) and
+`LLM_TIMEOUT_MS` to 15 minutes. `LEX_MAX_STEPS` sets the same budget for a plain
+`lex-code` run.
+
+`lex-code --report=P [--log=F] [--rounds=F]` is the report on its own: one Markdown
+page with the verdict, every unit's attempts and tokens (read from the issue store, so
+a resumed build is counted correctly), the last acceptance result, what was set aside
+(skipped invariants, plan defects) and what each round did. It is how the 12M-token
+cost of one unit becomes visible.
+
+Limits, honestly. It will sometimes end the night `stuck`; the report then says where.
+Switching thinking on and the repair-round count are guesses backed by small runs, not
+measured defaults. It runs shell commands unattended: the permission gate applies, but
+run it in a dedicated project directory (or `--lex-os`), not in a checkout you care
+about. Exit status: 0 done, 1 stopped without finishing, 2 usage, 3 no plan, 4 provider
+stayed down. `scripts/test-overnight.sh` tests its decisions with a stand-in for
+`lex-code`, in seconds.
 
 ### Found by actually using it (2026-09-30)
 
@@ -896,6 +993,11 @@ for production interop.
 | `glob` | List files matching a glob |
 | `bash` | Run a shell command (killed after 300 s; a background process outlives the call, but only for what is left of those 300 s) |
 | `todo_write` | Write structured TODO list |
+
+`write_file` and `edit_file` replace a file atomically — the new content is written beside
+it and renamed over it — so a run that is killed mid-edit leaves the old file or the new one,
+never a truncated one (which would stall a whole package build, whose units share one source
+file). A file's mode and a symbolic link are kept as they were.
 
 ### Lex tools
 
