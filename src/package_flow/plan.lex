@@ -461,6 +461,84 @@ fn example_literal_errors(u :: PlanUnit) -> List[Str] {
   })
 }
 
+type ScanState = { depth :: Int, in_str :: Bool, esc :: Bool, after_close :: Bool, done :: Bool, bad :: Bool }
+
+# True when an example takes something off the call's result — `f(x).entries =>
+# ..` — instead of being a bare `f(args) => expected`. The issue store's example
+# grammar accepts only a call to the function under definition, so such an
+# example can never verify: it is rejected when the unit is verified, long after
+# the plan passed every other check. Seen live: the ROOT unit of a 20-unit plan
+# (a token parser, six examples of this shape) — every other unit depends on it,
+# so one planner habit stalled the whole build for 20 minutes before a model
+# worked out why. Scans to the close of the first top-level call, skipping
+# string literals, and looks at what follows it.
+fn projects_off_call(example :: Str) -> Bool
+  examples {
+    projects_off_call("f(1) => 2") => false,
+    projects_off_call("f(\"a)\").entries => []") => true,
+    projects_off_call("f(\"a).b\") => \"x\"") => false,
+    projects_off_call("f(g(1)) => 2") => false,
+    projects_off_call("f(g(1)).x => 2") => true,
+    projects_off_call("f(1)   .x => 2") => true,
+    projects_off_call("no call here") => false
+  }
+{
+  let end := list.fold(str.split(example, ""), { depth: 0, in_str: false, esc: false, after_close: false, done: false, bad: false }, fn (st :: ScanState, c :: Str) -> ScanState {
+    if st.done {
+      st
+    } else {
+      if st.after_close {
+        if c == " " {
+          st
+        } else {
+          if c == "." {
+            { depth: st.depth, in_str: st.in_str, esc: st.esc, after_close: st.after_close, done: true, bad: true }
+          } else {
+            { depth: st.depth, in_str: st.in_str, esc: st.esc, after_close: st.after_close, done: true, bad: st.bad }
+          }
+        }
+      } else {
+        if st.in_str {
+          if st.esc {
+            { depth: st.depth, in_str: true, esc: false, after_close: false, done: false, bad: false }
+          } else {
+            if c == "\\" {
+              { depth: st.depth, in_str: true, esc: true, after_close: false, done: false, bad: false }
+            } else {
+              { depth: st.depth, in_str: c != "\"", esc: false, after_close: false, done: false, bad: false }
+            }
+          }
+        } else {
+          if c == "\"" {
+            { depth: st.depth, in_str: true, esc: false, after_close: false, done: false, bad: false }
+          } else {
+            if c == "(" {
+              { depth: st.depth + 1, in_str: false, esc: false, after_close: false, done: false, bad: false }
+            } else {
+              if c == ")" {
+                { depth: st.depth - 1, in_str: false, esc: false, after_close: st.depth == 1, done: false, bad: false }
+              } else {
+                st
+              }
+            }
+          }
+        }
+      }
+    }
+  })
+  end.bad
+}
+
+fn example_shape_errors(u :: PlanUnit) -> List[Str] {
+  list.fold(u.examples, [], fn (acc :: List[Str], e :: Str) -> List[Str] {
+    if projects_off_call(e) {
+      list.concat(acc, [str.join(["unit `", u.key, "`: example `", e, "` takes a field or method off the call (`).name`). An example must be a bare call `f(args) => expected`, which is all the issue store accepts — put the projection in the expected value, or declare a helper function that returns the part and call that instead"], "")])
+    } else {
+      acc
+    }
+  })
+}
+
 fn unit_errors(u :: PlanUnit, all_keys :: List[Str], all_api :: List[Str]) -> List[Str] {
   let who := str.join(["unit `", u.key, "`: "], "")
   let key_err := if valid_name(u.key) {
@@ -523,7 +601,8 @@ fn unit_errors(u :: PlanUnit, all_keys :: List[Str], all_api :: List[Str]) -> Li
     }
   })
   let literal_err := example_literal_errors(u)
-  list.concat(list.concat(list.concat(list.concat(list.concat(list.concat(key_err, title_err), api_err), size_err), example_err), literal_err), dep_err)
+  let shape_err := example_shape_errors(u)
+  list.concat(list.concat(list.concat(list.concat(list.concat(list.concat(list.concat(key_err, title_err), api_err), size_err), example_err), literal_err), shape_err), dep_err)
 }
 
 # Dependency order: a unit comes after everything it depends on. Units that
