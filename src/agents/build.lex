@@ -29,6 +29,10 @@ import "../prompts/build_ollama" as bpo
 
 import "std.list" as list
 
+import "std.env" as env
+
+import "std.str" as str
+
 fn agent() -> [env] ag.AgentLoop {
   let base := { name: "build", goal: bp.system(), model: prov.claude_sonnet(), provider: providers.anthropic(), tools: tools.all_tools(), options: { temperature: None, top_p: None, max_steps: Some(50), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
@@ -44,8 +48,27 @@ fn mistral_agent() -> [env] ag.AgentLoop {
   ag.with_permission_gate(base, rules.build_permission())
 }
 
+# A local model's tokens cost nothing, so how long it may keep going on one task
+# is a question of how much time there is, not of money: an overnight run raises
+# it (LEX_MAX_STEPS) because two repair rounds on a real build both ended
+# `[max_steps reached]` mid-fix at the default. Anything outside 10..1000 is
+# ignored, so a typo cannot turn the limit off.
+fn local_max_steps() -> [env] Int {
+  match env.get("LEX_MAX_STEPS") {
+    None => 60,
+    Some(v) => match str.to_int(v) {
+      None => 60,
+      Some(n) => if n >= 10 and n <= 1000 {
+        n
+      } else {
+        60
+      },
+    },
+  }
+}
+
 fn ollama_agent() -> [env] ag.AgentLoop {
-  let base := { name: "build", goal: bpo.system(), model: prov.ollama(providers.ollama_model()), provider: providers.ollama_local(), tools: tools.minimal_tools(), options: { temperature: None, top_p: None, max_steps: Some(60), max_tokens: None }, permission_spec: None }
+  let base := { name: "build", goal: bpo.system(), model: prov.ollama(providers.ollama_model()), provider: providers.ollama_local(), tools: tools.minimal_tools(), options: { temperature: None, top_p: None, max_steps: Some(local_max_steps()), max_tokens: None }, permission_spec: None }
   ag.with_permission_gate(base, rules.build_permission())
 }
 

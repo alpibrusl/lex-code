@@ -40,6 +40,8 @@ import "../package_flow/merge" as merge
 
 import "../package_flow/dashboard" as dash
 
+import "../package_flow/report" as rpt
+
 import "../package_flow/repair" as rep
 
 import "../tools/session_health" as health
@@ -1824,7 +1826,10 @@ fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, ap
           Some(path) => health.run_session_health(path),
           None => match pb.flag_value(argv, "--dashboard=") {
             Some(name) => run_dashboard(name, argv),
-            None => run_main_rest(argv, inv, provider_tag, mode),
+            None => match pb.flag_value(argv, "--report=") {
+              Some(name) => run_report(name, argv),
+              None => run_main_rest(argv, inv, provider_tag, mode),
+            },
           },
         },
       },
@@ -1852,6 +1857,23 @@ fn run_dashboard(name :: Str, argv :: List[Str]) -> [net, fs_read, fs_walk, fs_w
   }
   let port := pb.flag_int(argv, "--port=", 7800)
   dash.serve_dashboard(name, log_path, port)
+}
+
+# `--report=NAME`: one Markdown page about a finished (or abandoned) run — the
+# verdict, what each unit cost, what is still wrong and what was set aside —
+# for whoever comes back to it. `--log=` is the run's output (default
+# `NAME.log`), `--rounds=` the overnight supervisor's table (optional).
+# Prints; writes nothing. See package_flow/report.lex.
+fn run_report(name :: Str, argv :: List[Str]) -> [io, fs_read, fs_walk, proc] Nil {
+  let log_path := match pb.flag_value(argv, "--log=") {
+    Some(p) => p,
+    None => str.concat(name, ".log"),
+  }
+  let rounds_path := match pb.flag_value(argv, "--rounds=") {
+    Some(p) => p,
+    None => "",
+  }
+  rpt.run_report(name, log_path, rounds_path)
 }
 
 fn run_main_rest(argv :: List[Str], inv :: Invocation, provider_tag :: Str, mode :: sess.AgentMode) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random, concurrent] Nil {
@@ -1911,6 +1933,7 @@ fn dispatch(inv :: Invocation, mode :: sess.AgentMode, provider_tag :: Str) -> [
       io.print(str.concat("  hardening: --no-harden | --harden-rounds=N | --harden-turns=N   invariants are checked and violations fixed automatically by default", "\n"))
       io.print(str.concat("           --package-apply=P                  file that reviewed plan as issues", "\n"))
       io.print(str.concat("           --dashboard=P [--log=F] [--port=N] read-only live view of a running --auto build (default log: P.log, port: 7800)", "\n"))
+      io.print(str.concat("           --report=P [--log=F] [--rounds=F]  one Markdown page about a finished or abandoned run (verdict, per-unit cost, what is still wrong)", "\n"))
       io.print(str.concat("           --project=P [--fallback=TAG]       drive the project to done, escalating a stuck issue to TAG", "\n"))
       io.print(str.concat("Ctrl-D to exit", "\n"))
       if inv.multi {
