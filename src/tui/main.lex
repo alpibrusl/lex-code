@@ -30,6 +30,8 @@ import "../package_flow/plan" as pplan
 
 import "../package_flow/board" as pb
 
+import "../package_flow/triage" as tri
+
 import "../package_flow/apply" as papply
 
 import "../package_flow/parallel" as par
@@ -799,6 +801,38 @@ fn apply_patches(project :: Str, argv :: List[Str]) -> [proc, io] Bool {
   }
 }
 
+# A failed attempt is a reason to try again only if the model's code was what
+# failed. Ask the store why (no model involved): when it says the unit's own
+# examples cannot be parsed, or the verify command itself broke, no further
+# attempt can change the outcome, so use up the unit's budget — the loop then
+# carries on with every unit that does not depend on it and ends "stuck",
+# naming the cause, instead of spending four attempts proving the same thing.
+# See package_flow/triage.lex for why this is conservative on purpose.
+fn after_failed_attempt(id :: Str, attempts :: List[(Str, Int)], max_attempts :: Int) -> [proc, io] List[(Str, Int)] {
+  let t := match proc.run("lex", ["--output", "json", "issue", "verify", id]) {
+    Err(_) => { kind: "code", why: "" },
+    Ok(o) => tri.triage_verify(str.concat(o.stdout, o.stderr)),
+  }
+  if t.kind == "code" {
+    pb.bump_attempts(attempts, id)
+  } else {
+    let __w := io.print(str.join(["[PROJECT] ⚠ not retrying issue ", id, " — this is a ", if t.kind == "plan_defect" {
+      "plan defect (an example the store cannot accept; an example cannot be edited once filed, so fix the plan and re-file)"
+    } else {
+      "tooling failure (the model's code is not what failed)"
+    }, ": ", t.why, "\n[PROJECT] carrying on with the units that do not depend on it."], ""))
+    exhaust_attempts(attempts, id, max_attempts)
+  }
+}
+
+fn exhaust_attempts(attempts :: List[(Str, Int)], id :: Str, max_attempts :: Int) -> List[(Str, Int)] {
+  if pb.attempts_of(attempts, id) >= max_attempts {
+    attempts
+  } else {
+    exhaust_attempts(pb.bump_attempts(attempts, id), id, max_attempts)
+  }
+}
+
 fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_after :: Int, max_attempts :: Int, attempts :: List[(Str, Int)], fuel :: Int, guidance :: Str) -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, approval, stream, crypto, random] Str {
   if fuel <= 0 {
     "budget"
@@ -847,7 +881,12 @@ fn project_loop(project :: Str, primary :: Str, fallback :: Option[Str], switch_
                 } else {
                   io.print("")
                 }
-                project_loop(project, primary, fallback, switch_after, max_attempts, pb.bump_attempts(attempts, id), fuel - 1, guidance)
+                let next_attempts := if verdict == "verified" {
+                  pb.bump_attempts(attempts, id)
+                } else {
+                  after_failed_attempt(id, attempts, max_attempts)
+                }
+                project_loop(project, primary, fallback, switch_after, max_attempts, next_attempts, fuel - 1, guidance)
               },
             }
           },

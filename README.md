@@ -418,6 +418,19 @@ type) it went 11/16 → 14/16 → 16/16 and `done`, and left no debugging code b
 Two packages, one local model, thinking on: read it as "the gap was visibility", not
 as a success rate.
 
+**A failed attempt is only retried if the code was what failed.** After an attempt
+that does not verify, lex-code asks the store why (no model involved). If the store
+rejected the unit's own examples — an example is immutable once filed, so no edit can
+fix it — or the verify command itself broke, it prints `not retrying issue … plan
+defect` (or `tooling failure`) with the store's message, uses up that unit's budget,
+and carries on with every unit that does not depend on it; the run ends `stuck`,
+naming the cause. Everything else is retried as before. It is deliberately
+conservative: it never guesses from how a failure *looks* (a padding bug and a
+miscounted example print the same expected-versus-got), only from what the store
+says. Why: across five earlier invoices runs, ten units needed a second attempt;
+one recovered (on the third), nine used all four and failed, mostly for reasons no
+retry could change. `--parallel` does not use this yet.
+
 A provider that returns nothing (a rate limit, a rejected key) stops the run
 with the provider named instead of burning attempts; verified issues are kept.
 
