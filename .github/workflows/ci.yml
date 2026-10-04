@@ -116,7 +116,7 @@ jobs:
       # Offline unit tests (#54 introduced tests/): per-test file DBs under
       # /tmp, no provider keys, no network.
       - name: Test
-        run: lex test --allow-effects crypto,fs_read,fs_write,io,random,sql,time tests
+        run: lex test --allow-effects crypto,fs_read,fs_write,io,proc,random,sql,time tests
         working-directory: lex-code
 
       # The overnight supervisor's decisions (resume, escalate, stall, outage,

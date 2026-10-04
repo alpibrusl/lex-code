@@ -14,6 +14,8 @@ import "lex-schema/error" as e
 
 import "lex-schema/schema" as s
 
+import "../atomic" as atomic
+
 import "../util" as util
 
 import "../linter" as linter
@@ -69,7 +71,7 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
       None => Err(e.single("", "missing_field", "content is required")),
       Some(content) => match ensure_parent_dir(path) {
         Err(msg) => Err(e.single("", "io_error", str.concat("could not create directory for ", str.concat(path, str.concat(": ", msg))))),
-        Ok(_) => match io.write(path, content) {
+        Ok(_) => match atomic.write_atomic(path, content) {
           Err(msg) => Err(e.single("", "io_error", msg)),
           Ok(_) => {
             let lint := linter.run(path)
