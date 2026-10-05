@@ -531,11 +531,11 @@ fn acceptance_run(project :: Str) -> [proc, io, net, time, env] AcceptOutcome {
                   { gate: "pass", problems: [] }
                 } else {
                   let how := acc.repro_line(file, a, str.join(needed, ","), r.failures)
-                  { gate: "fail", problems: if str.is_empty(how) {
-                    r.failures
-                  } else {
-                    list.concat(r.failures, [how])
-                  } }
+                  let shared := acc.shared_cause_line(r.failures)
+                  let extra := list.filter([shared, how], fn (x :: Str) -> Bool {
+                    not str.is_empty(x)
+                  })
+                  { gate: "fail", problems: list.concat(r.failures, extra) }
                 }
               },
             }
