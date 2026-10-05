@@ -148,7 +148,15 @@ last_accept()   { awk '$1=="[ACCEPTANCE]" && $2 ~ /^[0-9]+\/[0-9]+$/ {v=$2} END{
 verdict_in()    { awk -F'\t' '$1=="[PROJECT_VERDICT]" {v=$2} END{print v}' "$1"; }
 
 # --- the shared file: put back the last copy that parsed -------------------------------
-mtime_of() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
+# GNU stat first: there `-f` means "filesystem status" and succeeds with text that is not a
+# time, so BSD-first (stat -f %m) breaks on Linux. Anything non-numeric becomes 0.
+mtime_of() {
+  local m
+  m=$(stat -c %Y "$1" 2>/dev/null)
+  case "$m" in ''|*[!0-9]*) m=$(stat -f %m "$1" 2>/dev/null) ;; esac
+  case "$m" in ''|*[!0-9]*) m=0 ;; esac
+  echo "$m"
+}
 
 # Remember the shared file if it parses. Called between rounds AND while a round runs
 # (see run_capped): a copy that is only refreshed at round boundaries is up to a
