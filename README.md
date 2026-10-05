@@ -1,52 +1,59 @@
 # lex-code
 
-```
-    __                               __
-   / /__  _  __      _________  ____/ /__
-  / / _ \| |/_/_____/ ___/ __ \/ __  / _ \
- / /  __/>  </_____/ /__/ /_/ / /_/ /  __/
-/_/\___/_/|_|      \___/\____/\__,_/\___/
-```
-
 [![CI](https://github.com/alpibrusl/lex-code/actions/workflows/ci.yml/badge.svg)](https://github.com/alpibrusl/lex-code/actions/workflows/ci.yml)
+[![License: EUPL-1.2](https://img.shields.io/badge/license-EUPL--1.2-blue.svg)](LICENSE)
 
-**Part of the [Lex](https://lexlang.org) project** — Agents · [Manifesto](https://lexlang.org/manifesto) · [All packages](https://lexlang.org)
+**A coding assistant for [Lex](https://lexlang.org) that proves its work.**
 
-A Lex-native coding assistant — think Claude Code or Cursor, built entirely in the Lex ecosystem.
+Most coding assistants hand you a transcript and ask you to read the diff.
+lex-code hands you a verdict: every task ends in a machine-readable result
+produced by the type checker and by examples written *before* the code, not by
+what the model says about itself. It can plan and build a whole package from a
+brief, run unattended on a local model, and leave a report of what happened.
+It is written in Lex, so it runs under the same effect-typed sandbox it enforces.
 
-**New here?** [`docs/TUTORIAL.md`](docs/TUTORIAL.md) is a walkthrough —
-install, first run, picking a mode, and the typed-issue workflow — before
-this README's full reference.
+```sh
+lex-code --ollama "implement list.zip"          # one task, fully local, no key
+lex-code --issue=<id> --ollama                  # implement a typed issue, then verify it
+lex-code-overnight --name=invoices --brief-file=brief.txt --ollama   # a whole package, unattended
+```
 
-Every major claim below has a runnable, verified check in
-[`examples/`](examples/README.md) — not a tutorial, a regression test you
-can run by hand.
+## Contents
 
-## Why lex-code
+- [What it does](#what-it-does)
+- [Install](#install)
+- [Quick start](#quick-start)
+- [How a result gets checked](#how-a-result-gets-checked)
+- [Modes](#modes)
+- [Providers](#providers)
+- [Safety model](#safety-model)
+- [Documentation](#documentation)
+- [Status and limits](#status-and-limits)
+- [Development](#development)
+- [License](#license)
 
-- **A result you don't have to trust, or read the diff to believe.**
-  `--issue=<id>` iterates against the type checker and the issue's own
-  acceptance examples, not a transcript — the run ends with one
-  machine-readable `[ISSUE_VERDICT]` line regardless of what the model
-  claims. See [Delegating to it from another agent](#delegating-to-it-from-another-agent-claude-code-etc).
-- **The sandbox is the language, not a prompt.** Every session runs
-  under an explicit `--allow-effects` capability grant enforced by the
-  Lex VM itself — the agent can't perform `net`/`fs_write`/etc. it
-  wasn't granted, full stop, not "was told not to."
-- **A second, outer sandbox layer is one flag away.** `--lex-os` runs
-  the whole session inside [lex-os](https://github.com/alpibrusl/lex-os)'s
-  host-level mediated perimeter (a real microVM on a KVM host) —
-  see [Running under lex-os](#running-under-lex-os).
-- **Provider-agnostic, including fully local.** `--ollama` runs
-  entirely on your own machine, no key, no cloud dependency — the same
-  workflow as every other provider flag (see [Providers](#providers)).
-- **It dogfoods its own guarantees.** lex-code is written entirely in
-  Lex, so its own CI runs the same type checker, minimum-bar gate, and
-  effect-row-minimality report against itself that it holds any task to.
-  Concretely, not just in theory: six real defects in `--parallel`
-  itself were found by building real packages end to end and pushing
-  past the first green light — see
-  [Found by actually using it](#found-by-actually-using-it-2026-09-30).
+## What it does
+
+- **Verifies, doesn't narrate.** A *typed issue* is a contract: exact
+  signatures plus the examples that decide whether it holds. `--issue=<id>`
+  iterates against the type checker and those examples and ends with one
+  `[ISSUE_VERDICT]` line, whatever the model claims.
+- **Builds whole packages.** Give it a brief. It drafts a graph of typed issues,
+  checks the plan before spending a token on code, builds the units in
+  dependency order, hardens them with generated invariants, starts the real
+  program and replays black-box scenarios against it, and repairs what fails.
+- **Runs while you sleep.** `lex-code-overnight` resumes a build across rounds,
+  waits out a provider that goes away, restores the shared source file after a
+  kill, and writes a report: verdict, per-unit attempts and tokens, what is
+  still wrong.
+- **Is sandboxed by the language.** Every session runs under an explicit
+  capability grant enforced by the Lex VM: the agent cannot use `net`,
+  `fs_write` and the like unless it was granted them. `--lex-os` adds an outer,
+  host-level perimeter.
+- **Works with any provider, including none.** `--ollama` runs entirely on your
+  machine. Cloud and OpenAI-compatible providers use the same flags.
+- **Leaves a trail.** Each session is a database of events, each issue is in a
+  content-addressed store, and a running build has a read-only live dashboard.
 
 ## Install
 
@@ -54,1516 +61,174 @@ can run by hand.
 curl -fsSL https://raw.githubusercontent.com/alpibrusl/lex-code/main/install.sh | bash
 ```
 
-Installs the pinned Lex toolchain (only if `lex` isn't already on your
-PATH — an existing install is left alone), resolves lex-code's own
-package dependencies, and installs the `lex-code` binary via the
-repo's own `make install` below. Safe to re-run. macOS and Linux; on
-Windows, use WSL. Override the prefix with `LEX_CODE_PREFIX=~/.local`.
+This installs the pinned Lex toolchain if `lex` is not already on your `PATH`,
+resolves lex-code's own dependencies, and installs `lex-code` and
+`lex-code-overnight`. It is safe to re-run. macOS and Linux; on Windows use WSL.
+Set `LEX_CODE_PREFIX=~/.local` to install somewhere other than `/usr/local`.
+
+From a checkout instead: `make install` (or `make install PREFIX=~/.local`),
+and `make uninstall` to remove it. See [docs/INSTALL.md](docs/INSTALL.md).
+
+## Quick start
+
+Run with a local model, no key:
 
 ```sh
-# fully local, no key
-lex-code --ollama "implement list.zip"
+lex-code --ollama                         # interactive session in the current directory
+lex-code --ollama "implement list.zip"    # one task, then exit
+lex-code --plan --ollama                  # plan only; nothing is written
+```
 
-# or OpenCode Go
+Use a cloud provider by selecting its flag and setting its key
+(see [Providers](#providers)):
+
+```sh
 export OPENCODE_API_KEY=...
 lex-code --opencode "implement list.zip"
 ```
 
-## Live demo — building a real package, unattended
-
-The claim to check isn't "an LLM wrote some code" — it's that the
-result doesn't need to be trusted on the model's word. One command
-builds an entire small package from a one-paragraph brief, with no
-human editing the generated code:
+A whole package, in stages you can stop at (each stage's last line is
+machine-readable, and every file in between is one you can read and edit):
 
 ```sh
-lex-code --opencode --package "$BRIEF" --name=tally --auto --parallel=2
+lex-code --package "a small invoice REST API ..." --name=invoices --ollama   # 1. plan; files nothing
+lex-code --package-check=invoices                                             # 2. re-validate after you edit it
+lex-code --package-apply=invoices                                             # 3. file the reviewed plan as issues
+lex-code --project=invoices --ollama > invoices.log 2>&1 &                    # 4. build, harden, accept, repair
+lex-code --dashboard=invoices                                                 #    watch it live (127.0.0.1:7800)
 ```
 
-What actually happens, in order: a plan agent turns the brief into a
-dependency graph of typed units (an LLM step); independent units build
-concurrently, as separate OS processes, each in its own isolated copy
-(an LLM step per unit); every merge back into the canonical file is
-gated by `lex check` — a deterministic compiler, never the model,
-deciding whether it's accepted; and once every unit verifies, a closing
-hardening pass runs property tests *generated from the plan's own
-declared invariants*, not written by the agent that implemented them.
-
-A representative real result, `tally` — a shared-expense ledger with a
-deliberate floating-point trap (round `1.005` to the nearest cent: the
-literal isn't exactly representable as a binary `Float`, so a naive
-`* 100 + 0.5` implementation returns the wrong answer) and one function
-genuinely gated behind the effect system (`save_ledger`, the only unit
-in the package allowed to touch a filesystem):
-
-```
-8/8 verified · 908 invariant checks, all hold · PACKAGE_GATE: pass
-
-$ lex run --allow-effects fs_write src/tally.lex round_cents 1.005
-101
-$ lex run --allow-effects fs_write src/tally.lex split_evenly 1000 '["alice","bob","carol"]'
-{"$variant":"Ok","args":[[{"cents":334,"person":"alice"},{"cents":333,"person":"bob"},{"cents":333,"person":"carol"}]]}
-```
-
-334 + 333 + 333 = 1000 exactly — no cent created or lost across three
-shares of an amount that doesn't divide evenly. That's a property
-nobody hand-wrote a test for; it's checked because the plan declared it
-as an invariant, and the hardening pass verified it against many inputs,
-not just the one shown here.
-
-See [Found by actually using it](#found-by-actually-using-it-2026-09-30)
-for what *didn't* work on the first try, and how each failure was
-found and fixed — the interesting part of an unattended build is what
-happens when it's wrong, not only when it's right.
-
-### Effect-typed orchestration + tamper-evident audit
-
-A narrower, earlier demo of two specific manifesto guarantees (§VI, §VIII):
-
-[![Demo — effect-typed orchestration + hash chain](https://asciinema.org/a/pdL5GnjFtakQi6bC.svg)](https://asciinema.org/a/pdL5GnjFtakQi6bC)
+Or do all of it unattended, with a report at the end (`.lex/overnight/REPORT.md`):
 
 ```sh
-# run it yourself
-bash examples/manifesto_full_chain/demo.sh
+lex-code-overnight --name=invoices --brief-file=brief.txt --ollama
 ```
 
-## Quickstart
+[docs/TUTORIAL.md](docs/TUTORIAL.md) is a walkthrough of installing, a first run,
+picking a mode and the typed-issue workflow.
 
-Use `bin/lex-code` rather than calling `lex run` by hand: it supplies
-the capability grant every session needs, the `main --` separator that
-stops your first flag being read as a function name, and a raised
-`--max-steps` — the VM's 10,000,000-step default is a DoS guard for
-untrusted sandboxed snippets, not for a long agentic session, and a
-verbose provider's ordinary output can hit it outright partway through
-a real task. Calling `lex run` directly (as the rest of this README
-does, for entry points other than the TUI) needs the same flag added
-by hand; see `bin/lex-code`'s own comment for the full story.
+## How a result gets checked
 
-```sh
-# fully local, no key — build mode (default), interactive REPL
-./bin/lex-code --ollama
+| Check | What it catches | Where |
+|---|---|---|
+| **Typed issue verification** | code that does not match its declared signatures or fails its own examples | [Modes](docs/MODES.md) |
+| **Plan check** | a plan that cannot be built: unbuildable examples, cycles, a function named like one a dependency exports, invariants that can never fail | [Packages](docs/PACKAGES.md) |
+| **Regression pass** | a unit that was verified and was broken by a later one | [Packages](docs/PACKAGES.md) |
+| **Hardening** | violations of invariants the plan itself declared, checked on generated inputs | [Packages](docs/PACKAGES.md) |
+| **Acceptance gate** | a package whose units all verify but which does not run: the real program is started and the brief's requirements are replayed as requests | [Packages](docs/PACKAGES.md) |
+| **Integration repair** | failures that only exist once the units share a file; handed back to a model as one task | [Packages](docs/PACKAGES.md) |
+| **Independent verification** | an implementation that satisfies its own tests but not the task: expected output is re-derived from the spec | [Quality](docs/QUALITY.md) |
+| **Minimum bar** | a project that is missing the basics, checked read-only | [Quality](docs/QUALITY.md) |
 
-# one-shot CLI mode (exits after the task)
-./bin/lex-code --ollama "implement list.zip"
+"Verified" is necessary, not sufficient: a unit's examples are a finite list.
+That is why a package build ends by *running* the program, and why you should
+attack the result yourself (see [Status and limits](#status-and-limits)).
 
-# plan mode
-./bin/lex-code --plan --ollama
-
-# OpenCode Go provider
-export OPENCODE_API_KEY=...
-./bin/lex-code --opencode
-
-# bootstrap demo: impl → spec → test → review
-lex run src/bootstrap/run.lex
-
-# web UI + HTTP API on :7700 (see Web Frontend)
-lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
-  src/server/web.lex serve_web
-```
-
-## Delegating to it from another agent (Claude Code, etc.)
-
-_Runnable: `examples/delegate_via_typed_issue.sh`_
-
-`lex-code` is a plain CLI — any agent that can shell out (Claude Code's
-own Bash tool, a CI step, another script) can hand it a Lex-specific task
-directly, non-interactively, the same one-shot mode above:
-
-```sh
-lex-code --ollama "implement list.zip" > /tmp/lex-code.log 2>&1
-```
-
-That's fine for a quick delegated edit, but the transcript is prose — a
-calling agent shouldn't trust "looks like it worked" any more than a
-human should. For a result worth trusting without reading the diff
-yourself, hand it a
-[typed issue](#implementing-a-typed-issue) instead: it iterates against
-the type checker and the issue's own acceptance examples, and the run
-ends with one machine-readable line regardless of what the model claims:
-
-```sh
-lex issue create --title "digit_sum" --shape typed_delta \
-  --api 'digit_sum:(n :: Int) -> Int:added' \
-  --example 'digit_sum(1234) => 10' --example 'digit_sum(-56) => 11'
-
-lex-code --issue=<id> --ollama > /tmp/lex-code.log 2>&1
-grep '^\[ISSUE_VERDICT\]' /tmp/lex-code.log   # verified|failed|inconclusive|unavailable
-```
-
-A calling agent branches on that line, not on anything the model said —
-`verified` is backed by the type checker and the issue's examples
-actually passing, not by a transcript claiming success.
-
-### A packaged skill for other agents
-
-[`skills/lex-code/SKILL.md`](skills/lex-code/SKILL.md) is this section,
-packaged for an agent to install and follow directly — install/provider
-selection/both delegation patterns, in ~80 lines, every command in it
-verified against this repo. For Claude Code: copy the directory into
-`~/.claude/skills/` (or a project's `.claude/skills/`) and it's picked
-up automatically:
-
-```sh
-mkdir -p ~/.claude/skills
-cp -r skills/lex-code ~/.claude/skills/lex-code
-```
-
-For Codex or any other agent that reads a plain instructions file rather
-than a skills directory, just point it at the same file — it carries no
-Claude-Code-specific tool syntax, only shell commands.
-
-## Install from a checkout (what `install.sh` runs for you)
-
-Already have a clone, want a custom prefix, or don't want to pipe a
-script into bash — this is what the one-liner above does under the hood:
-
-```sh
-lex pkg install    # fetch lex-llm, lex-agent, and the rest
-
-# installs to /usr/local/bin/lex-code and /usr/local/lib/lex-code/
-make install
-
-# custom prefix
-make install PREFIX=~/.local
-
-# uninstall
-make uninstall
-```
-
-After install, `lex` must still be on your PATH (it’s the interpreter).
-
-```sh
-lex-code "implement list.zip"
-lex-code --plan --ollama "how should we structure the session module?"
-```
-
-## Agent Modes
+## Modes
 
 | Flag | Mode | Role |
 |------|------|------|
 | *(default)* | Build | Write and edit Lex source files |
 | `--plan` | Plan | Produce implementation plans, no writes |
-| `--explore` | Explore | Read + grep, understand the codebase |
+| `--explore` | Explore | Read and search the codebase |
 | `--refactor` | Refactor | Restructure code, rename, inline |
 | `--spec` | Spec | Generate lex-spec `Spec` values |
 | `--test` | Test | Write unit and property tests |
-| `--review` | Review | Code-review: correctness, style, effects |
-| `--verify` | Verify | Independently re-derive expected output from the task's own spec and check the implementation against it — never trusts the implementation's existing test file ([below](#independent-verification-mode)) |
-| `--bar` | Bar | Walk a project against the minimum bar, read-only ([below](#minimum-bar-mode)) |
-| `--multi` | Multi | Run Build + Test in parallel via `std.conc` |
-| `--issue=<id>` | Build | Implement a typed issue from its declared acceptance, then verify it ([below](#implementing-a-typed-issue)) |
-| `--refine=<id>` | Build | Propose a typed acceptance for a free-form issue; a human approves it ([below](#refining-a-free-form-issue)) |
+| `--review` | Review | Review correctness, style and effects |
+| `--verify` | Verify | Re-derive expected output from the spec and check the implementation |
+| `--bar` | Bar | Walk a project against the minimum bar, read-only |
+| `--multi` | Multi | Build and test in parallel |
+| `--issue=<id>` | Build | Implement a typed issue from its declared acceptance, then verify it |
+| `--refine=<id>` | Build | Propose a typed acceptance for a free-form issue; a human approves it |
 
-### Implementing a typed issue
-
-A [typed issue](https://github.com/alpibrusl/lex-lang/issues/949) is a
-contract, not a description: exact signatures to add, change, or remove,
-plus the examples that decide whether it holds (or, for a bug, the one
-example that fails at head). `--issue=<id>` works from that contract:
-
-```sh
-lex issue create --title "digit_sum" --shape typed_delta \
-  --api 'digit_sum:(n :: Int) -> Int:added' \
-  --example 'digit_sum(1234) => 10' --example 'digit_sum(-56) => 11'
-lex-code --issue=<id> ["optional extra guidance"]
-```
-
-1. `lex issue show` renders the acceptance as the task.
-2. The session is bound to the issue, so every clean `.lex` write is
-   published with `--intent-issue` and its ops link back to it
-   (issue → intent → ops → attestation).
-3. The agent iterates against the oracle with the `issue_verify` tool.
-4. Whatever the model claims, the run ends with `lex issue verify` and a
-   machine-readable last line:
-   `[ISSUE_VERDICT]\t<verified|failed|inconclusive|unavailable>\t<id>`.
-
-`typed_delta` and `failing_example` issues close by proof. `free_form`,
-`metric_invariant` and `evidence` verify as `inconclusive` for now.
-
-### Refining a free-form issue
-
-Not every issue starts with a contract. `--refine=<id>` has the agent read
-the code and **propose** one — exact signatures plus the examples that pin
-them, or the one failing example for a bug — with the `issue_propose`
-tool ([lex-lang #956](https://github.com/alpibrusl/lex-lang/issues/956)).
-It stops there: lex-code has no tool that approves, and the run ends by
-listing the proposals and the command that decides them.
-
-```sh
-lex-code --refine=<id>                         # agent proposes
-lex issue proposals <id>                       # review
-lex issue approve <proposal> --by <you>        # or: reject --notes "..."
-lex-code --issue=<id>                          # implement against the approved contract
-```
-
-Approving never rewrites the issue — its id, intents and verdicts stay
-put; the gate judges it against the latest approved proposal
-(`effective_acceptance` in `lex issue show`). `--refine` runs in Build
-mode with a prompt that forbids implementing; there is no dedicated
-read-only toolset yet (#88).
-
-### Building a whole package
-
-One issue is one function. A package is a **project** of typed issues with
-`--dep` edges between them, and three commands take it from a sentence to a
-verified module. Requires `lex issue next` and `lex issue verify --project`
-(lex-lang 0.11.75+).
-
-```sh
-lex init && lex-code --package "a small text-utilities package: slugify, word_count, wrap, ..." --name=textkit
-#   an agent draws the issue graph into .lex/plans/textkit.json — nothing is filed yet
-lex-code --package-apply=textkit               # after you have read the plan: file it
-lex-code --project=textkit --ollama            # drive it to done
-```
-
-**You can stop after any stage and pick up later.** Each one is its own command,
-and everything between them is a file you can read and edit:
-
-| Stage | Command | What it does | Ends with |
-|---|---|---|---|
-| 1. Plan | `lex-code --package "<brief>" --name=P --ollama` | An agent drafts `.lex/plans/P.json` (and, for a server, `P.acceptance.json`), checks it, and repairs it up to `--plan-tries=N` times (default 3). **Files nothing.** | `[PLAN] valid` or `invalid` |
-| 2. Check | `lex-code --package-check=P` | Re-validates the plan file — after you or an agent edited it. No model. | `[PLAN_CHECK] ok` or `invalid` |
-| 3. File | `lex-code --package-apply=P` | Files the reviewed plan as issues and writes the scaffold. No model. | the issue ids |
-| 4. Build | `lex-code --project=P --ollama` | Drives the issues to done, then re-verifies, hardens and runs acceptance. Resumable: verified units are kept. | `[PROJECT_VERDICT]` |
-| one unit | `lex-code --issue=<id>` | One attempt on one issue. | `[ISSUE_VERDICT]` |
-| by hand | `lex-code --project=P --patch=FILE --patch-issue=ID` | You (or your assistant) write a unit; lex-code verifies it like any other. | the unit's verdict |
-| gate only | `lex-code --acceptance-check=P` | Starts the built package and replays its scenarios. | `[ACCEPTANCE] pass\|fail\|none` |
-| everything | `lex-code --package "<brief>" --name=P --auto` | Stages 1–4 with no human step. | `[PROJECT_VERDICT]` |
-| watch | `lex-code --dashboard=P [--log=F] [--port=N]` | A read-only live view of a running build (default log `P.log`, port 7800). See [Watching a build](#watching-a-build-the-dashboard). | — |
-
-There is no way yet to save a half-finished plan and resume it, or to build only some
-of a project's units from `--project` (use `--issue` for one at a time).
-
-The plan is JSON — units, each with signatures, examples and `deps` — and it
-is checked before it can be filed (every example must call a declared
-function, an example is a bare call — `f(x).field => ..` can never verify —
-an invariant can fail — `... or true` and `f(x) == f(x)` check nothing —
-no function is named like one a dependency exports (`open`, `insert`, ... — such a
-unit can never verify) —
-no cycles, a pure function needs an example, a function is declared
-by exactly one unit). Filing is deterministic on purpose: an LLM does not get
-to decide, unreviewed, what "done" means.
-
-The driver loops: `lex issue next` → run one issue → verify → **re-verify
-everything that had verified**. That last step is the point: an agent turn that
-rewrites a file can silently drop another issue's function, and nothing else
-would notice. A regressed issue simply comes back on the board.
-
-| flag | meaning |
-|---|---|
-| `--max-attempts=N` | attempts per issue before it is given up on (default 4; applies to `--parallel` too) |
-| `--hint=TEXT` / `--hint-file=PATH` | extra guidance appended to every issue's task on this run — use it when resuming a stuck build (`--project=NAME`; verified issues are kept) |
-| `--patch=FILE[,FILE]` / `--patch-issue=ID` | finish a stuck unit yourself (or have your assistant do it): FILE defines the unit's function(s), lex-code splices it in and runs its own check, publish and `issue verify` on it — the patch is never taken on trust, and the hardening and package gates still run after. Rejected patches change nothing. The issue is inferred from the function names unless `--patch-issue` is given |
-| `--fallback=TAG` `--switch-after=N` | after N failures on an issue, hand it to another provider, e.g. `--ollama --fallback=opencode` (default 2) |
-| `--max-turns=N` | budget for the whole run (default 40) |
-| `--plan-tries=N` | repair rounds the planner gets when its plan fails validation (default 3) |
-| `--repair-rounds=N` | how many times the assembled package may be handed back to the model as one integration task when it fails to type-check or fails acceptance (default 2, `0` = off). The model may edit any function; a round that leaves the file not type-checking is rolled back |
-| `--harden-rounds=N` / `--harden-turns=N` | how many rounds, and how many agent turns per round, hardening may spend fixing invariant violations (defaults 3 and 10) |
-| `--no-harden` | skip the closing turn that writes property tests |
-| `--no-acceptance` | skip the closing acceptance run (below) |
-| `--acceptance-check=P` | run only that closing step on an already-built package: start it, replay its scenarios, print `[ACCEPTANCE] pass\|fail\|none` |
-
-**Acceptance: does the assembled program actually run?** Units verify one at a
-time, and that does not show the whole thing works — on a real from-scratch run
-20 of 20 units verified and the package still never started. A plan with a
-network handler therefore carries `.lex/plans/<project>.acceptance.json`:
-black-box scenarios (a request, and the status — and optionally a substring or an
-absent secret — that must come back) taken from the brief's own requirements and
-written *before* the units. After the build and hardening, lex-code starts the real
-package on a free loopback port with a fresh temp dir, replays the scenarios in
-order against that one server, stops it, and fails the gate if the program does not
-come up or a scenario does not hold. Plans without a `net` unit (libraries) need no
-file. Env names/values, headers and paths in the file are restricted character
-sets (raw spaces, quotes and the like in a path are percent-encoded for you, so a
-"SQL injection in the filter" scenario can be written naturally), and the runner only
-ever connects to `127.0.0.1`.
-
-Hardening treats a **plan contradiction** as a plan defect, not a failure of the
-run: an invariant that fails on *every* probed input is the plan disagreeing with
-itself (its examples are fixed once filed), not a code bug, and no attempt could close
-an issue for it. It is reported as `[PLAN] contradiction`, skipped — it is **not
-enforced** — and the run goes on to the acceptance gate and repair. Such a run can
-end `done` only if the real program passed acceptance; fix the plan to enforce the
-invariant. (One garbled invariant once ended a 2.5-hour build, all units verified,
-before the program was ever run.)
-
-It ends with machine-readable lines: `[PROJECT_VERDICT]  done|built|gate_failed|stuck|budget|error|provider_error|no_plan`
-and `[PACKAGE_GATE]  pass|fail|unavailable|none|skipped` (`lex test` over `tests/`).
-`done` means every unit verified **and** the assembled file type-checks **and** the
-gate ran and passed. `built` = every unit verified but the gate could not run;
-`gate_failed` = it ran and failed. Neither is finished. Verified is
-necessary, not sufficient — an issue's examples are a finite list and code can
-satisfy them without being right — which is why the run ends by asking for
-round-trip and property tests and running them.
-
-**A package is one module.** The store's head tracks a single module: publish
-a second `.lex` file and the first file's functions drop out of it, and their
-issues read "absent at head". So every issue is told to put its code in
-`src/<project>.lex`. Units split the work, not the files.
-
-**Integration repair.** Units verify one at a time, so a failure that only exists
-once they share a file has no unit to blame — in a real run, 10 of 10 units
-verified and the assembled file still had three errors. After the build, a
-failing type-check — and later a failing acceptance scenario — is handed back to
-a model as one task: here is what the whole program does wrong, edit any function
-to fix it. It gets `--repair-rounds` tries (default 2). Each round is snapshotted,
-and one that leaves the file not type-checking is rolled back — a round that
-merely passes fewer scenarios is not. It helps and it is not
-a cure. For a failing scenario the prompt includes how to reproduce it — the
-server command with the gate's own env and a `curl` for the first failing request —
-and says to debug in a copy, because a 500 body is usually generic and the cause
-(a swallowed database error) is invisible without running it. On the invoices
-build, repair without that moved acceptance from 10/16 to 11/16 and the run ended
-`gate_failed`; with it, a repair-only rerun on that same package went 11/16 → 16/16
-and `done` (the cause was one query not naming its table). On a second, from-scratch
-build with different bugs (create dropped the customer, a SQL parameter of the wrong
-type) it went 11/16 → 14/16 → 16/16 and `done`, and left no debugging code behind.
-Two packages, one local model, thinking on: read it as "the gap was visibility", not
-as a success rate.
-
-**A failed attempt is only retried if the code was what failed.** After an attempt
-that does not verify, lex-code asks the store why (no model involved). If the store
-rejected the unit's own examples — an example is immutable once filed, so no edit can
-fix it — or the verify command itself broke, it prints `not retrying issue … plan
-defect` (or `tooling failure`) with the store's message, uses up that unit's budget,
-and carries on with every unit that does not depend on it; the run ends `stuck`,
-naming the cause. Everything else is retried as before. It is deliberately
-conservative: it never guesses from how a failure *looks* (a padding bug and a
-miscounted example print the same expected-versus-got), only from what the store
-says. Why: across five earlier invoices runs, ten units needed a second attempt;
-one recovered (on the third), nine used all four and failed, mostly for reasons no
-retry could change. `--parallel` does not use this yet.
-
-A provider that returns nothing (a rate limit, a rejected key) stops the run
-with the provider named instead of burning attempts; verified issues are kept.
-
-### Watching a build: the dashboard
-
-A package build runs for a long time, so there is a live view of it. It is
-**read-only**: it never drives, retries or edits anything, and it writes
-nothing but a start timestamp (`.lex/dashboard-P.start.ts`, used to show elapsed
-time).
-
-```sh
-lex-code --project=invoices --ollama > invoices.log 2>&1 &   # or --auto; any run's stdout
-lex-code --dashboard=invoices                                 # → http://127.0.0.1:7800
-```
-
-It reads three things you already have: the plan (`.lex/plans/P.json`), the issue
-store, and the **log file the run's stdout was redirected to** — `lex-code`
-prints its progress to stdout and keeps no log of its own, so a run you start
-without redirecting has nothing to watch. Use `--log=FILE` if the log is not
-`P.log` in the current directory and `--port=N` if 7800 is taken. **It has no
-authentication, so it listens on the loopback interface only** (`127.0.0.1`) —
-other machines on your network cannot reach it. To watch a build running on
-another machine, forward the port (`ssh -L 7800:127.0.0.1:7800 host`) rather than
-exposing it.
-The page polls every two seconds; closing it does not affect the build.
-
-What it shows:
-
-- **Flow stepper** — plan → file → build → regression → gate, with the current
-  stage highlighted and a failed stage in red (the gate step reads `gate: pass|fail`
-  once the run ends).
-- **Table, kanban and graph views** of the units. Status is `ready`, `running`,
-  `failed` or `verified`, with the attempt number; the graph lays units out by
-  dependency level and colours them the same way.
-- **Unit panel** — click any unit for its spec, signatures, examples,
-  invariants and dependencies, as the plan has them.
-- **Recent activity**, the elapsed time, the run's aggregate line, and a
-  `stuck — gave up on: …` banner naming the units that ran out of attempts —
-  which is your cue to resume with `--hint` or `--patch`.
-
-- **Token usage per task** — prompt and completion tokens for each unit (summed
-  over every attempt, so a retried unit shows what *all* its tries cost), for the
-  planner, and for the whole run. It is read from the `[USAGE]` lines the run
-  prints, so it only counts what the provider reports: Ollama and Gemini do. A turn
-  whose provider reported nothing shows "not reported" rather than zero, and a unit
-  with no attempt yet shows `-`.
-
-What it does not show (yet): the model's output or the diff of an attempt. Those
-are in the session trail (`.lex/sessions/`) and the stage's own output.
-
-### Running it overnight
-
-A whole package on a local model takes hours, and `--auto` stops at the first thing
-that needs a person: a unit that is stuck, a step budget that ran out, a gate that
-failed, a provider that blinked. On a real invoices build (a local 27B, about four
-hours) those decisions were made by hand — resume, resume again, give a hint. If
-the tokens are free and the time is not, a supervisor can make the routine ones:
-
-```sh
-lex-code-overnight --name=invoices --brief-file=brief.txt --ollama
-lex-code-overnight --name=invoices --ollama      # a plan exists: resume it
-cat .lex/overnight/REPORT.md                      # in the morning
-```
-
-It plans if there is no plan (and files it), then runs build rounds, resuming after
-`stuck`, `gate_failed`, `budget` or a kill **while a round makes progress** — more
-units verified or more acceptance scenarios holding. A round with none switches a
-local model's thinking on (it verified a hard unit 4/4 where thinking-off managed
-2/4 — four trials each, one model); a second round in a row without progress stops
-the run. A provider that stops answering is waited for with backoff, not counted as
-a failure. A round that hangs is killed at its own ceiling, the machine is kept awake
-(`caffeinate`), and a shared file left unparseable by a kill mid-edit is put back
-from the newest copy that parsed (copied every two minutes while a round runs, so the
-restore costs minutes, not the round; the broken file is kept next to it). Anything else on the command line goes to `lex-code`
-(`--ollama`, `--lex-os`, ...).
-
-| option | |
-|---|---|
-| `--max-hours=N` / `--round-hours=N` | the whole run's limit (10) and one round's ceiling (3) |
-| `--stall-rounds=N` | rounds without progress before stopping (2) |
-| `--steps=N` | agent steps per task for a local model (80; lex-code's own default is 60) |
-| `--outage-minutes=N` | how long to wait for a provider that is down (90) |
-| `--on-finish=CMD` | run when it ends; env `LEX_OVERNIGHT_PROJECT`, `_REASON`, `_REPORT` |
-| `--no-escalate`, `--no-caffeinate` | never switch thinking on; do not keep the machine awake |
-
-`--steps` is not higher on purpose. Past about a hundred steps a local model's context
-is long enough that a single step outran a five-minute provider timeout and ended a
-repair round with nothing applied; shorter rounds, each starting from a fresh context,
-did better, so `--repair-rounds` defaults to 6 here (give your own to override) and
-`LLM_TIMEOUT_MS` to 15 minutes. `LEX_MAX_STEPS` sets the same budget for a plain
-`lex-code` run.
-
-`lex-code --report=P [--log=F] [--rounds=F]` is the report on its own: one Markdown
-page with the verdict, every unit's attempts and tokens (read from the issue store, so
-a resumed build is counted correctly), the last acceptance result, what was set aside
-(skipped invariants, plan defects) and what each round did. It is how the 12M-token
-cost of one unit becomes visible.
-
-Limits, honestly. It will sometimes end the night `stuck`; the report then says where.
-Switching thinking on and the repair-round count are guesses backed by small runs, not
-measured defaults. It runs shell commands unattended: the permission gate applies, but
-run it in a dedicated project directory (or `--lex-os`), not in a checkout you care
-about. Exit status: 0 done, 1 stopped without finishing, 2 usage, 3 no plan, 4 provider
-stayed down. `scripts/test-overnight.sh` tests its decisions with a stand-in for
-`lex-code`, in seconds.
-
-### Found by actually using it (2026-09-30)
-
-"It dogfoods its own guarantees" (above) is a claim; this is what that
-looked like in practice, over one real night of building several
-packages end to end. Every one of these was a genuine defect in this
-repo, not a demo artifact — found only because the run was pushed to
-completion instead of stopped at the first green light, fixed, and
-re-verified against the exact failure that found it.
-
-| Found | The defect | The fix |
-|---|---|---|
-| A package reported `[PACKAGE_GATE] pass` was actually impossible | `[PROJECT_VERDICT] done` / `[PACKAGE_GATE] unavailable` can mean "every issue verified" while a function is still a bare `todo()` — the store-backed per-issue "verified" status can be wrong for reasons unrelated to the code | `run_project` now re-reads the canonical file and hard-fails on any surviving stub *before* trusting anything the store claims |
-| Two projects on one machine leaked into each other's reasoning | Every `--parallel` issue's isolated Build-session copy lived in one flat, unscoped `/tmp` path shared by every project running at once | Scoped by project name — a same-machine cross-project collision is now a same-project one, already prevented by content-addressed issue ids |
-| A private helper function's needed import silently vanished at merge | `append_extra_fns` (a prior fix, for the helper *function* itself) carries a new function's text into the canonical file, but never the `import` line it depends on | The merge now also diffs and carries missing `import` lines, the same way it already did for functions |
-| The same retry, forever, with no new information | A redispatched issue gets byte-for-byte the same task text on attempt 10 as attempt 1 — no memory bug, the opposite: *no feedback channel exists at all* for a specific prior failure | The last merge/spawn error for that one issue is now folded into its own next retry's guidance; every other issue in the same batch is unaffected |
-| Hardening failed outright on the first package with a real effectful function | The harness's own effect grant was hardcoded to `"io"`, so property-testing any unit needing `fs_write` (or anything else) was never going to work, no matter how correct the code was | The grant is now computed from `lex check`'s own `required_effects` on the harness file, not guessed in advance |
-| A model spent many retries guessing `decimal`/`dec`/`flt`/`cents_via_decimal` before finding the real `math.round` | `lex_stdlib(module)` only supported an exact module-name lookup — useless when the model doesn't know which module to check in the first place | `lex_stdlib` now also searches every module's function names by keyword, so `module="round"` finds `math.round` directly |
-
-Two follow-ups filed, not yet done: [#215](https://github.com/alpibrusl/lex-code/issues/215)
-tracks the residual case neither fix above touches — a model that never
-calls a discovery tool at all — which needs either write-time
-enforcement or, for the local path specifically, grammar/type-constrained
-decoding.
+Modes can be chained into pipelines (`--pipeline=impl_then_test`). Details in
+[docs/MODES.md](docs/MODES.md) and [docs/PIPELINES.md](docs/PIPELINES.md).
 
 ## Providers
 
-lex-code can talk to ten provider backends (see `--help` for the full
-flag list — Anthropic, OpenAI, Google, Mistral, LiteLLM, vLLM, lex-gpu and
-Vertex are implemented in code alongside the two below), but only these two
-have actually been run end-to-end against this repo:
+| Flag | Provider | Needs |
+|------|----------|-------|
+| `--ollama` | Ollama, local | nothing; model from `$OLLAMA_MODEL` (default `qwen3.8:27b-mlx`) |
+| `--opencode` | OpenCode Go, cloud | `OPENCODE_API_KEY`; model from `$OPENCODE_MODEL` |
+| `--vllm` | Any OpenAI-compatible server | `VLLM_BASE_URL`, `VLLM_MODEL` |
 
-| Flag | Provider | Model | Key required |
-|------|----------|-------|--------------|
-| `--ollama` | Ollama (local, native API) | `$OLLAMA_MODEL` (default `qwen3.8:27b-mlx`) | none |
-| `--opencode` | OpenCode Go plan (cloud, direct) | `$OPENCODE_MODEL` | `OPENCODE_API_KEY` |
+Also implemented, with less mileage: `--litellm`, `--lex-gpu`, `--openai`,
+`--mistral`, `--google`, `--vertex`, and Anthropic (the default when no flag is
+given). Only the three above have been run end to end in this repository. Pick a
+model on the command line with `--ollama-model=X`, `--opencode-model=X` and the
+like. See [docs/PROVIDERS.md](docs/PROVIDERS.md).
 
-Every env-var-driven provider's model can also be set on the command line
-instead of a separate `export` — `bin/lex-code` turns the flag into the
-matching export before invoking the agent: `--opencode-model=X`,
-`--ollama-model=X`, `--litellm-model=X`, `--vllm-model=X`,
-`--lex-gpu-model=X`. A generic `--opencode --model=X` resolves against
-whichever provider flag is present (same precedence `select_provider_tag`
-uses to pick the provider itself). Anthropic/OpenAI/Mistral/Google/Vertex
-build their model from a fixed constructor rather than an env var, so
-`--model` with one of those is a hard error for now, not a silent no-op.
+## Safety model
 
-### Local vs. cloud, measured — not assumed
+- **Capability grants, enforced by the VM.** A session runs under
+  `--allow-effects` and cannot perform an effect it was not granted, whatever
+  its prompt says.
+- **A permission gate** sits in front of the tools that change things.
+- **An outer sandbox on request.** `--lex-os` runs the whole session inside
+  lex-os's host-level perimeter.
+- **Unattended runs execute shell commands.** Run `lex-code-overnight` in a
+  dedicated project directory (or with `--lex-os`), not in a checkout you care about.
+- **The dashboard listens on `127.0.0.1` only** and is read-only.
 
-Reproduced live (2026-09-30): the intuitive assumption — a hosted cloud
-model beats one Mac's own GPU — didn't hold, for a concrete and
-checkable reason. Two real builds of the same package, same brief,
-compared from each session's own event log (`ts_ms` timestamps, not a
-guess):
+See [docs/SECURITY.md](docs/SECURITY.md).
 
-| | Local (`--ollama`, `qwen3.8:27b-mlx`) | Cloud (`--opencode`, `qwen3.8-flash`) |
-|---|---|---|
-| Median per-turn | 5.5s | 11.8s |
-| Mean per-turn | 12.8s | 32.4s |
-| Slowest turns seen | 175s, 139s | 195s, 172s, 120s, 108s, 103s... (fatter tail) |
-
-The gap traces to a concrete, fixable cause, not raw compute: the local
-path sets `OLLAMA_THINK=false`; the cloud path has no equivalent
-control, and a direct call to it showed a "reply with one word" request
-still burning 30 hidden reasoning tokens before the answer — one
-observed call spent its entire token budget on reasoning and returned
-no visible output at all. Separately, `qwen3.8-flash` on this gateway
-reproducibly returned a bare HTTP 500 for an ordinary single-function
-request, twice in a row, after ~80-96s each time. None of this is a
-claim about either provider in general — it's what this repo's own
-session logs showed on one real night, and anyone can reproduce the
-comparison the same way: `sqlite3 .lex/sessions/<id>.db "SELECT ts_ms
-FROM events WHERE kind='llm.step' ORDER BY ts_ms"` and diff the deltas.
-
-### lex-gpu
-
-`--lex-gpu` points at [lex-gpu](https://github.com/alpibrusl/lex-gpu)'s
-server, which answers OpenAI chat completions from its own compiled Metal
-and CUDA kernels rather than llama.cpp or MLX. No key; `$LEX_GPU_BASE_URL`
-overrides the default `http://127.0.0.1:8080`.
-
-```sh
-cargo run --release -p lex-rt --example serve -- --model qwen3.8:27b-mlx
-lex-code --lex-gpu --explore "what does src/agents/build.lex do?"
-```
-
-**Chat only, for now.** lex-gpu accepts a `tools` list and drops it, so the
-model is never told the tools exist and its replies carry no `tool_calls` —
-the agent loop gets an answer and never dispatches a tool, which for a
-coding agent means it will describe work rather than do it. The wiring is
-here so that it starts working the moment lex-gpu renders `tools` into its
-prompt and splits `<think>` out of `content`; neither needs a change on
-this side.
-
-### Ollama
-
-_Runnable: `examples/providers/ollama.sh`_
-
-Fully local, no key. Verified with the default model (`qwen3.8:27b-mlx`),
-including a full `--issue=<id>` run through to an `[ISSUE_VERDICT]\tverified`
-close (see [Delegating to it from another agent](#delegating-to-it-from-another-agent-claude-code-etc)).
-
-```sh
-ollama pull qwen3.8:27b-mlx   # or set OLLAMA_MODEL to whatever you have
-lex-code --ollama "implement list.zip"
-```
-
-### OpenCode Go plan
-
-_Runnable: `examples/providers/opencode_go.sh`_
-
-[OpenCode Go](https://opencode.ai/docs/zen) bundles cloud access to several
-open-weight coding models behind one subscription key.
-
-```sh
-export OPENCODE_API_KEY=...
-lex-code --opencode "implement list.zip"
-```
-
-```sh
-$ lex check fizzbuzz.lex && lex run fizzbuzz.lex run_all
-ok
-0
-```
-
-## Web sessions
-
-The browser client sends `session_id` and the server honours it. A session is
-whatever its trail derives — `resume_session` reads
-`.lex/sessions/<id>.db` and rebuilds the conversation per request, so it
-survives a page reload *and* a server restart.
-
-This is not the registry pattern the ACP path uses, and could not be:
-`net.serve_fn` hands the handler a `Request` and nothing else, so there is no
-value to thread between requests and nowhere to keep an in-memory map. That
-constraint points at #54's contract rather than away from it — the
-conversation is a projection of the trail, so deriving it per request is the
-design, not a substitute for a cache.
-
-A client-supplied id becomes a file path, so it is checked: lowercase hex,
-4–64 characters, anything else replaced with a fresh id. An id the server has
-never seen is a working empty session rather than an error, because a log with
-no events derives the empty conversation.
-
-Session logs are swept at server start — older than
-`persist.max_session_age_days()` (30) by mtime, which moves on every turn.
-Age rather than count, so an eviction cannot take a conversation someone is
-still in.
-
-## Project memory
-
-Facts that outlive a session — a convention, a version pin, a gotcha. Three
-stages, and the boundary between them is enforced by the effect system rather
-than by policy.
-
-**The agent proposes.** `remember(kind, content, key?, why?)` appends a
-candidate. It cannot do more than that: lex-llm fixes the tool row at
-`[net, io, proc]`, with no `sql` and no `time`, and record-field rows unify by
-equality — so no tool can widen it to what a durable write needs. An agent
-*cannot* install a belief.
-
-**Consolidation disposes.** At session start, `src/memory/consolidate.lex`
-reconciles each candidate against what the project already knows:
+## Documentation
 
 | | |
 |---|---|
-| unknown kind, empty content | rejected |
-| nothing known yet | accepted |
-| identical to what is known | skipped |
-| contradicts what is known | superseded — the trail keeps the previous value |
-| `recent_change` | accepted; it accumulates by design |
+| [Tutorial](docs/TUTORIAL.md) | Install, first run, modes, the typed-issue workflow |
+| [Install and run](docs/INSTALL.md) | Installing, from a checkout, running |
+| [Modes](docs/MODES.md) | Agent modes, typed issues, parallel agents |
+| [Building whole packages](docs/PACKAGES.md) | Plan, build, accept, repair, dashboard, overnight, report |
+| [Pipelines](docs/PIPELINES.md) | Chaining modes, task specs, the fix loop |
+| [Providers](docs/PROVIDERS.md) | Selecting and configuring a model provider |
+| [Delegating from another agent](docs/DELEGATION.md) | Using lex-code from Claude Code, Cursor, Codex |
+| [Servers and the web UI](docs/SERVER.md) | Web UI, HTTP API, MCP and ACP servers, sessions |
+| [Tools](docs/TOOLS.md) | Built-in tools and external tools over MCP |
+| [Memory, search and observability](docs/MEMORY.md) | Project memory, semantic search, OpenTelemetry |
+| [Quality gates](docs/QUALITY.md) | Minimum bar, independent verification, the eval harness |
+| [Security model](docs/SECURITY.md) | Effect grants, permissions, lex-os |
+| [Architecture](docs/ARCHITECTURE.md) | How it is put together |
+| [Examples](examples/README.md) | Runnable checks for the major claims |
 
-Rules are mechanical, not model-judged: a model adjudicating between two
-contradictory beliefs is the failure this mechanism exists to contain.
+## Status and limits
 
-**The trail records why.** Every outcome, including a rejection, becomes a
-`memory.recorded` event with a chained `memory.reconciled` attestation in
-`.lex/memory_trail.db` — deliberately not the session log, which is in-memory
-and gone at exit. So `attest.chain` answers "why does it believe this" with
-something better than "it said so once".
+lex-code is young and has mostly been run with one local model. What that does
+and does not support:
 
-**A session opens with a summary, not the store.** At most five entries per
-kind, newest first, and the header says how many were left out — a model that
-can see its excerpt is partial can ask for the rest; one shown a silently
-truncated list cannot.
+- **Builds work end to end, but not every time.** Whole-package builds have gone
+  from a brief to a passing acceptance gate, and have also stalled; the causes
+  found so far were defects in the plan, in a tool, or in a library trap, and
+  each now has a check. A different brief or library can still find a new one.
+- **A passing gate is not a security review.** The acceptance scenarios come from
+  the brief's own requirements. An independent attack on a finished build found a
+  case the scenarios had not covered, so treat `done` as "meets the brief as
+  tested", and test the result yourself before exposing it.
+- **Local models are slow.** A whole package takes hours on a laptop-class local
+  model; the overnight supervisor exists for that.
+- **Thinking mode and the repair-round count are tuned from small runs**, not
+  from a benchmark.
 
-Everything the prompt sees was attested by consolidation. A candidate that
-was refused never leaves `.lex/memory-candidates.jsonl`.
+## Development
 
-## Streaming
-
-Turns arrive as they happen. Text appears token by token, tool calls announce
-themselves as they are dispatched, and the reply lands when the model is done —
-rather than the whole turn appearing at once when it finishes.
-
-This reaches every surface that shows steps: the TUI (`repl` and one-shot),
-the ACP server's `session/update` notifications, and the web backend.
-
-It depends on the provider offering a streaming half. `anthropic`, `ollama`, and
-everything routed through the OpenAI adapter (LiteLLM, vLLM, lex-moe, MLX,
-opencode-go, Mistral) do. `google` and `vertex` do not — Gemini answers with a
-JSON array rather than SSE — so a turn on those still arrives in one burst.
-Nothing else changes: the same steps reach the same renderer either way, so
-there is no separate code path to fall out of date.
-
-The pull loop lives in lex-llm's `run_steps_streamed`; `run_turn_streaming_with_provider`
-in `src/server/session.lex` is the seam. Consuming a live socket carries the
-`[stream]` effect, so every entry point's `--allow-effects` list includes it.
-
-**Step count explained:** `steps` counts all `d.Step` records emitted by the agent loop — `StepDelta` (per LLM token event), `StepToolExec`, `StepToolResult`, and `StepDone`. One LLM round + one tool call ≈ 5 step records. 71 steps ≈ 14 LLM rounds (`max_steps: 20` counts rounds, not records).
-
-**Avoiding the 0-delta stall:** If Ollama receives many large-context requests in rapid succession it can enter a state where it returns `{"done": false, "response": ""}`. The agent loop sees 0 deltas, emits a silent empty `StepDone`, and the run appears to complete in 1 step with no output. Fix: restart Ollama (`pkill -f "ollama serve" && open -a Ollama`) and avoid batching many large-context calls without pauses.
-
-#### Thinking models (gemma4, deepseek-r1)
-
-Models with a chain-of-thought "thinking" phase need two things to work through LiteLLM:
-
-1. **`max_tokens ≥ 2000`** — thinking tokens count against the budget before any visible output is produced. With `max_tokens: 256` the model exhausts its budget mid-thought and returns empty content.
-2. **`merge_reasoning_content_in_choices: true`** in `litellm_config.yaml` — without this, LiteLLM drops the `content` field when `thinking` is present in the Ollama response.
-
-```yaml
-# litellm_config.yaml
-- model_name: gemma4:26b
-  litellm_params:
-    model: ollama/gemma4:26b
-    api_base: http://localhost:11434
-    merge_reasoning_content_in_choices: true
-```
-
-Even with these fixes, thinking models tend to emit tool calls as embedded JSON in `content` (rather than in the `tool_calls` field) when given 10+ function schemas. The `openai.lex` adapter has a `content_tool_call` fallback parser, but the generated code quality degrades significantly under large context. Use `qwen3-coder:30b` for coding tasks.
-
-## External tools (MCP)
-
-lex-code has been an MCP *server* for a while — `src/server/mcp_main.lex`
-exposes its agents to Claude Desktop. It is now also a **client**, so an issue
-tracker, a CI system or a package registry can be a tool the agent calls.
-
-`.lex/mcp.toml` (an example ships at `docs/mcp.toml.example`):
-
-```toml
-[[servers]]
-url   = "http://localhost:3000"
-allow = ["search_issues", "create_pr"]
-modes = ["build", "refactor"]      # optional; defaults to build only
-```
-
-Tools arrive named `mcp__<tool>` — `mcp__search_issues`. The prefix is not
-cosmetic: without it a server offering a tool called `write` or `bash` would
-shadow a local one in the dispatcher's name lookup.
-
-### Two gates, and both are needed
-
-**`allow` is the operator's gate** — which of a server's tools this project
-loads at all. An empty or missing `allow` list loads **nothing**. The opposite
-reading ("no filter configured, so no filtering") is how a server that adds a
-tool next week gets it into the prompt without anyone deciding.
-
-**`modes` is the agent's gate** — which agent modes get them, defaulting to
-`build` alone. Build's permission spec already permits everything, so that is
-the one mode where adding a tool grants no new authority to a restricted
-agent. An explore-mode agent that must not `write` does not reach an MCP tool
-that writes unless you say so.
-
-The issue asked for an `mcp_tool(name)` predicate in `permissions/rules.lex`.
-There deliberately isn't one: lex-spec has no string-prefix operator so it
-cannot be written, and permission enforcement is still tool-list based rather
-than spec-based, so `modes` is the gate that actually runs. `rules.lex`
-records what Phase 2 will need.
-
-### Failure is reported, never silent
-
-A server that is down, a config that will not parse, a name in `allow` the
-server does not offer — each yields no tools and a printed note. The session
-still starts: an unrelated outage should not become a total outage. But a tool
-that quietly vanishes is the failure this codebase keeps finding (#32, #74),
-so the absence is always said out loud.
-
-Tools are loaded once per turn rather than cached. A cached list goes stale
-silently — a server that changes what it offers, or goes away, would keep
-being advertised to the model until the process restarted.
-
-## Semantic search
-
-_Runnable: `examples/semantic_search/build_and_query.sh`_
-
-`grep` and `glob` match names. `semantic_search` matches intent — "validate an
-A2A envelope", "retry a failed HTTP call" — by ranking every function's
-signature, effects and examples against the query.
-
-It needs an index, and the index needs an embeddings endpoint. LiteLLM is the
-one lex-code speaks to, which is how Ollama is reached: the proxy presents
-OpenAI's `/v1/embeddings` over `ollama/nomic-embed-text`, so lex-code never
-learns Ollama's native embeddings shape. `litellm/config.yaml` ships the entry.
+lex-code is written in Lex and checks itself with the same tools it asks of
+others. CI runs, from the repository root:
 
 ```sh
-ollama pull nomic-embed-text        # 768-dim, ~270MB, CPU is fine
-cd litellm && docker compose up -d && cd ..
-
-lex run --max-steps 20000000000 --allow-effects env,io,net,proc \
-  src/index_build.lex main
+lex pkg install
+lex check <each src/*.lex and tests/*.lex>    # type-check every file
+lex fmt --check src/ tests/                    # formatting
+lex doc-sync --check                           # generated docs are current
+lex test --allow-effects crypto,fs_read,fs_write,io,proc,random,sql,time tests
+bash scripts/test-overnight.sh                 # the overnight supervisor, against a stand-in
 ```
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `LITELLM_BASE_URL` | `http://localhost:4000` | proxy (shared with the chat path) |
-| `LEX_EMBED_MODEL` | `nomic-embed-text` | must be in the proxy's model list |
-| `LEX_EMBED_DIMS` | `128` | components kept per vector — see below |
-| `LEX_INDEX_PATH` | `src/` | what to index |
-
-**`--max-steps` is not optional.** The default VM budget is 10M opcode
-dispatches and a whole-repo build blows straight through it.
-
-### Why the index stores a prefix
-
-Reading `.lex/index.jsonl` dominates query latency, and the reason is upstream:
-`jv.parse_into_errors` is **quadratic in document size**, because
-`json_value.char_at` walks the input with `str.slice(src, p, p + 1)` and slicing
-is O(p). Doubling a JSON document roughly quadruples parse time — 16K/0.2s,
-33K/0.9s, 66K/3.2s, 132K/13.7s, 264K/55.7s. So the index has to stay small, and
-on this repo's 674 functions it measures:
-
-| dims | index | read |
-|---|---|---|
-| 512 | 932K | 34s |
-| 128 | ~500K | ~6s |
-| 64 | 336K | 3s |
-
-A 34-second search tool is not a search tool, so only the first
-`LEX_EMBED_DIMS` components are kept. The same parser cost bounds indexing:
-`lex docs` output for the whole tree is 310K and takes ~55s to parse before a
-single embedding is requested, which is why `LEX_INDEX_PATH` defaults to a
-subtree-sized scope rather than the repo. That is sound rather than merely cheap
-for a Matryoshka-trained model like `nomic-embed-text`, which is trained so a
-leading slice of the vector is itself a usable embedding; the prefix is
-renormalised, since truncating changes the norm. Raise it for better ranking on
-a small tree, lower it on a large one.
-
-### Rebuilds are incremental
-
-The reuse key is `sig_id`, not mtime: it hashes the function's own content, so
-it answers "did this function change" rather than "was this file touched",
-which is true after a comment edit and false after a `git checkout` that
-rewinds content. Changing the model, endpoint or dims invalidates the whole
-index — vectors are only comparable within one model, and mixing two vector
-spaces in one ranking produces plausible nonsense rather than an error.
-
-`semantic_search` is available to the explore, plan and review agents. It never
-builds the index itself: a build makes one HTTP call per function, and
-`Tool.execute`'s `[net, io, proc]` row cannot read the env it would need.
-
-## Observability (OpenTelemetry)
-
-_Runnable: `examples/observability_stdout.sh`_
-
-Off by default. Point it at a collector and every turn arrives as a trace:
-
-```sh
-LEX_OTLP_ENDPOINT=http://localhost:4318 lex-code
-```
-
-| Variable | Effect |
-|---|---|
-| `LEX_OTLP_ENDPOINT` | POST OTLP/JSON to `/v1/traces` and `/v1/metrics` |
-| `LEX_OTEL_STDOUT=1` | print the same envelopes to stdout instead |
-
-An endpoint wins over the stdout flag, and with neither set nothing is
-emitted — `io.print` is the TUI's own output stream, so a default-on stdout
-exporter would dump OTel envelopes into your session on every turn.
-
-**The trace is projected from the trail, not instrumented separately.**
-lex-llm already writes `cap.invoked` before every tool call and
-`cap.completed` / `cap.failed` after it, parented to the invoke, and every
-trail event carries `ts_ms`. A start, an end, a parent link and a name is a
-span — the trail was already a trace, just never spoken in OTel's wire
-format. `src/observability.lex` reads the turn's slice of the log and
-translates. Running a second span stream inside the same dispatch loop would
-put two recorders on one set of facts, which is precisely how the
-attestation chain broke (#32): the loop wrote one place, the reader read
-another.
-
-You get an `agent.turn` root span per turn, one `tool.<name>` child per
-completed tool call, a `tool.calls` counter tagged by tool and success, and a
-`turn.duration_ms` histogram. An invoke with no outcome — a turn cut short
-mid-tool — is dropped rather than exported with a fabricated end time.
-
-**Span ids are derived, not drawn.** Trail event ids are sha256 hashes of the
-event's own content, so a span id taken from one is stable: re-exporting a
-session reproduces the same trace instead of forging a rival. That also keeps
-`random` out of the turn's effect row entirely. An unreachable collector
-costs telemetry, never the turn.
-
-## Server Protocols
-
-### MCP (Model Context Protocol)
-
-_Runnable: `examples/mcp_server_smoke.sh`_
-
-`src/server/mcp_main.lex` exposes lex-code as a single `code` tool over
-MCP, so any MCP-speaking host — Claude Code, Cursor, Zed — can hand it
-a task. `mode` selects the agent strategy; the provider is a
-server-launch choice, not a per-call argument.
-
-```sh
-LEX_CODE_PROVIDER=anthropic ANTHROPIC_API_KEY=… \
-lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
-  src/server/mcp_main.lex main &
-
-curl -s http://localhost:7778/.well-known/agent.json
-curl -s -X POST http://localhost:7778/mcp \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-curl -s -X POST http://localhost:7778/mcp \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"code",
-       "arguments":{"task":"add retries to fetch()","mode":"refactor"}}}'
-```
-
-The same port serves the A2A agent card at
-`/.well-known/agent.json`. All eight modes are reachable through the
-`mode` argument (`build|plan|explore|refactor|spec|test|review|bar`).
-
-### Agent Client Protocol (ACP, Zed) — Phase 1
-
-_Runnable: `python3 examples/acp_server_smoke.py`_
-
-[Zed's Agent Client Protocol](https://zed.dev/acp) — a JSON-RPC-over-stdio standard for launching a
-coding agent as a subprocess (Zed, JetBrains, Neovim, and Emacs all speak it; opencode is one of the
-other agents already on the [ACP Registry](https://zed.dev/blog/acp-registry)). Note the name collides
-with BeeAI's Agent *Communication* Protocol, which is a different, unrelated thing; lex-code no longer
-carries a server for it.
-
-```sh
-LEX_CODE_PROVIDER=anthropic ANTHROPIC_API_KEY=… \
-  lex run --max-steps 20000000000 --allow-effects approval,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
-  src/server/client_protocol.lex main
-```
-
-Phase 1 covers `initialize`, `session/new`, `session/prompt` (`session/update`
-notifications per step, emitted as each step happens rather than replayed after the
-turn — see Streaming), and `session/close` — enough to work from an ACP-aware editor. Not yet
-implemented: `session/request_permission`, `$/cancel_request`, client-mediated `fs/*`/`terminal/*`,
-and `auth/login` — see the header comment in `src/server/client_protocol.lex` for why each is
-deferred rather than silently missing. The exact `session/update` field shapes are a best-effort
-reconstruction of the protocol's v2 schema; validate against a real client before relying on this
-for production interop.
-
-## Tools
-
-### Standard tools (all modes)
-
-| Tool | Description |
-|------|-------------|
-| `read_file` | Read file contents |
-| `write_file` | Write / create a file |
-| `edit_file` | Targeted string replacement |
-| `grep` | Search file contents by regex |
-| `glob` | List files matching a glob |
-| `bash` | Run a shell command (killed after 300 s; a background process outlives the call, but only for what is left of those 300 s) |
-| `todo_write` | Write structured TODO list |
-
-`write_file` and `edit_file` replace a file atomically — the new content is written beside
-it and renamed over it — so a run that is killed mid-edit leaves the old file or the new one,
-never a truncated one (which would stall a whole package build, whose units share one source
-file). A file's mode and a symbolic link are kept as they were.
-
-### Lex tools
-
-| Tool | Description |
-|------|-------------|
-| `lex_check` | Type-check a Lex file |
-| `lex_audit` | Effect audit |
-| `lex_run` | Run a Lex expression |
-| `lex_test` | Run tests |
-| `lex_stdlib` | Look up or keyword-search the stdlib, signatures from the compiler |
-| `find_packages` | Search existing packages by what they do (`lex pkg search`) |
-| `package_api` | An installed package's modules, or one module's typed signatures and docs |
-| `plan_check` | Planner only: validate the plan file against the build's own rules |
-| `issue_show` | Render a typed issue's acceptance as the contract to implement |
-| `issue_verify` | Evaluate a typed issue at head, record an `IssueVerified` attestation |
-| `issue_propose` | Propose a typed acceptance for a free-form issue (a human approves it) |
-
-### Spec tools
-
-| Tool | Description |
-|------|-------------|
-| `lex_spec_check` | Evaluate a Spec against bindings |
-| `lex_spec_smt` | SMT-backed spec verification |
-
-### Store tools
-
-| Tool | Description |
-|------|-------------|
-| `sigid_lookup` | Resolve a SigId to a function |
-| `attestation_query` | List attestations for a function |
-| `effects_of` | Query effect row of a function |
-| `lex_store_diff` | Diff two store snapshots |
-| `lex_store_apply` | Apply a store patch |
-| `lex_store_merge` | Merge two store snapshots |
-
-### VCS tools (lex-vcs / AST-level)
-
-The agent can read and drive lex-vcs directly via these tools.
-
-| Tool | CLI command | Description |
-|------|-------------|-------------|
-| `ast_diff` | `lex diff <a> <b>` | AST-level diff between two files |
-| `op_show` | `lex op show <id>` | Inspect a content-addressed operation |
-| `op_log` | `lex op log` | Show the operation log |
-| `op_push` | `lex op push` | Push ops to remote |
-| `op_pull` | `lex op pull` | Pull ops from remote |
-| `branch_list` | `lex branch list` | List branches |
-| `branch_current` | `lex branch current` | Show active branch |
-| `branch_show` | `lex branch show <name>` | Inspect a branch |
-| `branch_create` | `lex branch create <name>` | Create a branch |
-| `branch_use` | `lex branch use <name>` | Switch branch |
-| `branch_peek` | `lex branch peek <name>` | Read-only view of another branch |
-| `branch_overlay` | `lex branch overlay <name>` | Overlay a branch without switching |
-| `merge_start` | `lex merge start <branch>` | Begin a merge session |
-| `merge_status` | `lex merge status` | Show pending conflicts |
-| `merge_resolve` | `lex merge resolve <id>` | Resolve a conflict |
-| `merge_defer` | `lex merge defer <id>` | Defer a conflict for later |
-| `merge_commit` | `lex merge commit` | Commit a completed merge |
-
-## Architecture
-
-```
-lex-code
-├── src/
-│   ├── agents/          # AgentDef values (build, plan, explore, refactor, spec, test, review, bar)
-│   ├── bar/             # Minimum-bar ledger, probe ids, repository probes
-│   ├── prompts/         # System prompts per mode
-│   ├── tools/           # Tool implementations
-│   │   ├── standard/    # read, write, edit, grep, glob, bash, todowrite
-│   │   ├── lex_*.lex    # check, audit, run, test, spec_check, spec_smt
-│   │   ├── lex_store_*  # sigid, attestations, effects, diff, apply, merge
-│   │   └── vcs/         # 17 lex-vcs tools (ast_diff, op_*, branch_*, merge_*)
-│   ├── permissions/     # lex-spec Spec values per agent mode
-│   ├── server/
-│   │   ├── session.lex        # Session type, run_turn, AgentMode
-│   │   ├── session_events.lex # Durable conversation record (the trail)
-│   │   ├── multi_agent.lex    # std.conc parallel dispatch
-│   │   ├── persist.lex        # lex-trail log helpers
-│   │   ├── web.lex            # HTTP: static src/web + POST /a2a  (runnable)
-│   │   ├── mcp_main.lex       # MCP + A2A agent card on :7778     (runnable)
-│   │   └── client_protocol.lex # Zed ACP over stdio, Phase 1      (runnable)
-│   ├── tui/main.lex     # CLI REPL + one-shot mode
-│   ├── web/             # Web frontend (vanilla JS)
-│   └── bootstrap/run.lex  # Demo 4-phase pipeline
-├── bin/lex-code      # Shell wrapper (used by make install)
-├── Makefile          # install / uninstall targets
-└── lex.toml
-```
-
-## Web Frontend
-
-_Runnable: `examples/web_frontend_smoke.sh`_
-
-`src/server/web.lex` is the backend: it serves the static files in
-`src/web/` **and** the `POST /a2a` endpoint the page calls, so one
-process is the whole thing — no separate static server needed.
-
-```sh
-lex run --max-steps 20000000000 --allow-effects approval,concurrent,crypto,env,fs_read,fs_walk,fs_write,io,llm,net,proc,random,sql,stream,time \
-  src/server/web.lex serve_web
-
-# then open http://localhost:7700
-```
-
-`PORT` (default 7700) and `WEB_DIR` (default `src/web`) override the
-defaults. The effect list is what `lex check src/server/web.lex`
-reports as required.
-
-Each `POST /a2a` currently starts a **fresh session**: the request
-carries a `session_id` and the page stores the one it gets back, but
-the handler mints a new one per call, so the page has no conversation
-memory across turns. Fine for the demo it is; not yet a client to work
-in.
-
-## Parallel Multi-Agent (`std.conc`)
-
-_Runnable: `examples/agent_modes/multi.sh`_
-
-The `--multi` TUI flag (and `run_parallel` in `src/server/multi_agent.lex`) spawns two
-actors via `std.conc.spawn` and runs Build + Test concurrently:
-
-```lex
-let impl_actor := conc.spawn(worker_handler, impl_state)
-let test_actor := conc.spawn(worker_handler, test_state)
-let impl_steps := conc.ask(impl_actor, Execute(task))
-let test_steps := conc.ask(test_actor, Execute(test_task))
-```
-
-## Bootstrap Script
-
-_Runnable: `examples/bootstrap_custom_task.sh`_
-
-`src/bootstrap/run.lex` runs a multi-phase pipeline against a real task. It
-used to hardcode one — implement `list.zip`, in four fixed phases, with its
-own sequential runner — and now drives the same agent graph the TUI does.
-
-This entry point needs the same `--max-steps` override the Quickstart's
-`bin/lex-code` wrapper supplies for the TUI, and for the same reason: it's
-trusted, long-running orchestration code, not the untrusted-sandboxed-snippet
-case the VM's 10,000,000-step default guards against. There's no wrapper
-script for this entry point, so it has to be typed by hand every time —
-reproduced live: a real multi-module build ran for 17+ minutes across dozens
-of agent turns and hit `step limit exceeded` with the flag omitted, discarding
-that whole run's output (`bootstrap/run.lex`'s own step-by-step printing only
-happens after the graph run returns, so a mid-run panic here loses everything,
-not just the final result).
-
-```sh
-# the original demo, unchanged
-lex run --max-steps 20000000000 --allow-effects … src/bootstrap/run.lex main
-
-# a real task, phases of your choosing
-LEX_TASK="add a retry wrapper to src/http.lex" \
-LEX_PIPELINE=build,test \
-LEX_PROVIDER=litellm \
-  lex run --max-steps 20000000000 --allow-effects … src/bootstrap/run.lex main
-```
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `LEX_TASK` | the `list.zip` demo | what to build |
-| `LEX_PIPELINE` | `impl_then_spec_then_test` | preset name, or a spec |
-| `LEX_PROVIDER` | `anthropic` | provider tag |
-
-### Task specs — checking that it got done
-
-A task is a string, and whether it got done is whatever the agent says at the
-end. That is the one claim in this system with nothing behind it. A task spec
-pairs the goal with criteria a machine evaluates afterwards.
-
-`examples/tasks/zip.task`:
-
-```toml
-goal = "Add fn zip[A, B](xs :: List[A], ys :: List[B]) -> List[(A, B)] to src/list.lex"
-
-check       = ["src/list.lex"]        # lex check must pass
-spec_check  = []                      # lex spec check
-test        = []                      # lex run <path> run_all
-verified    = ["verified.type_check"] # a pass of this kind, anywhere
-verified_on = []                      # "<path>:<kind>" — a pass on that path
-```
-
-```sh
-LEX_TASK_SPEC=examples/tasks/zip.task \
-  lex run --max-steps 20000000000 --allow-effects … src/bootstrap/run.lex main
-```
-
-The spec's `goal` becomes the task the agents are told, so the words they act
-on and the criteria they are judged against come from one file and cannot
-disagree. When the pipeline finishes:
-
-```
-task "the task_spec module itself type-checks": SATISFIED
-  ok    lex check src/task_spec.lex
-  ok    lex check src/embed.lex
-```
-
-Every criterion runs — no stopping at the first failure, so one round of work
-can address all of them. **A criterion that could not be evaluated counts as
-unmet**: treating an unrunnable check as satisfied would turn a broken
-toolchain into a passing task. And **a spec with no criteria reports
-UNVERIFIED**, not satisfied — "all of nothing succeeded" is vacuously true and
-exactly the wrong answer.
-
-Two fields from the original design are deliberately absent. `allowed_effects`
-would be a third mechanism constraining effects after `os_check` and
-`permissions/rules.lex`, and a declaration nothing enforces still reads as a
-guarantee. `inputs` would be a type hint no code consumes. Both are additive
-later; neither is load-bearing for `is_satisfied`.
-
-`verified` asserts a pass of that kind happened somewhere in the project;
-`verified_on` narrows it to a path:
-
-```toml
-verified    = ["verified.type_check"]
-verified_on = ["src/list.lex:verified.type_check"]
-```
-
-A malformed `verified_on` entry becomes a criterion that can never be met,
-rather than being dropped — a typo should fail the task loudly, not silently
-shrink what it checks.
-
-The path is as far as this goes. Since [lex-llm#48](https://github.com/alpibrusl/lex-llm/pull/48)
-a `verified.*` record names the argument the tool was given (`lex check
-src/list.lex`), and a file is not a function, so neither criterion can say
-`zip` in particular was checked. Function-level evidence needs the store's
-attestation graph, which is what `lex blame --with-evidence` reads and what
-`attestation_query` calls the stronger signal.
-
-`verified.type_check`/`.spec_check`/`.test` are written by lex-llm's own
-dispatcher whenever `lex_check`/`lex_spec_check`/`lex_test` reports a pass —
-mechanical evidence the tool actually ran and actually passed, not the
-model's word for it. `verified.independent_check` is the fourth kind, and
-it is lex-code's own: a bare `lex_run` pass proves nothing on its own (an
-ordinary build-mode run passing is not evidence of anything beyond "the
-function didn't crash"), so it is written directly by
-`impl_test_fix_loop_verified`'s fix-loop gate (`graph.lex`'s
-`attest_verify_pass_if_clean`) only when a `verify`-mode agent's own
-`lex_run` came back clean — the strongest evidence in the system, since
-verify re-derives the expected output instead of trusting anything on
-disk. A task spec can require it the same way as the others:
-`verified = ["verified.independent_check"]`.
-
-### Pipeline specs
-
-A spec is two characters of grammar: `,` runs stages in order, `|` runs them
-at once. Agents are `build` (alias `impl`), `spec`, `test`, `review`, `verify`.
-
-```
-build,test              impl → test
-build|test              impl ∥ test
-build,spec,test|review  impl → spec → (test ∥ review)
-build,test,verify       impl → test → verify
-```
-
-The last two are exactly the `impl_then_spec_then_test` and
-`impl_then_test_then_verify` presets — an `examples {}` case asserts each
-pair stays equal, so the grammar and the named presets cannot drift apart.
-
-The same values work on the TUI's `--pipeline=` flag, which takes a preset
-name or a spec. An unrecognised agent is refused with the list of valid ones
-rather than skipped: a pipeline quietly missing a stage is a run that looks
-successful and did less than it was asked to.
-
-### The fix loop — `impl_test_fix_loop`
-
-Every preset above runs each stage exactly once, win or lose: if `test`'s
-tests fail, that failure is just the pipeline's final state — nothing
-reruns `build` with it. `impl_test_fix_loop` (`--pipeline=impl_test_fix_loop`,
-or `LEX_PIPELINE=impl_test_fix_loop` for the bootstrap script) does: `impl →
-test`, then a real subprocess (`lex test tests`, the same command
-`lex_test`'s tool wraps) decides pass or fail by exit code — never by asking
-the fixing agent whether it thinks it's done, the same "mechanical, not
-LLM-judged" rule `examples/tasks/*.task`'s criteria already apply to one task,
-extended across attempts. On a nonzero exit it re-runs `impl` (up to twice)
-with that command's actual output appended to the task, so the model is
-fixing a named failure, not guessing at one. Each retry gets its own session
-id (`impl_retry1`, `impl_retry2`) so the persistent trail keeps every
-attempt separately, `.lex/sessions/impl_retry1.db` included, rather than a
-later round colliding with an earlier one on disk. It is preset-only — the
-`,`/`|` spec grammar composes fixed agent names, and a retry loop isn't one.
-
-### The fix loop, verified — `impl_test_fix_loop_verified`
-
-`lex test tests` exiting 0 is evidence the test file's own assertions held,
-not evidence they asserted the right thing — a fix-loop bug this session
-found twice for real: a compiler bug that made an empty test directory
-exit 0 (fixed upstream, lex-lang v0.10.17), and a mistyped expected value
-in an implementation's own tests. `impl_test_fix_loop_verified`
-(`--pipeline=impl_test_fix_loop_verified`) is `impl_test_fix_loop` with one
-more gate: once `lex test tests` passes, a `verify` agent runs and
-independently re-derives whether the implementation is actually correct
-instead of trusting anything already on disk (see [Independent
-verification mode](#independent-verification-mode) — `verify` never edits
-the implementation or its tests). A FAIL it reports goes to the same `fix`
-agent, from the same shared retry budget as a mechanical failure — not a
-second one — and the next round re-checks `lex test` before trusting
-`verify` again, since a fix aimed at `verify`'s finding could in principle
-break a test that was passing before.
-
-## Eval harness
-
-_Runnable: `examples/eval_harness_quick.sh`_
-
-Nothing else in this repo measures whether lex-code writes good Lex — CI
-checks types, formatting, doc-sync, unit tests, and that tools invoke real
-commands, all upstream of that question. `make eval` runs a small, fixed set
-of task specs against a fixed set of providers and reports a pass/fail table.
-
-```sh
-make eval
-EVAL_PROVIDERS="litellm anthropic" EVAL_TASKS="examples/tasks/zip.task" scripts/eval.sh
-```
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `EVAL_TASKS` | the 4 tasks below | space-separated task-spec paths |
-| `EVAL_PROVIDERS` | `litellm` | space-separated provider tags |
-| `EVAL_PIPELINE` | `build` | pipeline preset or spec (see "Pipeline specs" above) |
-| `EVAL_STRICT` | unset | `1` to hard-fail on an unconfigured provider instead of skipping it |
-| `EVAL_RESULTS_DIR` | `.lex/eval-runs/<timestamp>` | per-run logs + preserved `.lex/` trail |
-
-Scoring is exactly what `src/task_spec.lex`'s `is_satisfied` already computes
-per task — `lex check` on the touched files, the task spec's `examples {}`
-blocks, and its `verified`/`verified_on` criteria. No LLM judge: a criterion
-that could not be run counts as unmet, the same reasoning `task_spec.lex`'s
-own header already uses to keep it honest. `scripts/eval.sh` doesn't
-reimplement any of that — it runs `bootstrap/run.lex` once per (task,
-provider) pair and greps the verdict and step-count lines it already prints.
-
-Four of the five task shapes from
-[#86](https://github.com/alpibrusl/lex-code/issues/86) are covered:
-
-| task | what it tests |
-|---|---|
-| `examples/tasks/zip.task` | pure fn, generics, `examples {}` |
-| `examples/tasks/effect_narrow.task` | effect discipline — a narrow `[env]` row |
-| `examples/tasks/repair_examples.task` | reading a `lex check` error and repairing it |
-| `examples/tasks/widen_effect.task` | `propagate_effect` — widen a leaf's row, propagate to 2 callers |
-
-The fifth ("answer a question without editing") is **not** built here:
-`SuccessCriterion` has no way to express "no files changed," and adding a new
-criterion kind is out of scope for a first version whose point is to ship the
-case that's already fully supported. Additive later.
-
-Each (task, provider) pair runs in its own `git worktree` checked out from
-`HEAD`, torn down after. This is why: `.lex/verified.jsonl` is append-only and
-project-scoped with no content hash binding a record to what it was a pass of
-([#91](https://github.com/alpibrusl/lex-code/issues/91)) — a stale record from
-an earlier run can satisfy a later, unrelated run's criteria in the same
-working tree. A worktree sidesteps this rather than working around it:
-`.lex/` is gitignored, so a fresh worktree has no `.lex/verified.jsonl` to
-inherit from at all. One consequence: `make eval` only ever evaluates the
-last **committed** state — uncommitted edits to a task spec or fixture are
-invisible to it until committed.
-
-Not run in CI: it needs a provider — a key, or a local `litellm`/`ollama`/
-`vllm` daemon — and a full matrix against a local model can take many
-minutes. A CI job gated on a secret can come later.
-
-## Minimum bar mode
-
-_Runnable: `examples/minimum_bar_probes.sh`_
-
-`--bar` walks a project against a checklist and reports where it stands.
-It never edits: the output is a work queue, in the order the gaps will
-hurt.
-
-The checklist is not invented here. It is the two "short version" cards
-from [*Prompt to
-Production*](https://github.com/alpibrusl/prompt-to-production) ch. 16
-and [*Prompt to
-Evidence*](https://github.com/alpibrusl/prompt-to-evidence) ch. 15 —
-each book's five items with the worst consequence-to-effort ratio in it
-— plus four items from the production checklist that a repository can
-settle about itself. Fourteen in total, in `src/bar/ledger.lex`.
-
-The interesting part is the tier on each item, because it is an
-admission:
-
-| Tier | Count | What lex-code does |
-|------|-------|--------------------|
-| `repo` | 6 | Runs a probe and reports the verdict **and its bound** |
-| `attested` | 4 | Cannot verify. Asks, records who said it and when, and reports NOT DONE if nobody answers |
-| `judgement` | 4 | Cannot verify. Asks for the reasoning, not a verdict |
-
-Six of fourteen. "The database is backed up and a restore has actually
-been performed" is a claim about the world, and no coding agent can
-settle it — so BAR mode is forbidden from ticking it, and marking such
-an item not-applicable requires a stated reason. A bare N/A is how a
-checklist becomes a rubber stamp.
-
-The six probes, all read-only:
-
-| Probe | Item | What it cannot see |
-|-------|------|--------------------|
-| `secret_scan` | No secrets in the repository, checked through the history | Credentials in an unrecognised format; commits outside the range it reports |
-| `git_remote` | A remote copy that is not your laptop | Whether the remote is reachable or current |
-| `tests_present` | Tests exist for the paths that must not break | Which paths those are |
-| `ci_on_pr` | Tests run on every PR and block the merge | Branch protection — it lives in the forge, so this probe never returns better than `partial` |
-| `toolchain_pin` | What is pinned is pinned consistently | The `lex-*` packages, unpinned on purpose while they move fast; only the lex-lang toolchain is compared — `lex.toml` against every version named in `.github/workflows`, not a pin written in a Dockerfile or a README |
-| `examples_coverage` | Tested against a case with a known answer | Which fns are pure; an `examples {}` block **is** the known-answer test, so this is a floor, not coverage |
-
-```sh
-lex run src/tui/main.lex -- --bar "walk this project"
-
-# the probes alone, no model:
-lex run --allow-effects io,proc src/bar/checks.lex gate '"."' '"src"'
-```
-
-That last command is also a CI step: lex-code is held to the bar it
-walks other projects against. It fails the build on a `fail` verdict
-only — `partial` is the honest state for an item a probe can half
-answer, and failing on it would push the next author to weaken the
-probe rather than answer the question.
-
-It caught two real ones on the way in. First: `lex.toml` pinned
-toolchain 0.10.10 while CI installed 0.10.11. Then, once that was
-fixed, the probe itself turned out to be reading only the first
-`LEX_VERSION` assignment it found — so `publish.yml`, which writes the
-version inline in a download URL with no variable at all, had sat two
-patch versions behind unnoticed. It now reads every lex-lang version
-named in any workflow and names the file that disagrees.
-
-## Independent verification mode
-
-_Runnable: `examples/agent_modes/verify.sh`_
-
-`--review` audits structure and trust — effects, attestations, SigIds,
-"is this well-scoped". `--verify` answers a different question: "does
-the implementation actually do what it claims", and it does not take
-the implementation's own test file as evidence for that.
-
-This came out of two real failures, on two different from-scratch
-packages, that a build → test pipeline alone did not catch: a test
-file with a broken relative import that made `lex test` refuse to even
-load it, and two hand-typed 500+ character hex strings in a test file
-that were each a few characters short — an error invisible by
-inspection, and one that makes `lex test` fail for the wrong reason
-(the test's own expected value was wrong, not the implementation). A
-real algorithmic bug (a fold accumulator that overwrote its
-accumulated list each step instead of appending) sat underneath both,
-indistinguishable from "the test is wrong" until someone re-derived
-the expected values independently.
-
-So `--verify` is built around one rule: **an implementation's existing
-test file is not independent evidence.** It:
-
-- Re-derives expected output from the task's own cited spec (a
-  worked example, a canonical test vector, an algorithm described
-  step by step) — by hand, from first principles — rather than
-  trusting a constant already sitting in the code or its test file.
-- Says so explicitly when a cited spec's exact text isn't available to
-  confirm against, rather than silently trusting whatever the
-  implementation already assumes. lex-code has no web-access tool
-  today, so an external standard cited by name (an RFC, a vendor spec)
-  is exactly this case.
-- Writes its own new verification file — never edits the
-  implementation or its existing tests — and never reuses the
-  implementation's own expected-value constants.
-- Never hand-types one long literal as a single comparison: a
-  multi-word hex string or long JSON blob gets built from smaller,
-  individually-labeled pieces and joined, so a wrong piece is visible
-  by inspection instead of buried in one long string.
-- Reports every case checked, not just failures — "all N checked, all
-  pass" is itself the finding when nothing is wrong.
-
-It never edits anything (`verify_permission`: `read`, `write` — for its
-own new file only — `grep`, `glob`, `lex_check`, `lex_run`, `lex_test`;
-no `edit`, no `bash`) — a verifier that can shell out or patch the
-implementation directly can quietly fix around what it finds instead of
-reporting it.
-
-```sh
-lex run src/tui/main.lex -- --verify "check src/bar/checks.lex's verdict_label function against its own examples{} block"
-
-# as a pipeline stage, after build and test:
-lex run src/tui/main.lex -- --multi --pipeline=impl_then_test_then_verify
-```
-
-## Permissions
-
-Each agent mode has a `lex-spec` `Spec` value (in `src/permissions/rules.lex`) that
-allowlists its tool set. At construction time, `with_permission_gate` (from `lex-llm`)
-filters the tool list using the spec, so agents can only call the tools they’re
-authorised to use.
-
-## Running under lex-os
-
-_Runnable: `examples/lex_os/run_mediated.sh`_
-
-The permission gate above and `--allow-effects` are both *inside* the Lex
-VM — real, but one process trusting itself. [lex-os](https://github.com/alpibrusl/lex-os)
-is a separate, host-level sandbox: a supervisor *outside* the process
-mediates a grant (filesystem/network/exec, each independently levelled)
-and, on a KVM host, actually runs the mediated command inside a real
-Firecracker microVM. The two boundaries stack — lex-os doesn't know or
-care what `--allow-effects` list lex-code passed itself internally.
-
-```sh
-lex-code --lex-os --ollama "implement list.zip"
-```
-
-This re-execs the same `lex-code` invocation as `lex-os exec --manifest
-lex-os/manifest.json -- lex-code ...` instead of running directly —
-`lex-os/manifest.json` (shipped in this repo, installed alongside the
-binary by `make install`) grants `filesystem: ReadWrite`, `network: Full`,
-`exec: Sandboxed`, matching what Build/Refactor/Test modes actually need.
-Override it with `LEX_OS_MANIFEST=/path/to/other.json`.
-
-**Prerequisite:** `lex-os` isn't installed by lex-code's own installer —
-it's a separate Rust project you build yourself:
-
-```sh
-git clone https://github.com/alpibrusl/lex-os
-cd lex-os && cargo build --release -p lex-os -p lex-os-guest
-# put target/release/{lex-os,lex-os-guest} on your PATH
-```
-
-Off a KVM host (most laptops), add `LEX_OS_SIMULATED=1` — lex-os's own
-in-process perimeter, which it's explicit about **not** being a security
-boundary, only the same grant-mediation logic running anywhere:
-
-```sh
-LEX_OS_SIMULATED=1 lex-code --lex-os --ollama "implement list.zip"
-```
-
-Verified end-to-end (simulated perimeter): a real `lex-code --ollama`
-session, mediated through `lex-os exec`, actually wrote a file and passed
-`lex check` — the audit chain recorded the mediated command, `exit_code:
-0`, and the file was genuinely on disk afterward, not just claimed in
-the transcript.
-
-## Roadmap
-
-- [x] v0.1 — agents, tools, TUI REPL, A2A server, lex-trail persistence (that server since removed — see below)
-- [x] v0.2 — refactor/spec/test/review agents, store tools, lex-spec permissions, Mistral provider
-- [x] v0.3 — parallel multi-agent (`std.conc`), VSCode extension (since removed, superseded by v0.7's Zed ACP server), web frontend, bootstrap script
-- [x] v0.4 — lex-vcs tools (17), CLI one-shot mode, Ollama + vLLM providers, install target
-- [x] v0.5 — BeeAI ACP server (`src/server/acp.lex`), ACP helpers in lex-agent (server since removed — it never had a listener, and `lex-agent/acp_server` supplies only pure JSON/SSE builders, so finishing it meant writing a second HTTP server for a job `web.lex` and the MCP server already cover; the helpers remain upstream)
-- [x] v0.6 — OpenCode Go provider (native + via the bundled LiteLLM proxy, shared config with lex-loom)
-- [x] v0.7 — Agent Client Protocol (Zed) server, Phase 1: `initialize`/`session/new`/`session/prompt`/`session/close`
-- [x] v0.8 — `--parallel` reliability, found and fixed by actually building real packages end to end: the false-`PACKAGE_GATE`-pass stub guard, cross-project copy-dir isolation, import-carrying at merge, per-issue retry feedback, and hardening's own effect grant (see [Found by actually using it](#found-by-actually-using-it-2026-09-30)); `lex_stdlib` keyword search ([#214](https://github.com/alpibrusl/lex-code/pull/214))
-
-`src/server/api.lex` went the same way as the BeeAI ACP server, and for a
-sharper reason. It had no entry point, and its handler could not have run
-a turn even with one: lex-agent fixes `Skill.handle`'s effect row without
-`llm`, so an A2A handler is structurally incapable of calling a model
-until that type changes upstream. The agent card it was meant to publish
-is served today by the MCP server, on the same `/.well-known/agent.json`
-path.
-
-The VSCode extension was dropped once that server existed: one ACP
-implementation reaches Zed, JetBrains, Neovim and Emacs, where the
-extension reached one editor and was the only TypeScript in the repo —
-so the only code `lex check`, `lex fmt` and CI could not see.
-
----
+[AGENTS.md](AGENTS.md) is the contract for any agent working on this repository
+(it is generated from `lex agent-guidelines`; `lex doc-sync` keeps it current).
+`make hooks` installs the pre-commit hook.
 
 ## License
 
-EUPL-1.2 — matches the rest of the lex ecosystem.
-
----
+[EUPL-1.2](LICENSE), matching the rest of the Lex ecosystem.
 
 Built under the principles of [Trust Without Comprehension](https://lexlang.org/manifesto).

@@ -7,23 +7,23 @@ signal.
 
 | Script | Verifies |
 |---|---|
-| `providers/ollama.sh` | [Providers → Ollama](../README.md#ollama) |
-| `providers/opencode_go.sh` | [Providers → OpenCode Go plan](../README.md#opencode-go-plan) |
-| `delegate_via_typed_issue.sh` | [Delegating to it from another agent](../README.md#delegating-to-it-from-another-agent-claude-code-etc) — the `[ISSUE_VERDICT]` line a calling agent branches on |
-| `lex_os/run_mediated.sh` | [Running under lex-os](../README.md#running-under-lex-os) |
-| `agent_modes/multi.sh` | [Parallel Multi-Agent](../README.md#parallel-multi-agent-stdconc) |
-| `agent_modes/verify.sh` | [Independent verification mode](../README.md#independent-verification-mode) |
-| `minimum_bar_probes.sh` | [Minimum bar mode](../README.md#minimum-bar-mode)'s no-model probes command |
-| `mcp_server_smoke.sh` | [Server Protocols → MCP](../README.md#mcp-model-context-protocol) |
-| `acp_server_smoke.py` | [Server Protocols → ACP](../README.md#agent-client-protocol-acp-zed--phase-1) |
-| `semantic_search/build_and_query.sh` | [Semantic search](../README.md#semantic-search) — builds a real index, queries it, checks the top hit is actually relevant |
-| `observability_stdout.sh` | [Observability](../README.md#observability-opentelemetry) |
-| `eval_harness_quick.sh` | [Eval harness](../README.md#eval-harness) |
-| `bootstrap_custom_task.sh` | [Bootstrap Script](../README.md#bootstrap-script)'s env-var overrides |
-| `web_frontend_smoke.sh` | [Web Frontend](../README.md#web-frontend) |
+| `providers/ollama.sh` | [Providers → Ollama](../docs/PROVIDERS.md#ollama) |
+| `providers/opencode_go.sh` | [Providers → OpenCode Go plan](../docs/PROVIDERS.md#opencode-go-plan) |
+| `delegate_via_typed_issue.sh` | [Delegating to it from another agent](../docs/DELEGATION.md#delegating-to-it-from-another-agent-claude-code-etc) — the `[ISSUE_VERDICT]` line a calling agent branches on |
+| `lex_os/run_mediated.sh` | [Running under lex-os](../docs/SECURITY.md#running-under-lex-os) |
+| `agent_modes/multi.sh` | [Parallel Multi-Agent](../docs/MODES.md#parallel-multi-agent-stdconc) |
+| `agent_modes/verify.sh` | [Independent verification mode](../docs/QUALITY.md#independent-verification-mode) |
+| `minimum_bar_probes.sh` | [Minimum bar mode](../docs/QUALITY.md#minimum-bar-mode)'s no-model probes command |
+| `mcp_server_smoke.sh` | [Server Protocols → MCP](../docs/SERVER.md#mcp-model-context-protocol) |
+| `acp_server_smoke.py` | [Server Protocols → ACP](../docs/SERVER.md#agent-client-protocol-acp-zed--phase-1) |
+| `semantic_search/build_and_query.sh` | [Semantic search](../docs/MEMORY.md#semantic-search) — builds a real index, queries it, checks the top hit is actually relevant |
+| `observability_stdout.sh` | [Observability](../docs/MEMORY.md#observability-opentelemetry) |
+| `eval_harness_quick.sh` | [Eval harness](../docs/QUALITY.md#eval-harness) |
+| `bootstrap_custom_task.sh` | [Bootstrap Script](../docs/PIPELINES.md#bootstrap-script)'s env-var overrides |
+| `web_frontend_smoke.sh` | [Web Frontend](../docs/SERVER.md#web-frontend) |
 | `tally_demo/` | The human brief behind the demo video: one prompt -> plan -> typed issues -> gated build of the `tally` package |
-| `manifesto_full_chain/`, `manifesto_semantic_diff/`, `manifesto_parallel*.lex` | [Trust Without Comprehension — live demo](../README.md#trust-without-comprehension--live-demo) |
-| `tasks/*.task` | [Bootstrap Script → Task specs](../README.md#bootstrap-script) — consumed by `eval_harness_quick.sh` / `make eval` |
+| `manifesto_full_chain/`, `manifesto_semantic_diff/`, `manifesto_parallel*.lex` | [Trust Without Comprehension — live demo](../docs/SECURITY.md#effect-typed-orchestration--tamper-evident-audit) |
+| `tasks/*.task` | [Bootstrap Script → Task specs](../docs/PIPELINES.md#bootstrap-script) — consumed by `eval_harness_quick.sh` / `make eval` |
 
 ## Prerequisites
 

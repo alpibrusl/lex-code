@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>lex-code — an experiment in verified AI coding</title>
-<meta name="description" content="An experiment in verified-by-construction AI coding: closed against the type checker and a declared acceptance, not a transcript claiming success. Built first in Lex, a young language this project pushes hardest right now — and one anyone can build with.">
+<title>lex-code — a coding assistant that proves its work</title>
+<meta name="description" content="A coding assistant for Lex. Every task ends in a verdict from the type checker and from examples written before the code. Plans and builds whole packages, runs unattended on a local model, and leaves a report.">
 <link rel="canonical" href="https://code.lexlang.org/">
 <link rel="icon" href="logo.svg" type="image/svg+xml">
-<meta property="og:title" content="lex-code — an experiment in verified AI coding">
-<meta property="og:description" content="Not something to switch to tomorrow — a real look at whether 'trust the result, not the diff' actually works.">
+<meta property="og:title" content="lex-code — a coding assistant that proves its work">
+<meta property="og:description" content="Verdicts from the type checker and declared acceptance, not a transcript. Whole packages, unattended, local-first.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://code.lexlang.org/">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/asciinema-player@3/dist/bundle/asciinema-player.css">
@@ -67,260 +67,178 @@
   footer{border-top:1px solid var(--line);padding:34px 0;color:var(--muted);font-size:14px}
   footer a{color:var(--muted)}
   @media(max-width:760px){.pillars{grid-template-columns:1fr}.providers{grid-template-columns:1fr}.two-col{grid-template-columns:1fr}}
+
+  .steps{counter-reset:s;display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:0 0 22px;padding:0;list-style:none}
+  .steps li{counter-increment:s;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:14px;color:var(--muted)}
+  .steps li:before{content:counter(s);display:inline-block;margin-right:8px;width:22px;height:22px;line-height:22px;text-align:center;border-radius:50%;background:var(--accent);color:#06121f;font-weight:700;font-size:12px}
+  .steps li b{display:block;color:var(--fg);margin:6px 0 4px;font-size:15px}
+  .docs{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .docs a{display:block;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;color:var(--fg);font-weight:600;font-size:14.5px}
+  .docs a span{display:block;font-weight:400;color:var(--muted);font-size:13px;margin-top:2px}
+  .docs a:hover{text-decoration:none;border-color:var(--accent)}
+  ul.plain{margin:0;padding-left:20px;color:var(--muted)} ul.plain li{margin:8px 0} ul.plain b{color:var(--fg)}
+  .note{color:var(--muted);font-size:14px;margin:14px 0 0}
+  @media(max-width:760px){.steps{grid-template-columns:1fr 1fr}.docs{grid-template-columns:1fr}}
+  @media(max-width:460px){.steps{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <header><div class="wrap">
   <a class="brand" href="/"><img src="logo.svg" alt=""> lex-code</a>
   <nav>
-    <a href="#why">Why</a>
-    <a href="#issues">Issues</a>
-    <a href="#try">Try it</a>
-    <a href="#package">Whole packages</a>
-    <a href="#delegate">Add to your agent</a>
-    <a href="#different">Where it fits</a>
-    <a href="https://github.com/alpibrusl/lex-code#readme">Docs</a>
+    <a href="#features">Features</a>
+    <a href="#how">How it works</a>
+    <a href="#start">Quick start</a>
+    <a href="#packages">Whole packages</a>
+    <a href="#providers">Providers</a>
+    <a href="#safety">Safety</a>
+    <a href="#docs">Docs</a>
     <a href="https://github.com/alpibrusl/lex-code">GitHub</a>
-    <a href="https://lexlang.org">lexlang.org</a>
   </nav>
 </div></header>
 
 <main class="wrap">
   <section class="hero">
-    <h1>An experiment in verified AI coding.</h1>
-    <p class="lead">Not something to switch to tomorrow — a real look at whether "trust the
-    result, not the diff" actually works. Point it at a task in plain English; it writes real
-    <a href="https://lexlang.org">Lex</a> and closes the turn against the type checker and a
-    declared acceptance, not a transcript claiming success. Built first in Lex — right now
-    this project is the language's most serious real-world user, which is exactly the point:
-    you can't fake out a type checker. It's not closed off — the language is open for
-    anyone to build with too.</p>
+    <h1>A coding assistant that proves its work.</h1>
+    <p class="lead">lex-code writes <a href="https://lexlang.org">Lex</a> and ends every task with a
+    verdict from the type checker and from examples written <em>before</em> the code &mdash; not a
+    transcript claiming success. Give it one task, or a brief for a whole package; run it on your own
+    machine with a local model, or overnight, unattended.</p>
     <div class="cta">
-      <a class="primary" href="#try">See it run</a>
-      <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/TUTORIAL.md">Read the tutorial</a>
-      <a href="https://github.com/alpibrusl/lex-code">View on GitHub</a>
+      <a class="primary" href="#start">Get started</a>
+      <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/TUTORIAL.md">Tutorial</a>
+      <a href="https://github.com/alpibrusl/lex-code">GitHub</a>
     </div>
     <div class="install">curl -fsSL https://raw.githubusercontent.com/alpibrusl/lex-code/main/install.sh | bash</div>
     <div class="cast-frame" id="cast-friendly"></div>
-    <p class="shot-caption">A real, unedited run — the request is plain English, not Lex. No signature, no syntax, no prior Lex knowledge.</p>
+    <p class="shot-caption">A real, unedited run: the request is plain English, not Lex.</p>
   </section>
 
-  <section class="block" id="why">
-    <h2>Why lex-code</h2>
+  <section class="block" id="features">
+    <h2>What it does</h2>
     <div class="pillars">
-      <div class="pillar"><h3>A result you don't have to trust</h3><p>Hand it a typed issue
-        instead of a paragraph of prose: it iterates against the type checker and the issue's
-        own acceptance examples, and the run ends with one machine-readable line regardless of
-        what the model claims.</p></div>
-      <div class="pillar"><h3>The sandbox is the language</h3><p>Every session runs under an
-        explicit capability grant enforced by the Lex VM itself — it can't perform an effect it
-        wasn't granted, full stop, not "was told not to."</p></div>
-      <div class="pillar"><h3>An outer sandbox, one flag away</h3><p><code>--lex-os</code> runs
-        the whole session inside lex-os's host-level mediated perimeter — a real microVM on a
-        KVM host, stacked on top of the language-level grant.</p></div>
-      <div class="pillar"><h3>Fully local is a first-class option</h3><p><code>--ollama</code>
-        runs entirely on your own machine, no key, no cloud dependency — the same workflow as
-        every other provider.</p></div>
-      <div class="pillar"><h3>It dogfoods its own guarantees</h3><p>lex-code is written entirely
-        in Lex, so its own CI runs the same type checker, minimum-bar gate, and effect-row
-        report against itself that it holds any task to.</p></div>
-      <div class="pillar"><h3>Delegate it from any agent</h3><p>A plain CLI — any agent that can
-        shell out (Claude Code, Codex, a CI step) can hand it a Lex-specific task. A packaged,
-        portable skill is in the repo, ready to install.</p></div>
+      <div class="pillar"><h3>Verifies, doesn&rsquo;t narrate</h3><p>A <em>typed issue</em> is a contract:
+        exact signatures plus the examples that decide whether it holds. The run ends with one
+        machine-readable verdict, whatever the model claims.</p></div>
+      <div class="pillar"><h3>Builds whole packages</h3><p>From a brief: a checked plan, units built in
+        dependency order, generated invariants, the real program started and attacked with the
+        brief&rsquo;s own requirements, and repair when it fails.</p></div>
+      <div class="pillar"><h3>Runs while you sleep</h3><p><code>lex-code-overnight</code> resumes across
+        rounds, waits out a provider that goes away, restores the source file after a kill, and writes
+        a report.</p></div>
+      <div class="pillar"><h3>Sandboxed by the language</h3><p>Every session runs under a capability
+        grant enforced by the Lex VM. An effect it was not granted, it cannot perform.
+        <code>--lex-os</code> adds an outer, host-level perimeter.</p></div>
+      <div class="pillar"><h3>Local-first, any provider</h3><p><code>--ollama</code> runs entirely on your
+        machine, no key. Cloud and OpenAI-compatible servers use the same flags.</p></div>
+      <div class="pillar"><h3>Leaves a trail</h3><p>Each session is a database of events, each issue is in a
+        content-addressed store, and a running build has a read-only live dashboard.</p></div>
     </div>
   </section>
 
-  <section class="block" id="issues">
-    <h2>What's a typed issue?</h2>
-    <p>Work as a declared, checkable contract instead of a paragraph of prose — an API shape and
-    the examples that prove it, the acceptance a run either closes against or doesn't. Real
-    output, the same issue used in "Try it" below:</p>
-    <pre>$ lex issue show 629023e8563d78327c3b1dcee14396eaa67d8bf45e04d023642b0651c915d8fb
-{
-  "acceptance": {
-    "api": [
-      { "kind": "added", "name": "quote_for", "signature": "(topic :: Str) -> Str" },
-      { "kind": "added", "name": "serve",     "signature": "() -> [net] Nil" }
-    ],
-    "examples": [ "quote_for(\"courage\") => \"Do one thing every day that scares you.\"" ],
-    "shape": "typed_delta"
-  },
-  "body": "Add a tiny REST API on port 8931: GET /health -> {\"ok\":true}, GET /quote/:topic -> a short quote for that topic as JSON, anything else -> 404. This is an empty project: before hand-rolling routing, look through the lex-* packages under github.com/alpibrusl for one to build on.",
-  "issue_id": "629023e8563d78327c3b1dcee14396eaa67d8bf45e04d023642b0651c915d8fb",
-  "title": "add quote api"
-}</pre>
-    <p>Issues live in Lex's own op-log VCS: every accepted change is a content-addressed,
-    hash-chained op, and <code>lex issue verify</code> checks the acceptance against HEAD, not a
-    cached memory of it — which is why the same verdict can flip if the code it once verified is
-    later removed. Honestly: there's no web UI for any of this yet, just the CLI. Real, truncated
-    output from this repo:</p>
-    <pre>$ lex op log
-op_id:   188906eedb0952d086826165b6e49148485936d9deb9b1155f1e349f9cadc019
-kind:    modify_body
-parent:  021e626a7699e6940565cd7e2aa8b4a53e137d220327b6ed1e9e3f129fdae57c
-
-op_id:   021e626a7699e6940565cd7e2aa8b4a53e137d220327b6ed1e9e3f129fdae57c
-kind:    add_function
-parent:  c32da6062f16626dc4d5e5e84783ca642d92f7cb8d0879a1dfd767614de760b0
-  ...</pre>
+  <section class="block" id="how">
+    <h2>How a package gets built and checked</h2>
+    <ol class="steps">
+      <li><b>Plan</b>An agent drafts a graph of typed issues from your brief. Nothing is filed yet.</li>
+      <li><b>Check the plan</b>Unbuildable examples, cycles, name collisions and invariants that can never fail are rejected before any code is written.</li>
+      <li><b>Build</b>Units are built in dependency order. Each is verified against its own examples; a later unit that breaks an earlier one is caught.</li>
+      <li><b>Harden</b>Invariants declared in the plan are checked on generated inputs; violations are fixed.</li>
+      <li><b>Accept</b>The real program is started and the brief&rsquo;s requirements are replayed against it as requests.</li>
+      <li><b>Repair</b>Failures that only exist once the units share a file go back to a model as one task.</li>
+      <li><b>Report</b>Verdict, per-unit attempts and tokens, and what is still wrong.</li>
+      <li><b>Stop anywhere</b>Every stage is a command and a file you can read, edit and resume.</li>
+    </ol>
+    <p class="note">&ldquo;Verified&rdquo; is necessary, not sufficient: a unit&rsquo;s examples are a finite
+    list. That is why a build ends by <em>running</em> the program &mdash; and why you should attack the
+    result yourself before exposing it.</p>
   </section>
 
-  <section class="block" id="try">
-    <h2>Try it</h2>
+  <section class="block" id="start">
+    <h2>Quick start</h2>
     <div class="two-col">
       <div>
-        <p>Fully local, no key — the recording at the top is exactly this:</p>
-        <pre>lex-code --ollama "write a function that tells me if a word reads the same backwards, like radar"</pre>
-        <p>That's fine for a quick edit you'll read yourself. For something you want to trust
-        without reading the diff, start a project and hand it a typed issue — it closes by
-        proof, not by a transcript claiming success. Here, from an empty directory:</p>
-        <pre>mkdir quotes &amp;&amp; cd quotes &amp;&amp; lex init
-
-ISSUE_ID=$(lex issue create --title "add quote api" --shape typed_delta \
-  --body 'Add a tiny REST API on port 8931: GET /health, GET /quote/:topic (JSON),
-          else 404. Empty project: before hand-rolling routing, look through the
-          lex-* packages under github.com/alpibrusl for one to build on.' \
-  --api 'quote_for:(topic :: Str) -> Str' \
-  --api 'serve:() -> [net] Nil' \
-  --example 'quote_for("courage") => "Do one thing every day that scares you."')
-
-lex-code "--issue=$ISSUE_ID" --ollama          # streams what the agent does
-# [ISSUE_VERDICT]  verified  &lt;issue_id&gt;</pre>
-        <div class="cast-frame" id="cast-issue"></div>
-        <p class="shot-caption">A real, unedited run from an empty <code>lex init</code>
-        project: about twenty minutes of a local model, played with idle gaps capped at two
-        seconds. Then the outline of what it wrote, the server started with exactly
-        <code>--allow-effects net</code>, and real <code>curl</code> answers.</p>
+<pre>lex-code --ollama                        # interactive, local, no key
+lex-code --ollama "implement list.zip"   # one task, then exit
+lex-code --plan --ollama                 # plan only, nothing written</pre>
+        <p>Pick a provider with its flag; <code>--ollama</code> needs no key. See <a href="#providers">Providers</a>.</p>
       </div>
       <div>
-        <p><b>It started from nothing.</b> No dependencies, no code. The prompt says where the
-        Lex ecosystem lives, not which package to use. The agent searched the package catalog
-        with its <code>find_packages</code> tool, read
-        <a href="https://github.com/alpibrusl/lex-web">lex-web</a>, and decided the standard
-        library's own router was enough for something this small — so the service depends on
-        nothing and needs exactly the <code>[net]</code> effect its signature declares. Then it
-        closed the issue against the declared signatures and example.</p>
-        <p>That look-then-decide step is what to watch. It's one run of a local model, not a
-        benchmark: a bigger task, or another run, might well pull a package in.</p>
-        <p>No key, no waitlist, no account: the install script above sets up the Lex toolchain
-        too if you don't already have it, then you're running a real session in under a
-        minute.</p>
-        <p>New to this: the <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/TUTORIAL.md">tutorial</a>
-        walks from "never used this" to comfortable, typed-issue workflow included. Full
-        reference, every mode (<code>--plan</code>, <code>--explore</code>, <code>--refactor</code>,
-        <code>--test</code>, <code>--review</code>, <code>--verify</code>, <code>--bar</code>,
-        <code>--multi</code>), the web UI, and everything else in depth:
-        <a href="https://github.com/alpibrusl/lex-code#readme">the README</a>.</p>
-        <a class="shot" href="https://github.com/alpibrusl/lex-code#web-frontend">
-          <img src="demo/webui.gif" width="760" height="486" loading="lazy" alt="Screen recording of the lex-code web UI: a real Ollama session writing a password-strength check, its Trail, and the fact it remembered showing up in Memory.">
-        </a>
-        <p class="shot-caption">Prefer a UI: the same kind of session, with its live Trail — and
-        Memory, once something's worth remembering across sessions, right in the sidebar.</p>
+<pre>lex-code --issue=&lt;id&gt; --ollama   # implement a typed issue
+                                 # ends with [ISSUE_VERDICT]</pre>
+        <p>A typed issue is exact signatures plus the examples that decide whether it holds.</p>
       </div>
     </div>
+    <div class="cast-frame" id="cast-issue"></div>
+    <p class="shot-caption">Implementing a typed issue: iterate against the type checker and the declared acceptance, then one verdict line.</p>
   </section>
 
-  <section class="block" id="package">
-    <h2>A whole package, in stages you can stop at</h2>
-    <p>One issue is one function. For a package, lex-code first plans a graph of typed issues,
-    then builds them in order — and every step in between is a command and a file you can read, edit
-    and re-run. Nothing is filed until you say so.</p>
-    <pre>$ lex-code --package "a small invoice REST API ..." --name=invoices --ollama
-  # 1. plan   .lex/plans/invoices.json — units, signatures, examples; checked and repaired. Files nothing.
-$ lex-code --package-check=invoices          # 2. re-validate after you edit it — no model involved
-$ lex-code --package-apply=invoices          # 3. file the reviewed plan as issues
-$ lex-code --project=invoices --ollama > invoices.log 2>&1 &   # 4. build, re-verify, harden, run acceptance
-$ lex-code --dashboard=invoices              #    watch it live at 127.0.0.1:7800 (read-only)</pre>
-    <p>Or <code>--auto</code> runs all four with no human step. If a unit gets stuck, resume with
-    <code>--hint</code> or write the unit yourself with <code>--patch</code>: verified units are kept, and a
-    patch goes through the same verification as a model's work.</p>
-    <div class="pillars">
-      <div class="pillar"><h3>The plan is checked before anything runs</h3><p>Examples must call declared
-      functions, there are no cycles, and known unbuildable shapes (an example that can never hold, a
-      type alias that can never match) are rejected mechanically — before a single unit is built.</p></div>
-      <div class="pillar"><h3>"Verified" is not the end</h3><p>Units verify one at a time, so the run ends by
-      checking the assembled file type-checks, running property tests, and — for a server — starting the real
-      program and replaying scenarios taken from the brief.</p></div>
-      <div class="pillar"><h3>Every step is traceable</h3><p>Each attempt keeps a session trail, and the
-      dashboard shows what is verified, what is running, and what failed — live, read-only.</p></div>
-    </div>
-    <h3>Watch it work</h3>
-    <p>The dashboard is a local page that follows a running build. It reads the plan, the issue store and the
-    run's log, and changes nothing. You get the flow
-    (plan → file → build → regression → gate), every unit as a table, a kanban board or a dependency graph,
-    and a panel per unit with its spec, signatures and examples. When a unit runs out of attempts it
-    says so by name — that is the moment to resume with a hint or a patch.</p>
-    <p>It is a view, not a log viewer: it does not show model output or diffs, it needs the run's
-    stdout redirected to a file (<code>&gt; invoices.log</code>), and it has no login, so it listens on this machine only (127.0.0.1). Details in the
-    <a href="https://github.com/alpibrusl/lex-code#watching-a-build-the-dashboard">README</a>.</p>
-    <p>Honestly: this is an experiment. On a from-scratch API build, all 20 units verified and the
-    assembled program still never started — which is why the acceptance step exists. It has mostly been
-    exercised with one local 27B model, and a stuck unit still needs a human hint. The README has the
-    <a href="https://github.com/alpibrusl/lex-code#building-a-whole-package">stage-by-stage reference</a>.</p>
+  <section class="block" id="packages">
+    <h2>Whole packages, in stages you can stop at</h2>
+<pre>lex-code --package "a small invoice REST API ..." --name=invoices --ollama   # 1. plan; files nothing
+lex-code --package-check=invoices                                             # 2. re-validate after you edit it
+lex-code --package-apply=invoices                                             # 3. file the reviewed plan as issues
+lex-code --project=invoices --ollama &gt; invoices.log 2&gt;&amp;1 &amp;                    # 4. build, harden, accept, repair
+lex-code --dashboard=invoices                                                 #    watch it live (127.0.0.1:7800)</pre>
+    <p>Or all of it, unattended, with a report at the end:</p>
+<pre>lex-code-overnight --name=invoices --brief-file=brief.txt --ollama
+cat .lex/overnight/REPORT.md</pre>
+    <p class="note">If a unit gets stuck you can resume with <code>--hint</code> or write it yourself with
+    <code>--patch</code>: verified units are kept, and a patch goes through the same verification as a
+    model&rsquo;s work. <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/PACKAGES.md">Read the packages guide &rarr;</a></p>
   </section>
 
-  <section class="block" id="delegate">
-    <h2>Add it to your own agent</h2>
-    <p>Already using Claude Code, Cursor, or Codex? No switching needed — tell it lex-code
-    exists and let it decide when a task is Lex-specific. Paste this into a chat with whatever
-    agent you're already using:</p>
-    <pre>When a task involves writing or modifying Lex (.lex files) or the Lex toolchain,
-delegate it to lex-code instead of writing Lex yourself:
-
-  command -v lex-code >/dev/null || curl -fsSL \
-    https://raw.githubusercontent.com/alpibrusl/lex-code/main/install.sh | bash
-  lex-code --ollama "&lt;task&gt;"   # fully local, no key — or drop --ollama for your own provider
-
-Full reference: https://github.com/alpibrusl/lex-code#readme</pre>
-    <p>For Claude Code specifically, a packaged skill does the same thing automatically every
-    session, without re-pasting anything:</p>
-    <pre>mkdir -p ~/.claude/skills/lex-code
-curl -fsSL https://raw.githubusercontent.com/alpibrusl/lex-code/main/skills/lex-code/SKILL.md \
-  -o ~/.claude/skills/lex-code/SKILL.md</pre>
-    <p class="shot-caption">Both real: the skill file is the same one in the repo
-    (<a href="https://github.com/alpibrusl/lex-code/blob/main/skills/lex-code/SKILL.md">skills/lex-code/SKILL.md</a>),
-    and the paste-block above is just its opening lines, condensed for a chat window.</p>
-  </section>
-
-  <section class="block" id="different">
-    <h2>Where this fits alongside what you already use</h2>
-    <p class="lead" style="margin-bottom:18px">Not an alternative to Cursor, Copilot, or Claude
-    Code — it writes Lex, a language you probably don't use yet, so it isn't trying to be your
-    daily driver. It's a specialist your daily driver can call. What's worth naming is the
-    confidence signal it's testing, demonstrated above rather than argued about in the
-    abstract — and if it appeals, <a href="https://lexlang.org">Lex itself</a> is open to build
-    with.</p>
-    <div class="pillars">
-      <div class="pillar"><h3>A different confidence signal</h3><p>An editor assistant's turn
-        ends when the model says it's done and the diff looks right to you. lex-code's ends when
-        <code>lex check</code> passes and a declared acceptance does too — a result you can act
-        on without reading the diff, not a transcript claiming success.</p></div>
-      <div class="pillar"><h3>An enforced sandbox, not a polite one</h3><p>An editor assistant runs
-        with whatever access your editor has. lex-code's capability grant is enforced by the Lex
-        VM itself — an effect it wasn't granted, it cannot perform, full stop, not "was told not
-        to."</p></div>
-      <div class="pillar"><h3>Not a competing IDE</h3><p>It isn't trying to replace your daily
-        driver. It's a plain CLI any agent — Cursor, Claude Code, Codex, a CI step — can shell out
-        to specifically for Lex, the one thing it holds to a stricter bar than "the diff looks
-        plausible."</p></div>
-    </div>
-  </section>
-
-  <section class="block">
+  <section class="block" id="providers">
     <h2>Providers</h2>
     <div class="providers">
-      <div class="provider">
-        <h3>Ollama</h3>
-        <p>Fully local, no key. Default model <code>qwen3.8:27b-mlx</code>.</p>
-        <code class="provider-cmd">lex-code --ollama "..."</code>
-      </div>
-      <div class="provider">
-        <h3>OpenCode Go plan</h3>
-        <p>Cloud access to several open-weight coding models behind one subscription key.</p>
+      <div class="provider"><h3>Ollama</h3><p>Fully local, no key. Default model <code>qwen3.8:27b-mlx</code>.</p>
+        <code class="provider-cmd">lex-code --ollama "..."</code></div>
+      <div class="provider"><h3>OpenCode Go</h3><p>Cloud access to several open-weight coding models behind one key.</p>
         <code class="provider-cmd">export OPENCODE_API_KEY=...
-lex-code --opencode "..."</code>
-      </div>
+lex-code --opencode "..."</code></div>
+      <div class="provider"><h3>OpenAI-compatible server</h3><p>Any vLLM-style endpoint, including a local inference engine.</p>
+        <code class="provider-cmd">export VLLM_BASE_URL=.../v1/chat/completions
+export VLLM_MODEL=...
+lex-code --vllm "..."</code></div>
+      <div class="provider"><h3>Others</h3><p>LiteLLM, lex-gpu, OpenAI, Mistral, Google, Vertex and Anthropic are implemented
+        with less mileage. Only the three at left have been run end to end in this repository.</p>
+        <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/PROVIDERS.md">Provider guide &rarr;</a></div>
     </div>
+  </section>
+
+  <section class="block" id="safety">
+    <h2>Safety model</h2>
+    <ul class="plain">
+      <li><b>Capability grants, enforced by the VM.</b> A session cannot perform an effect (<code>net</code>, <code>fs_write</code>, &hellip;) it was not granted, whatever its prompt says.</li>
+      <li><b>A permission gate</b> sits in front of the tools that change things.</li>
+      <li><b>An outer sandbox on request.</b> <code>--lex-os</code> runs the whole session inside lex-os&rsquo;s host-level perimeter.</li>
+      <li><b>Unattended runs execute shell commands.</b> Run <code>lex-code-overnight</code> in a dedicated project directory, or with <code>--lex-os</code>.</li>
+      <li><b>The dashboard listens on 127.0.0.1 only</b> and is read-only.</li>
+    </ul>
+    <p class="note"><a href="https://github.com/alpibrusl/lex-code/blob/main/docs/SECURITY.md">Security model &rarr;</a></p>
+  </section>
+
+  <section class="block" id="docs">
+    <h2>Documentation</h2>
+    <div class="docs">
+      <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/TUTORIAL.md">Tutorial<span>Install, first run, typed issues</span></a>
+      <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/PACKAGES.md">Building whole packages<span>Plan, build, accept, repair, overnight</span></a>
+      <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/MODES.md">Modes<span>Build, plan, review, verify, &hellip;</span></a>
+      <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/PROVIDERS.md">Providers<span>Models and keys</span></a>
+      <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/DELEGATION.md">Use it from another agent<span>Claude Code, Cursor, Codex, CI</span></a>
+      <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/SERVER.md">Servers and web UI<span>HTTP API, MCP, ACP</span></a>
+      <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/QUALITY.md">Quality gates<span>Minimum bar, independent verification</span></a>
+      <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/SECURITY.md">Security model<span>Effect grants, permissions, lex-os</span></a>
+      <a href="https://github.com/alpibrusl/lex-code/blob/main/docs/ARCHITECTURE.md">Architecture<span>How it is put together</span></a>
+    </div>
+  </section>
+
+  <section class="block" id="limits">
+    <h2>Status and limits</h2>
+    <ul class="plain">
+      <li><b>Young, and mostly run with one local model.</b> Whole-package builds have gone from a brief to a passing acceptance gate, and have also stalled; each cause found so far now has a check, and a new brief or library can still find another.</li>
+      <li><b>A passing gate is not a security review.</b> Acceptance scenarios come from the brief&rsquo;s own requirements. Treat <code>done</code> as &ldquo;meets the brief as tested&rdquo;, and test the result before exposing it.</li>
+      <li><b>Local models are slow.</b> A whole package takes hours on a laptop-class model; that is what the overnight supervisor is for.</li>
+    </ul>
   </section>
 </main>
 
@@ -337,8 +255,8 @@ lex-code --opencode "..."</code>
 </script>
 
 <footer><div class="wrap">
-  Part of the <a href="https://lexlang.org">Lex</a> project — <a href="https://lexlang.org">build with it</a>.
-  <a href="https://github.com/alpibrusl/lex-code">GitHub</a> ·
+  Part of the <a href="https://lexlang.org">Lex</a> project &mdash; <a href="https://lexlang.org">build with it</a>.
+  <a href="https://github.com/alpibrusl/lex-code">GitHub</a> &middot;
   <a href="https://github.com/alpibrusl/lex-code/blob/main/LICENSE">EUPL-1.2</a>
 </div></footer>
 </body>
