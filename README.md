@@ -506,7 +506,8 @@ local model's thinking on (it verified a hard unit 4/4 where thinking-off manage
 the run. A provider that stops answering is waited for with backoff, not counted as
 a failure. A round that hangs is killed at its own ceiling, the machine is kept awake
 (`caffeinate`), and a shared file left unparseable by a kill mid-edit is put back
-from the last copy that parsed. Anything else on the command line goes to `lex-code`
+from the newest copy that parsed (copied every two minutes while a round runs, so the
+restore costs minutes, not the round; the broken file is kept next to it). Anything else on the command line goes to `lex-code`
 (`--ollama`, `--lex-os`, ...).
 
 | option | |

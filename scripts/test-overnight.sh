@@ -37,6 +37,7 @@ printf '[PROJECT] p  %s/16 verified, 0 ready\n' "$verified"
 [ "$accept" != "-" ] && printf '[ACCEPTANCE] %s/16 scenarios hold:\n' "$accept"
 [ "$verdict" = sleep ] && sleep 30
 [ "$flag" = corrupt ] && printf 'fn broken( {\n' > src/p.lex
+if [ "$flag" = evolve ]; then printf 'fn f() -> Int {\n  2\n}\n' > src/p.lex; sleep 5; printf 'fn broken( {\n' > src/p.lex; sleep 60; fi
 [ "$verdict" != none ] && [ "$verdict" != sleep ] && printf '[PROJECT_VERDICT]\t%s\tp\n' "$verdict"
 exit 0
 EOF
@@ -98,6 +99,16 @@ if [ "$n" = 1 ]; then echo "ok    did not retry a tooling bug"; else echo "FAIL 
 run "restores an unparseable file" 0 $'stuck 5 - corrupt\ndone 16 16'
 expect "  restored" "$D/.lex/overnight/supervisor.log" "restored"
 if "${LEX:-lex}" check "$D/src/p.lex" >/dev/null 2>&1; then echo "ok    file parses again"; else echo "FAIL  file still broken"; fails=$((fails + 1)); fi
+
+# 9b. the regression that cost a real build 2.5 hours of work: the file evolves during a
+# round (valid, newer than the round-start copy), then the round is killed mid-edit. The
+# restore must bring back the NEWEST parseable copy, not the round-start one.
+D="$(mkproj)"; printf '%s\n' $'none 5 - evolve\ndone 16 16' > "$D/script"
+( cd "$D" && STUB_STATE="$D/state" STUB_THINK="$D/think" STUB_ARGS="$D/args" SCRIPT_FILE="$D/script" LEX_CODE_OVERNIGHT_BIN=/tmp/stub-lex-code.$$ \
+    LEX_OVERNIGHT_POLL=1 LEX_OVERNIGHT_BACKOFF=1 LEX_OVERNIGHT_ROUND_SECS=9 LEX_OVERNIGHT_SNAPSHOT=1 LEX_OVERNIGHT_MAX_SECS=90 LEX_OVERNIGHT_MIN_LEFT=2 "$SUP" --name=p --no-caffeinate > "$D/out" 2>&1 )
+expect "restore happened after the kill" "$D/.lex/overnight/supervisor.log" "restored"
+if grep -q "  2" "$D/src/p.lex"; then echo "ok    the restored file is the evolved one, not the round-start copy"; else echo "FAIL  the restore went back to the round-start copy:"; sed 's/^/        /' "$D/src/p.lex"; fails=$((fails + 1)); fi
+if ls "$D"/.lex/overnight/broken-*.lex >/dev/null 2>&1; then echo "ok    the broken file was kept"; else echo "FAIL  the broken file was not kept"; fails=$((fails + 1)); fi
 
 # 10. a hung round is killed at its ceiling
 D="$(mkproj)"; printf '%s\n' $'sleep 5 -\ndone 16 16' > "$D/script"

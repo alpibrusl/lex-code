@@ -97,7 +97,7 @@ LEX="${LEX:-lex}"
 OV=".lex/overnight"
 mkdir -p "$OV"
 
-# (the LEX_OVERNIGHT_* knobs exist so the decision logic can be tested in seconds)
+# (the LEX_OVERNIGHT_* knobs (SNAPSHOT: seconds between mid-round copies of the shared file, default 120) exist so the decision logic can be tested in seconds)
 POLL="${LEX_OVERNIGHT_POLL:-5}"
 BACKOFF0="${LEX_OVERNIGHT_BACKOFF:-60}"
 now() { date +%s; }
@@ -148,17 +148,36 @@ last_accept()   { awk '$1=="[ACCEPTANCE]" && $2 ~ /^[0-9]+\/[0-9]+$/ {v=$2} END{
 verdict_in()    { awk -F'\t' '$1=="[PROJECT_VERDICT]" {v=$2} END{print v}' "$1"; }
 
 # --- the shared file: put back the last copy that parsed -------------------------------
+mtime_of() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
+
+# Remember the shared file if it parses. Called between rounds AND while a round runs
+# (see run_capped): a copy that is only refreshed at round boundaries is up to a
+# round old, and a kill mid-edit then restores hours of work away. That is exactly what
+# happened on a real build: the round-start scaffold (every function a todo() stub) was
+# put back over 2.5 hours of verified code.
+snapshot_file() {
+  local f="src/$NAME.lex"
+  [ -f "$f" ] || return 0
+  if ! "$LEX" check "$f" 2>&1 | grep -qi 'parse error'; then
+    cp "$f" "$OV/last-good.lex.tmp" && mv "$OV/last-good.lex.tmp" "$OV/last-good.lex"
+  fi
+}
+
+# Between rounds: if the file no longer parses (a kill mid-edit), put back the newest copy
+# that did — keeping the broken one, since it is the only record of the last edit.
 guard_file() {
   local f="src/$NAME.lex"
   [ -f "$f" ] || return 0
   if "$LEX" check "$f" 2>&1 | grep -qi 'parse error'; then
     if [ -f "$OV/last-good.lex" ]; then
-      cp "$OV/last-good.lex" "$f" && say "restored $f from the last copy that parsed (a kill mid-edit left it unparseable)"
+      local keep="$OV/broken-$(now).lex" age=$(( ($(now) - $(mtime_of "$OV/last-good.lex")) / 60 ))
+      cp "$f" "$keep"
+      cp "$OV/last-good.lex" "$f" && say "restored $f from the newest copy that parsed, ${age} min old (a kill mid-edit left it unparseable; the broken file is kept as $keep)"
     else
       say "WARNING: $f does not parse and there is no earlier copy to restore"
     fi
   else
-    cp "$f" "$OV/last-good.lex"
+    snapshot_file
   fi
 }
 
@@ -167,9 +186,10 @@ guard_file() {
 run_capped() {
   local cap="$1" log="$2" pat="$3"; shift 4
   ( "$@" > "$log" 2>&1; echo "EXIT $?" >> "$log" ) &
-  local pid=$! waited=0
+  local pid=$! waited=0 since_snap=0
   while kill -0 "$pid" 2>/dev/null; do
-    sleep "$POLL"; waited=$((waited + POLL))
+    sleep "$POLL"; waited=$((waited + POLL)); since_snap=$((since_snap + POLL))
+    if [ "$since_snap" -ge "${LEX_OVERNIGHT_SNAPSHOT:-120}" ]; then snapshot_file; since_snap=0; fi
     if [ "$waited" -ge "$cap" ]; then
       say "the round reached its ${cap}s ceiling — killing it (verified units are kept)"
       pkill -9 -f -- "$pat" 2>/dev/null || true
