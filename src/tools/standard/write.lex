@@ -16,6 +16,8 @@ import "lex-schema/schema" as s
 
 import "../atomic" as atomic
 
+import "../../package_flow/shared_guard" as guard
+
 import "../util" as util
 
 import "../linter" as linter
@@ -64,7 +66,39 @@ fn ensure_parent_dir(path :: Str) -> [proc] Result[Unit, Str] {
   }
 }
 
-fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
+# Is `path` the one source file a package plan scaffolded (`apply` records its
+# path in .lex/plans/<project>.scaffold)? Only that file is guarded.
+fn is_scaffolded(path :: Str) -> [proc] Bool {
+  let plain := if str.starts_with(path, "./") {
+    str.slice(path, 2, str.len(path))
+  } else {
+    path
+  }
+  match proc.run("sh", ["-c", "grep -qxF -- \"$1\" .lex/plans/*.scaffold 2>/dev/null", "sh", plain]) {
+    Ok(o) => o.exit_code == 0,
+    Err(_) => false,
+  }
+}
+
+# The functions this write would delete from a scaffolded package file: [] for
+# any other file, for a file that does not exist yet, and for a write that keeps
+# everything the file declares.
+fn dropped_by(path :: Str, content :: Str) -> [io, proc] List[Str] {
+  if not str.ends_with(path, ".lex") {
+    []
+  } else {
+    if not is_scaffolded(path) {
+      []
+    } else {
+      match io.read(path) {
+        Err(_) => [],
+        Ok(old) => guard.dropped_fns(old, content),
+      }
+    }
+  }
+}
+
+fn execute_unguarded(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
   match util.field_str(args, "path") {
     None => Err(e.single("", "missing_field", "path is required")),
     Some(path) => match util.field_str(args, "content") {
@@ -91,6 +125,23 @@ fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
             }
           },
         },
+      },
+    },
+  }
+}
+
+fn execute(args :: jv.Json) -> [net, io, proc] Result[jv.Json, e.Errors] {
+  match util.field_str(args, "path") {
+    None => execute_unguarded(args),
+    Some(path) => match util.field_str(args, "content") {
+      None => execute_unguarded(args),
+      Some(content) => {
+        let names := dropped_by(path, content)
+        if list.is_empty(names) {
+          execute_unguarded(args)
+        } else {
+          Err(e.single("", "would_delete_code", guard.refusal(path, names)))
+        }
       },
     },
   }

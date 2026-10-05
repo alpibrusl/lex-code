@@ -534,6 +534,24 @@ fn projects_off_call(example :: Str) -> Bool
 # is_valid_create(s) or true` (a "reject unknown fields" check that rejects
 # nothing): both pass for every input. Only the constant forms are caught
 # here, because they are certain; a subtler tautology is not guessed at.
+# `E == E`: a "determinism" invariant that compares an expression with itself
+# passes for every input. Two of these came from one real plan
+# (`parse_tokens("") == parse_tokens("")`, `validate(raw) == validate(raw)`).
+fn compares_with_itself(expr :: Str) -> Bool {
+  let sides := str.split(expr, "==")
+  if list.len(sides) == 2 {
+    match list.head(sides) {
+      None => false,
+      Some(l) => match list.head(list.tail(sides)) {
+        None => false,
+        Some(r) => str.trim(l) == str.trim(r) and not str.is_empty(str.trim(l)),
+      },
+    }
+  } else {
+    false
+  }
+}
+
 fn vacuous_invariant(expr :: Str) -> Bool
   examples {
     vacuous_invariant("f(x) == 0 or true") => true,
@@ -542,10 +560,14 @@ fn vacuous_invariant(expr :: Str) -> Bool
     vacuous_invariant("true") => true,
     vacuous_invariant("f(x) == 0 or trueish(x)") => false,
     vacuous_invariant("f(x) == g(x)") => false,
-    vacuous_invariant("f(x) and truth(x)") => false
+    vacuous_invariant("f(x) and truth(x)") => false,
+    vacuous_invariant("parse(s) == parse(s)") => true,
+    vacuous_invariant("  parse(\"\") ==  parse(\"\") ") => true,
+    vacuous_invariant("parse(s) == parse(t)") => false,
+    vacuous_invariant("f(x) == g(x) == h(x)") => false
   }
 {
-  regex.is_match_str("(^|[^A-Za-z0-9_])(or +true|and +false)($|[^A-Za-z0-9_])", expr) or regex.is_match_str("^ *true *$", expr)
+  regex.is_match_str("(^|[^A-Za-z0-9_])(or +true|and +false)($|[^A-Za-z0-9_])", expr) or regex.is_match_str("^ *true *$", expr) or compares_with_itself(expr)
 }
 
 fn vacuous_invariant_errors(u :: PlanUnit) -> List[Str] {
