@@ -16,10 +16,13 @@ install:
 	@# and the other doesn't).
 	sed -e 's|@@SRCDIR@@|$(SRCDIR)|g' scripts/installed-wrapper.sh > $(BINDIR)/lex-code
 	chmod +x $(BINDIR)/lex-code
+	@# The unattended supervisor: it runs the installed lex-code next to it.
+	cp bin/lex-code-overnight $(BINDIR)/lex-code-overnight
+	chmod +x $(BINDIR)/lex-code-overnight
 	@echo "Done. Run: lex-code [--provider <tag>] [--mode <mode>] [task]"
 
 uninstall:
-	rm -f $(BINDIR)/lex-code
+	rm -f $(BINDIR)/lex-code $(BINDIR)/lex-code-overnight
 	rm -rf $(SRCDIR)
 
 hooks:

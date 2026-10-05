@@ -3,11 +3,9 @@
 #
 # `lex-code --auto` ends at the first thing that needs a person: a unit that is
 # stuck, a step budget that ran out, a gate that failed, a provider that blinked,
-# a cap someone set. Each of those is a decision, and on a real invoices build
-# (a local 27B, ~4 hours) a human made all of them by hand: resume, resume again,
-# give a hint, raise a budget. This makes the routine ones for you, inside limits
-# you set, and never spends a paid token it was not told to (it adds no provider
-# of its own; whatever flags you pass are what runs).
+# a cap someone set. Each of those is a decision. This makes the routine ones for you,
+# inside limits you set, and never spends a paid token it was not told to (it adds no
+# provider of its own; whatever flags you pass are what runs).
 #
 #   lex-code-overnight --name=invoices --brief-file=brief.txt --ollama
 #   lex-code-overnight --name=invoices --ollama           # a plan already exists: resume

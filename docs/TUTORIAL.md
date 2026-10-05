@@ -67,7 +67,7 @@ make install            # installs to /usr/local/bin + /usr/local/lib
 Everything below assumes `lex-code` on your `PATH`; if you're running from
 the source tree, use `./bin/lex-code` instead. **Always use this wrapper,
 not `lex run` directly** — it supplies the capability grant and step budget
-a real session needs; see the README's [Quickstart](../README.md#quickstart)
+a real session needs; see the README's [Quickstart](INSTALL.md#quickstart)
 if you're curious why.
 
 ## Your first conversation
@@ -115,7 +115,7 @@ switch what it's for:
 Flags combine with a task the same way: `lex-code --review "check the
 changes in src/checkout.lex"`. The full mode list (including `--spec`,
 `--bar`, and `--multi` for running two agents in parallel) is in the
-README's [Agent Modes](../README.md#agent-modes) table.
+README's [Agent Modes](MODES.md#agent-modes) table.
 
 ## Choosing a provider
 
@@ -219,7 +219,7 @@ lex run --max-steps 20000000000 \
 and open `http://localhost:7700`. Every turn is visible live — tool calls
 as they happen, not after the fact — and a session can be shared read-only
 with `?watch=<session-id>`. Details in the README's
-[Web sessions](../README.md#web-sessions) section.
+[Web sessions](SERVER.md#web-sessions) section.
 
 ## When something goes wrong
 
@@ -227,7 +227,7 @@ with `?watch=<session-id>`. Details in the README's
   `./bin/lex-code` from the repo, or `make install` first.
 - **It refuses immediately with a provider error** — you're missing the
   matching API key env var for the provider you selected (see the
-  [Providers](../README.md#providers) table).
+  [Providers](PROVIDERS.md#providers) table).
 - **A long task dies partway with a step-limit error** — you called `lex
   run` directly instead of the `lex-code` wrapper, which raises the
   default step budget. Use the wrapper.
