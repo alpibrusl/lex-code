@@ -337,7 +337,9 @@ of a project's units from `--project` (use `--issue` for one at a time).
 The plan is JSON — units, each with signatures, examples and `deps` — and it
 is checked before it can be filed (every example must call a declared
 function, an example is a bare call — `f(x).field => ..` can never verify —
-an invariant can fail — `... or true` checks nothing —
+an invariant can fail — `... or true` and `f(x) == f(x)` check nothing —
+no function is named like one a dependency exports (`open`, `insert`, ... — such a
+unit can never verify) —
 no cycles, a pure function needs an example, a function is declared
 by exactly one unit). Filing is deterministic on purpose: an LLM does not get
 to decide, unreviewed, what "done" means.

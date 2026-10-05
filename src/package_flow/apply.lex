@@ -185,6 +185,52 @@ fn compile_types(p :: plan.Plan) -> [proc, io] Result[List[Str], Str] {
   }
 }
 
+# A unit whose function is named like a function a dependency exports cannot
+# verify. Seen on a real plan: a unit declared `open`, lex-orm exports
+# `open(url :: Str) -> Result[ConnDb, DbErr]`, and the store compared the declared
+# signature with THAT one ("signature at head `(url::Str)->..Result..` differs from
+# declared") on every attempt, whatever the model wrote. The model tried to dodge
+# it by renaming and building a chain of six helpers; nothing it could write was
+# right. The plan had four such names (`open`, `insert`, `verify`, `validate`); four
+# earlier plans that built fine had none. Which modules the finished file imports is
+# up to the builder, so the check is on every module of every package the plan lists.
+fn name_collisions(units :: List[plan.PlanUnit], pkg :: Str, exported :: List[Str]) -> List[Str]
+  examples {
+    name_collisions([], "lex-orm", ["open"]) => [],
+    name_collisions([{ key: "db", title: "t", body: "", api: [{ name: "open", signature: "(p :: Str) -> Int" }], examples: [], invariants: [], deps: [] }], "lex-orm", ["open", "insert"]) => ["unit `db`: function `open` has the same name as a function exported by the dependency `lex-orm`. A declared name is looked up among the imported library's functions, so this unit can never verify, whatever is written for it. Rename it to a longer, specific name that no dependency exports."],
+    name_collisions([{ key: "db", title: "t", body: "", api: [{ name: "db_open", signature: "(p :: Str) -> Int" }], examples: [], invariants: [], deps: [] }], "lex-orm", ["open"]) => []
+  }
+{
+  list.fold(units, [], fn (acc0 :: List[Str], u :: plan.PlanUnit) -> List[Str] {
+    list.fold(u.api, acc0, fn (acc1 :: List[Str], a :: plan.Api) -> List[Str] {
+      if list.fold(exported, false, fn (hit :: Bool, n :: Str) -> Bool {
+        hit or n == a.name
+      }) {
+        list.concat(acc1, [str.join(["unit `", u.key, "`: function `", a.name, "` has the same name as a function exported by the dependency `", pkg, "`. A declared name is looked up among the imported library's functions, so this unit can never verify, whatever is written for it. Rename it to a longer, specific name that no dependency exports."], "")])
+      } else {
+        acc1
+      }
+    })
+  })
+}
+
+# The top-level function names of one installed package's src/ (empty if it is not
+# installed: nothing to compare against, so no problem is reported).
+fn package_exports(pkg :: Str) -> [proc] List[Str] {
+  match proc.run("sh", ["-c", "grep -rhoE '^fn [A-Za-z0-9_]+' \"$HOME\"/.lex/packages/\"$1\"@*/src 2>/dev/null | sed 's/^fn //' | sort -u", "sh", pkg]) {
+    Err(_) => [],
+    Ok(o) => list.filter(str.split(str.trim(o.stdout), "\n"), fn (n :: Str) -> Bool {
+      not str.is_empty(n)
+    }),
+  }
+}
+
+fn collision_problems(p :: plan.Plan) -> [proc] List[Str] {
+  list.fold(p.packages, [], fn (acc :: List[Str], pk :: plan.Pkg) -> [proc] List[Str] {
+    list.concat(acc, name_collisions(p.units, pk.name, package_exports(pk.name)))
+  })
+}
+
 # Every check there is, in order: structure, consistency rules, then the
 # real checker on the stub module. Err carries all the problems found.
 fn full_check(text :: Str) -> [proc, io] Result[plan.Plan, List[Str]] {
@@ -193,7 +239,7 @@ fn full_check(text :: Str) -> [proc, io] Result[plan.Plan, List[Str]] {
     Ok(p) => match compile_check(p) {
       Err(e) => Err([e]),
       Ok(errs) => {
-        let all := list.concat(errs, acceptance_problems(p))
+        let all := list.concat(list.concat(errs, acceptance_problems(p)), collision_problems(p))
         if list.is_empty(all) {
           Ok(p)
         } else {
