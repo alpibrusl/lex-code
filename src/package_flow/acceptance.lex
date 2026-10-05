@@ -354,6 +354,50 @@ fn run_scenario(port :: Int, s :: Scenario) -> [net] Option[Str] {
   }
 }
 
+# When several failing scenarios fail IDENTICALLY, they share a cause, and it is almost never
+# the handlers: on a real job-queue build, 12 of 21 scenarios returned the same
+# `404 {"error":"not found"}` because the program routed requests with a hand-written path
+# matcher; three repair rounds each spent their whole step budget reading handlers one at a
+# time. Group the failures by what the program answered (the part after "got "), and when
+# three or more agree, say so.
+fn shared_cause_line(failures :: List[Str]) -> Str
+  examples {
+    shared_cause_line([]) => "",
+    shared_cause_line(["a: expected status 200, got 404 — {}", "b: expected status 201, got 500 — x"]) => "",
+    shared_cause_line(["a: expected status 200, got 404 — {\"e\":1}", "b: expected status 401, got 404 — {\"e\":1}", "c: expected status 409, got 404 — {\"e\":1}", "d: expected status 201, got 500 — x"]) => "3 of the 4 failing scenarios got the identical answer `404 — {\"e\":1}`. That points at one shared cause (how requests are routed to handlers, authentication, or startup), not 3 separate handler bugs: look there first, before reading handlers one by one."
+  }
+{
+  let keyed := list.map(failures, fn (f :: Str) -> Str {
+    match list.head(list.tail(str.split(f, ", got "))) {
+      Some(k) => k,
+      None => "",
+    }
+  })
+  let best := list.fold(keyed, ("", 0), fn (acc :: (Str, Int), k :: Str) -> (Str, Int) {
+    if str.is_empty(k) {
+      acc
+    } else {
+      let n := list.len(list.filter(keyed, fn (o :: Str) -> Bool {
+        o == k
+      }))
+      match acc {
+        (bk, bn) => if n > bn {
+          (k, n)
+        } else {
+          acc
+        },
+      }
+    }
+  })
+  match best {
+    (k, n) => if n >= 3 {
+      str.join([int.to_str(n), " of the ", int.to_str(list.len(failures)), " failing scenarios got the identical answer `", k, "`. That points at one shared cause (how requests are routed to handlers, authentication, or startup), not ", int.to_str(n), " separate handler bugs: look there first, before reading handlers one by one."], "")
+    } else {
+      ""
+    },
+  }
+}
+
 # One line telling a repairing model exactly how to see a failing scenario for
 # itself: the server command with the env the gate uses, and the first failing
 # scenario as a curl. Written because a repair run spent its rounds guessing at
