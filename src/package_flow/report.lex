@@ -178,6 +178,26 @@ fn state_of(states :: List[(Str, Str)], title :: Str) -> Str {
   })
 }
 
+# "0 / 0" would claim a unit cost nothing; when the logs carry no usage for it
+# (a round that only repaired, or a provider that reports none) it is unknown.
+fn tokens_cell(r :: dash.UsageRow) -> Str
+  examples {
+    tokens_cell({ id: "a", prompt: 0, completion: 0, turns: 0 }) => "-",
+    tokens_cell({ id: "a", prompt: 1500, completion: 200, turns: 2 }) => "1.5k / 200",
+    tokens_cell({ id: "a", prompt: 0, completion: 0, turns: 1 }) => "not reported"
+  }
+{
+  if r.turns == 0 {
+    "-"
+  } else {
+    if r.prompt == 0 and r.completion == 0 {
+      "not reported"
+    } else {
+      str.join([k(r.prompt), " / ", k(r.completion)], "")
+    }
+  }
+}
+
 fn unit_row(u :: dash.PlanUnit, t2id :: List[(Str, Str)], st :: dash.LogState, text :: Str, states :: List[(Str, Str)]) -> Str {
   let from_store := state_of(states, u.title)
   let us0 := dash.unit_status(u.title, t2id, st)
@@ -195,7 +215,7 @@ fn unit_row(u :: dash.PlanUnit, t2id :: List[(Str, Str)], st :: dash.LogState, t
     "-"
   } else {
     tries
-  }, " | ", k(usage.prompt), " / ", k(usage.completion), " |"], "")
+  }, " | ", tokens_cell(usage), " |"], "")
 }
 
 fn nth(xs :: List[Str], i :: Int) -> Str
@@ -310,7 +330,15 @@ fn report_md(project :: Str, log_path :: Str, rounds_path :: Str) -> [fs_read, f
     ""
   } else {
     str.join(["| unit | status | attempts | tokens in / out |\n|---|---|---|---|\n", str.join(unit_rows, "\n")], "")
-  }), section("Tokens", str.join(["planner ", k(plan_u.prompt), " in / ", k(plan_u.completion), " out; whole run ", k(total_u.prompt), " in / ", k(total_u.completion), " out"], ""))], "")
+  }), section("Tokens", if total_u.turns == 0 {
+    ""
+  } else {
+    str.join([if plan_u.turns == 0 {
+      ""
+    } else {
+      str.join(["planner ", k(plan_u.prompt), " in / ", k(plan_u.completion), " out; "], "")
+    }, "whole run ", k(total_u.prompt), " in / ", k(total_u.completion), " out"], "")
+  })], "")
 }
 
 fn run_report(project :: Str, log_path :: Str, rounds_path :: Str) -> [io, fs_read, fs_walk, proc] Nil {
