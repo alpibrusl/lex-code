@@ -18,7 +18,8 @@ mkproj() {
 }
 
 # The stand-in. Each call of `--project=` reads the next line of $SCRIPT_FILE:
-#   verdict verified accept [flag]   (flag: corrupt = leave the shared file unparseable)
+#   verdict verified accept [flag]   (flag: corrupt = leave the shared file unparseable;
+#                                     typeerr = parseable but not type-checking; vbreak = a unit verifies, then breaks it)
 cat > /tmp/stub-lex-code.$$ <<'EOF'
 #!/usr/bin/env bash
 for a in "$@"; do
@@ -37,6 +38,8 @@ printf '[PROJECT] p  %s/16 verified, 0 ready\n' "$verified"
 [ "$accept" != "-" ] && printf '[ACCEPTANCE] %s/16 scenarios hold:\n' "$accept"
 [ "$verdict" = sleep ] && sleep 30
 [ "$flag" = corrupt ] && printf 'fn broken( {\n' > src/p.lex
+[ "$flag" = typeerr ] && printf 'fn f() -> Int {\n  "x"\n}\n' > src/p.lex
+if [ "$flag" = vbreak ]; then printf 'fn f() -> Int {\n  2\n}\n' > src/p.lex; echo "[PROJECT] issue abc → verified"; sleep 4; printf 'fn f() -> Int {\n  "x"\n}\n' > src/p.lex; sleep 60; fi
 if [ "$flag" = evolve ]; then printf 'fn f() -> Int {\n  2\n}\n' > src/p.lex; sleep 5; printf 'fn broken( {\n' > src/p.lex; sleep 60; fi
 [ "$verdict" != none ] && [ "$verdict" != sleep ] && printf '[PROJECT_VERDICT]\t%s\tp\n' "$verdict"
 exit 0
@@ -109,6 +112,22 @@ D="$(mkproj)"; printf '%s\n' $'none 5 - evolve\ndone 16 16' > "$D/script"
 expect "restore happened after the kill" "$D/.lex/overnight/supervisor.log" "restored"
 if grep -q "  2" "$D/src/p.lex"; then echo "ok    the restored file is the evolved one, not the round-start copy"; else echo "FAIL  the restore went back to the round-start copy:"; sed 's/^/        /' "$D/src/p.lex"; fails=$((fails + 1)); fi
 if ls "$D"/.lex/overnight/broken-*.lex >/dev/null 2>&1; then echo "ok    the broken file was kept"; else echo "FAIL  the broken file was not kept"; fails=$((fails + 1)); fi
+
+# 9c. a killed or exhausted attempt usually leaves a file that PARSES and does not CHECK (a type
+# error, a failing example). That blocks every other unit's edit, because the whole file is
+# checked at once, so it is put back too.
+run "restores a file that parses but does not type-check" 0 $'stuck 5 - typeerr\ndone 16 16'
+expect "  restored" "$D/.lex/overnight/supervisor.log" "restored"
+if "${LEX:-lex}" check "$D/src/p.lex" >/dev/null 2>&1; then echo "ok    file type-checks again"; else echo "FAIL  file still does not check"; fails=$((fails + 1)); fi
+
+# 9d. a unit verifies, then the next attempt breaks the file and the round is killed. The periodic
+# snapshot is far away (1000 s), so the only reason the restored file is the one WITH the
+# verified unit is that a verified unit triggers a snapshot of its own.
+D="$(mkproj)"; printf '%s\n' $'none 5 - vbreak\ndone 16 16' > "$D/script"
+( cd "$D" && STUB_STATE="$D/state" STUB_THINK="$D/think" STUB_ARGS="$D/args" SCRIPT_FILE="$D/script" LEX_CODE_OVERNIGHT_BIN=/tmp/stub-lex-code.$$ \
+    LEX_OVERNIGHT_POLL=1 LEX_OVERNIGHT_BACKOFF=1 LEX_OVERNIGHT_ROUND_SECS=9 LEX_OVERNIGHT_SNAPSHOT=1000 LEX_OVERNIGHT_MAX_SECS=90 LEX_OVERNIGHT_MIN_LEFT=2 "$SUP" --name=p --no-caffeinate > "$D/out" 2>&1 )
+expect "restore happened" "$D/.lex/overnight/supervisor.log" "restored"
+if grep -q "  2" "$D/src/p.lex"; then echo "ok    the restored file keeps the unit that had just verified"; else echo "FAIL  the verified unit's code was lost:"; sed 's/^/        /' "$D/src/p.lex"; fails=$((fails + 1)); fi
 
 # 10. a hung round is killed at its ceiling
 D="$(mkproj)"; printf '%s\n' $'sleep 5 -\ndone 16 16' > "$D/script"

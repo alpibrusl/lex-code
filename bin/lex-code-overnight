@@ -156,31 +156,37 @@ mtime_of() {
   echo "$m"
 }
 
-# Remember the shared file if it parses. Called between rounds AND while a round runs
-# (see run_capped): a copy that is only refreshed at round boundaries is up to a
-# round old, and a kill mid-edit then restores hours of work away. That is exactly what
-# happened on a real build: the round-start scaffold (every function a todo() stub) was
-# put back over 2.5 hours of verified code.
+# Remember the shared file if it TYPE-CHECKS (parses, types, and every `examples` case
+# holds). Called between rounds, while a round runs (see run_capped) and whenever a unit
+# has just been reported verified: a copy that is only refreshed at round boundaries is
+# up to a round old, and a kill mid-edit then restores hours of work away (a real build:
+# the round-start scaffold, every function a todo() stub, put back over 2.5 hours of
+# verified code). "Parses" was the old bar and it was too low: a killed attempt usually
+# leaves a file that parses and does not check (a type error, a failing example), and one
+# such file blocks every other unit's edit, because the whole file is checked at once.
 snapshot_file() {
   local f="src/$NAME.lex"
   [ -f "$f" ] || return 0
-  if ! "$LEX" check "$f" 2>&1 | grep -qi 'parse error'; then
+  if "$LEX" check "$f" >/dev/null 2>&1; then
     cp "$f" "$OV/last-good.lex.tmp" && mv "$OV/last-good.lex.tmp" "$OV/last-good.lex"
   fi
 }
 
-# Between rounds: if the file no longer parses (a kill mid-edit), put back the newest copy
-# that did — keeping the broken one, since it is the only record of the last edit.
+# Between rounds: if the file no longer checks (a kill mid-edit, or an attempt that ran out
+# before it finished), put back the newest copy that did — keeping the broken one, since it
+# is the only record of the last edit. Work in the broken file that had verified is not lost
+# when snapshots are frequent (see snapshot_file); the regression pass rebuilds anything that
+# was.
 guard_file() {
   local f="src/$NAME.lex"
   [ -f "$f" ] || return 0
-  if "$LEX" check "$f" 2>&1 | grep -qi 'parse error'; then
+  if ! "$LEX" check "$f" >/dev/null 2>&1; then
     if [ -f "$OV/last-good.lex" ]; then
       local keep="$OV/broken-$(now).lex" age=$(( ($(now) - $(mtime_of "$OV/last-good.lex")) / 60 ))
       cp "$f" "$keep"
-      cp "$OV/last-good.lex" "$f" && say "restored $f from the newest copy that parsed, ${age} min old (a kill mid-edit left it unparseable; the broken file is kept as $keep)"
+      cp "$OV/last-good.lex" "$f" && say "restored $f from the newest copy that type-checked, ${age} min old (the file did not check, so no unit could land an edit; the broken file is kept as $keep)"
     else
-      say "WARNING: $f does not parse and there is no earlier copy to restore"
+      say "WARNING: $f does not type-check and there is no earlier copy to restore"
     fi
   else
     snapshot_file
@@ -192,9 +198,11 @@ guard_file() {
 run_capped() {
   local cap="$1" log="$2" pat="$3"; shift 4
   ( "$@" > "$log" 2>&1; echo "EXIT $?" >> "$log" ) &
-  local pid=$! waited=0 since_snap=0
+  local pid=$! waited=0 since_snap=0 seen_ok=0 now_ok=0
   while kill -0 "$pid" 2>/dev/null; do
     sleep "$POLL"; waited=$((waited + POLL)); since_snap=$((since_snap + POLL))
+    now_ok=$(grep -c ' → verified' "$log" 2>/dev/null); now_ok=${now_ok:-0}
+    if [ "$now_ok" -gt "$seen_ok" ]; then snapshot_file; seen_ok=$now_ok; since_snap=0; fi
     if [ "$since_snap" -ge "${LEX_OVERNIGHT_SNAPSHOT:-120}" ]; then snapshot_file; since_snap=0; fi
     if [ "$waited" -ge "$cap" ]; then
       say "the round reached its ${cap}s ceiling — killing it (verified units are kept)"
