@@ -230,6 +230,17 @@ a resumed build is counted correctly), the last acceptance result, what was set 
 (skipped invariants, plan defects) and what each round did, so it also shows
 where the time and the tokens went.
 
+`lex-code --lessons=P [--min-sessions=N]` reads the project's session trails
+(`.lex/sessions/*.db`, run from the project directory) and groups the failed tool calls
+by what they say. A failure that recurs in at least N sessions (default 3) is a
+**candidate lesson**: it is printed, and written to `.lex/lessons-candidates.jsonl`.
+Grouping is by normalised text (names, quoted text and numbers taken out), not by a
+model's reading of it, and nothing is fed back to a prompt: a wrong lesson shown to every
+later run is worse than none, so a person decides which become notes. On the stalled
+`cronexpr` build it put the real cause first (one unit's failing examples blocking every
+other unit's edit: 125 failures in 13 of 15 sessions), which had taken reading SQLite by
+hand to find.
+
 Limits, honestly. It will sometimes end the night `stuck`; the report then says where.
 Switching thinking on and the repair-round count are guesses backed by small runs, not
 measured defaults. It runs shell commands unattended: the permission gate applies, but

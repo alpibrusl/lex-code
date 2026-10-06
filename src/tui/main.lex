@@ -42,6 +42,8 @@ import "../package_flow/dashboard" as dash
 
 import "../package_flow/report" as rpt
 
+import "../package_flow/lessons" as lessons
+
 import "../package_flow/repair" as rep
 
 import "../tools/session_health" as health
@@ -1828,7 +1830,10 @@ fn main() -> [env, io, net, llm, proc, sql, fs_read, fs_walk, fs_write, time, ap
             Some(name) => run_dashboard(name, argv),
             None => match pb.flag_value(argv, "--report=") {
               Some(name) => run_report(name, argv),
-              None => run_main_rest(argv, inv, provider_tag, mode),
+              None => match pb.flag_value(argv, "--lessons=") {
+                Some(name) => lessons.run_lessons(name, pb.flag_int(argv, "--min-sessions=", 3)),
+                None => run_main_rest(argv, inv, provider_tag, mode),
+              },
             },
           },
         },
@@ -1934,6 +1939,7 @@ fn dispatch(inv :: Invocation, mode :: sess.AgentMode, provider_tag :: Str) -> [
       io.print(str.concat("           --package-apply=P                  file that reviewed plan as issues", "\n"))
       io.print(str.concat("           --dashboard=P [--log=F] [--port=N] read-only live view of a running --auto build (default log: P.log, port: 7800)", "\n"))
       io.print(str.concat("           --report=P [--log=F] [--rounds=F]  one Markdown page about a finished or abandoned run (verdict, per-unit cost, what is still wrong)", "\n"))
+      io.print(str.concat("           --lessons=P [--min-sessions=N]     failures that recur across a project's session trails (default 3), as candidate lessons; writes .lex/lessons-candidates.jsonl, feeds no prompt", "\n"))
       io.print(str.concat("           --project=P [--fallback=TAG]       drive the project to done, escalating a stuck issue to TAG", "\n"))
       io.print(str.concat("Ctrl-D to exit", "\n"))
       if inv.multi {
