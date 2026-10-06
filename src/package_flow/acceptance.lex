@@ -57,11 +57,25 @@ import "lex-schema/json_value" as jv
 
 import "../issue_contract" as ic
 
+import "./acceptance_rules" as rules
+
 type Scenario = { name :: Str, method :: Str, path :: Str, headers :: List[(Str, Str)], body :: Str, pad :: Int, status :: Int, contains :: Str, excludes :: Str }
 
 type Acceptance = { entry :: Str, port_env :: Str, env :: List[(Str, Str)], scenarios :: List[Scenario] }
 
 type AcceptResult = { total :: Int, passed :: Int, failures :: List[Str] }
+
+fn probe_of(s :: Scenario) -> rules.Probe {
+  { method: s.method, path: s.path, status: s.status, auth: list.fold(s.headers, "", fn (acc :: Str, p :: (Str, Str)) -> Str {
+    match p {
+      (k, v) => if str.to_lower(k) == "authorization" {
+        v
+      } else {
+        acc
+      },
+    }
+  }) }
+}
 
 fn acceptance_path(project :: Str) -> Str {
   str.join([".lex/plans/", project, ".acceptance.json"], "")
@@ -239,7 +253,7 @@ fn acceptance_errors(a :: Acceptance) -> List[Str]
   let per := list.fold(a.scenarios, [], fn (acc :: List[Str], s :: Scenario) -> List[Str] {
     list.concat(acc, scenario_errors(s))
   })
-  flat([problem_if(not env_key_ok(a.port_env), "port_env must be the NAME of the env var the server reads its port from (upper case, e.g. INVOICES_PORT)"), problem_if(not regex.is_match_str("^[a-z_][a-z0-9_]*$", a.entry), "entry must be the name of the package's entry function (default main)"), problem_if(not list.is_empty(env_bad), "an env name must be UPPER_SNAKE and an env value may only use letters, digits and _ : . , / @ = + - and the {port}/{tmp} placeholders"), problem_if(list.len(a.scenarios) < 3, "acceptance needs at least 3 scenarios — cover the brief's requirements, not one happy path"), problem_if(not has_success(a.scenarios), "acceptance needs at least one scenario that expects a 2xx response — otherwise a server that fails every request would pass"), problem_if(dup, "two scenarios share a name"), per])
+  flat([problem_if(not env_key_ok(a.port_env), "port_env must be the NAME of the env var the server reads its port from (upper case, e.g. INVOICES_PORT)"), problem_if(not regex.is_match_str("^[a-z_][a-z0-9_]*$", a.entry), "entry must be the name of the package's entry function (default main)"), problem_if(not list.is_empty(env_bad), "an env name must be UPPER_SNAKE and an env value may only use letters, digits and _ : . , / @ = + - and the {port}/{tmp} placeholders"), problem_if(list.len(a.scenarios) < 3, "acceptance needs at least 3 scenarios — cover the brief's requirements, not one happy path"), problem_if(not has_success(a.scenarios), "acceptance needs at least one scenario that expects a 2xx response — otherwise a server that fails every request would pass"), problem_if(dup, "two scenarios share a name"), rules.coverage_errors(list.map(a.scenarios, probe_of)), per])
 }
 
 # Pure + one file read's worth of text in: the problems with the acceptance file's text.

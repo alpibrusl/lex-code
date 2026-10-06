@@ -80,6 +80,14 @@ sets (raw spaces, quotes and the like in a path are percent-encoded for you, so 
 "SQL injection in the filter" scenario can be written naturally), and the runner only
 ever connects to `127.0.0.1`.
 
+Two coverage rules are checked when the plan is checked, because a passing gate
+only means the scenarios passed. A route called with a query string
+(`GET /jobs?state=done`) must also be called with none and expect a 2xx; one build
+passed 18 of 18 scenarios and answered 500 to a plain `GET /jobs`. And when the
+file uses two or more tokens, every scenario that succeeds on a numbered resource
+(`/jobs/1`, `/jobs/1/claim`) needs a *twin*: the same method and path with the other
+token, expecting 404, so a handler that forgets the ownership check cannot pass.
+
 Hardening treats a **plan contradiction** as a plan defect, not a failure of the
 run: an invariant that fails on *every* probed input is the plan disagreeing with
 itself (its examples are fixed once filed), not a code bug, and no attempt could close
