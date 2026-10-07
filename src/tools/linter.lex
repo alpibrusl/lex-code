@@ -103,6 +103,73 @@ fn unqualified_twin(expected :: Str, got :: Str) -> Option[Str]
   }
 }
 
+# Hints for the parse errors that recur in real builds, from the failed tool calls of seven
+# from-scratch builds (704 failed calls; `lex-code --lessons` groups them). Each needle was
+# reproduced against the real parser before it was written down, and each hint states what the
+# error means, not what the author guessed. In particular `expected expression, got Some(Comma)`
+# (52 times in 7 builds) was hinted as a trailing comma after `let`; trailing commas are valid
+# everywhere in Lex, and the real cause is a brace closed too early in nested match arms.
+fn parse_error_hint(s :: Str) -> Str
+  examples {
+    parse_error_hint("parse error at byte 9: expected expression, got Some(Comma)") => "parse error: a comma where an expression is expected almost always means a `}` closed too early or too late, leaving a stray `,` after it — usually in nested `match` arms. Count the `{` and `}` of the whole function; better, move the inner `match` into its own small function so no match is nested in another.",
+    parse_error_hint("expected identifier after `.`, got Some(Int(0))") => "parse error: tuples cannot be indexed (`p.0`, `p.1`) and `let (a, b) := p` is not valid either. Destructure in a match: `match p { (a, b) => ... }`.",
+    parse_error_hint("expected RBrace after match arms, got Ident(\"None\")") => "parse error: match arms are separated by commas, including after an arm whose body is a block or another `match`: `A => { ... },`.",
+    parse_error_hint("expected expression, got Some(ColonEq)") => "parse error: `:=` only appears in `let x := ...`. Lex has no assignment and no loops: bind a new name with `let`, or recurse.",
+    parse_error_hint("expected Else expected `else`, got RBrace") => "parse error: `if` is an expression and needs an `else`: `if c { a } else { b }`.",
+    parse_error_hint("expected expression, got Some(Slash)") => "parse error: comments start with `#`, not `//`.",
+    parse_error_hint("expected expression, got Some(Return)") => "parse error: there is no `return`: the last expression of a block is its value.",
+    parse_error_hint("expected RBracket after type args, got Gt") => "parse error: type arguments use square brackets: `List[Int]`, `Option[Str]`, not `List<Int>`.",
+    parse_error_hint("expected expression, got Some(ColonColon)") => "parse error: `x :: xs` is not list cons. Use `list.cons(x, xs)`; `::` only appears in parameter types (`x :: Int`).",
+    parse_error_hint("nothing known here") => ""
+  }
+{
+  if str.contains(s, "expected expression, got Some(Comma)") {
+    "parse error: a comma where an expression is expected almost always means a `}` closed too early or too late, leaving a stray `,` after it — usually in nested `match` arms. Count the `{` and `}` of the whole function; better, move the inner `match` into its own small function so no match is nested in another."
+  } else {
+    if str.contains(s, "expected identifier after `.`, got Some(Int") or str.contains(s, "expected identifier after `let`, got Some(LParen)") {
+      "parse error: tuples cannot be indexed (`p.0`, `p.1`) and `let (a, b) := p` is not valid either. Destructure in a match: `match p { (a, b) => ... }`."
+    } else {
+      if str.contains(s, "expected RBrace after match arms") {
+        "parse error: match arms are separated by commas, including after an arm whose body is a block or another `match`: `A => { ... },`."
+      } else {
+        if str.contains(s, "expected LBrace before block, got LBracket") or str.contains(s, "expected LBrace before block, got Ident") {
+          "parse error: a function, lambda, `if` or `else` body must start with `{` and end with `}`, even a one-expression lambda: `fn (x :: Int) -> Int { x + 1 }`. `[` starts a list literal, not a block."
+        } else {
+          if str.contains(s, "expected expression, got Some(ColonEq)") {
+            "parse error: `:=` only appears in `let x := ...`. Lex has no assignment and no loops: bind a new name with `let`, or recurse."
+          } else {
+            if str.contains(s, "expected Else") {
+              "parse error: `if` is an expression and needs an `else`: `if c { a } else { b }`."
+            } else {
+              if str.contains(s, "expected expression, got Some(Slash)") {
+                "parse error: comments start with `#`, not `//`."
+              } else {
+                if str.contains(s, "expected expression, got Some(Return)") {
+                  "parse error: there is no `return`: the last expression of a block is its value."
+                } else {
+                  if str.contains(s, "expected RBracket after type args, got Gt") or str.contains(s, "expected RParen after params, got Lt") {
+                    "parse error: type arguments use square brackets: `List[Int]`, `Option[Str]`, not `List<Int>`."
+                  } else {
+                    if str.contains(s, "expected expression, got Some(ColonColon)") {
+                      "parse error: `x :: xs` is not list cons. Use `list.cons(x, xs)`; `::` only appears in parameter types (`x :: Int`)."
+                    } else {
+                      if str.contains(s, "expected `import`, `type`, or `fn` at top level, got Some(RBrace)") {
+                        "parse error: an extra `}` closed the function early, so the text after it is outside any function. Check the brace balance of the edit you just made."
+                      } else {
+                        ""
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 # Translate raw lex check JSON output into a human-readable fix hint.
 #
 # The examples are the branch table. Every case below is a failure mode
@@ -185,7 +252,11 @@ fn translate_lex_error(raw :: Str) -> Str
                     if field == "to_str" {
                       "fix: `str.to_str` does not exist. Use `int.to_str(n)` from `std.int` to convert an Int to Str."
                     } else {
-                      str.concat("unknown field '", str.concat(field, "' — check the type definition or stdlib docs."))
+                      if field == "StrParam" {
+                        "fix: there is no `sql.StrParam`. lex-orm query parameters are the constructors `PStr(s)` and `PInt(n)` (type `SqlParam`), written without a module prefix."
+                      } else {
+                        str.concat("unknown field '", str.concat(field, "' — check the type definition or stdlib docs."))
+                      }
                     }
                   }
                 }
@@ -264,12 +335,17 @@ fn translate_lex_error(raw :: Str) -> Str
                     "parse error: all function and lambda parameters need a type annotation: `param :: Type`. Example: `fn (x :: Int) -> Int { x + 1 }`."
                   } else {
                     if str.contains(s, "expected expression, got Some(Comma)") {
-                      "parse error: `let` bindings inside a block need NO trailing comma — just write them on separate lines. Commas only appear between match arms."
+                      parse_error_hint(s)
                     } else {
                       if str.contains(s, "expected expression, got Some(Let)") {
                         "parse error: a match arm (or any branch) that needs `let` must wrap its body in braces: `Some(x) => { let y := x + 1\n y * 2 },` — a bare `=> let ...` does not parse. Better: move the nested work into a small top-level helper fn and call it from the arm."
                       } else {
-                        s
+                        let hint := parse_error_hint(s)
+                        if str.is_empty(hint) {
+                          s
+                        } else {
+                          hint
+                        }
                       }
                     }
                   }
