@@ -23,6 +23,13 @@ it and renamed over it — so a run that is killed mid-edit leaves the old file 
 never a truncated one (which would stall a whole package build, whose units share one source
 file). A file's mode and a symbolic link are kept as they were.
 
+After a `.lex` write or edit the tool formats the file, runs `lex check`, and adds one non-blocking
+warning when a line builds JSON by joining strings (`str.concat("{\"id\":", ...)`). Two builds
+that ended `done` did this and answered with invalid JSON (a reply missing its closing brace;
+a customer name with a quote in it spliced in unescaped); the unit examples all passed. The
+warning points at `jv.stringify(JObj([...]))`, which escapes and closes. It is a heuristic on the
+line text, so a constant JSON string, an example line and a comment are left alone.
+
 ### Lex tools
 
 | Tool | Description |
