@@ -211,9 +211,13 @@ local model's thinking on (it verified a hard unit 4/4 where thinking-off manage
 2/4 — four trials each, one model); a second round in a row without progress stops
 the run. A provider that stops answering is waited for with backoff, not counted as
 a failure. A round that hangs is killed at its own ceiling, the machine is kept awake
-(`caffeinate`), and a shared file left unparseable by a kill mid-edit is put back
-from the newest copy that parsed (copied every two minutes while a round runs, so the
-restore costs minutes, not the round; the broken file is kept next to it). Anything else on the command line goes to `lex-code`
+(`caffeinate`), and a shared file that no longer type-checks after a round (a kill or an attempt
+that ran out mid-edit: a type error or a failing example, not only a syntax error) is
+put back from the newest copy that did. A copy is taken every two minutes while a round
+runs and each time a unit is reported verified, so the restore costs minutes, not the
+round; the broken file is kept next to it. This matters because the whole file is checked
+at once: one function that does not check blocks every other unit's edit, and a package
+left that way does not compile at all. Anything else on the command line goes to `lex-code`
 (`--ollama`, `--lex-os`, ...).
 
 | option | |
