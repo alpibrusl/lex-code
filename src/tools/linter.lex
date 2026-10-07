@@ -12,6 +12,8 @@ import "lex-schema/json_value" as jv
 
 import "../verification" as verification
 
+import "./json_lint" as json_lint
+
 type LintOutcome = LintOk(Str) | LintChanged(Str) | LintWarn((Str, Str)) | LintFail((Str, Str))
 
 type RunResult = { summary :: Str, failed :: Bool, checked :: Bool }
@@ -433,7 +435,15 @@ fn join_lines(lines :: List[Str]) -> Str {
 fn run_for_lex(path :: Str) -> [io, proc] RunResult {
   let fmt := run_lex_fmt(path)
   let check := run_lex_check(path)
-  let outcomes := [fmt, check]
+  let json_note := match io.read(path) {
+    Err(_) => "",
+    Ok(src) => json_lint.warning(json_lint.hand_built_json_lines(src)),
+  }
+  let outcomes := if str.is_empty(json_note) {
+    [fmt, check]
+  } else {
+    [fmt, check, LintWarn("json", json_note)]
+  }
   let base := join_lines(list.map(outcomes, format_outcome))
   let summary := str.concat(base, readback_block(path, has_change(outcomes)))
   { summary: summary, failed: has_failure(outcomes), checked: true }
