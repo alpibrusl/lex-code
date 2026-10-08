@@ -30,6 +30,13 @@ a customer name with a quote in it spliced in unescaped); the unit examples all 
 warning points at `jv.stringify(JObj([...]))`, which escapes and closes. It is a heuristic on the
 line text, so a constant JSON string, an example line and a comment are left alone.
 
+Parse and type errors from `lex check` are translated into a hint where one is known. The parse-error hints
+come from the recurring failures of real builds (`lex-code --lessons`), and each was reproduced against the
+real parser before it was written: a stray comma (a brace closed too early in nested `match` arms), tuple
+indexing (`p.0`), a missing comma between match arms, `:=` outside `let`, `if` without `else`, `//` comments,
+`return`, `List<Int>`, `::` as cons, and a block that does not start with `{`. An error with no hint is passed
+through unchanged.
+
 ### Lex tools
 
 | Tool | Description |
