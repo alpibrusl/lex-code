@@ -1,0 +1,1 @@
+{"package": "csvline", "kind": "lib", "held_out": true, "est_units": 4, "notes": "state machine over characters; quoting rules; round trip"}

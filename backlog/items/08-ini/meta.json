@@ -1,0 +1,1 @@
+{"package": "iniconf", "kind": "lib", "held_out": false, "est_units": 5, "notes": "line parsing; first-'=' split; quote stripping; duplicate key order; Option inside Result"}

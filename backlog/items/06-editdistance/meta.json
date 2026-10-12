@@ -1,0 +1,1 @@
+{"package": "editdistance", "kind": "lib", "held_out": false, "est_units": 4, "notes": "DP over code points (byte-length trap); integer percent; tie-break order"}

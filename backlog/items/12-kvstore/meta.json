@@ -1,0 +1,1 @@
+{"package": "kvstore", "kind": "service", "held_out": true, "est_units": 12, "grants": "net,sql,env,fs_write,time", "notes": "time-dependent behaviour (TTL expiry) needs a real clock; per-tenant namespacing; PUT create-vs-replace status"}

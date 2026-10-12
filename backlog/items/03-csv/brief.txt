@@ -1,0 +1,21 @@
+Build a small Lex library package named "csvline": parse and format one CSV record (RFC 4180 quoting). It is a pure library: no network, no database, no files, no environment. Use only the Lex standard library (std.str, std.list, std.int and the like); do not depend on any other package. Every function is pure (no effect annotation) and every function has examples.
+
+The package exposes exactly two functions, taking and returning only plain values:
+
+- csv_parse_line(line :: Str) -> Result[List[Str], Str] : split one record into its fields, or Err(message) if it is malformed.
+- csv_format_line(fields :: List[Str]) -> Str : the record for a list of fields.
+
+Parsing rules. Fields are separated by ",". A field is either unquoted or quoted.
+- An unquoted field is the text up to the next "," (or the end), kept exactly, including leading and trailing spaces. It must not contain a double quote, a carriage return or a line feed; otherwise the record is malformed.
+- A quoted field starts with a double quote as the very first character of the field. Inside it, two double quotes in a row stand for one literal double quote, and commas, carriage returns and line feeds are ordinary characters. The field ends at the first double quote that is not part of a doubled pair. Immediately after that closing quote there must be a "," or the end of the record; anything else (even a space) makes the record malformed. A quoted field that never closes is malformed.
+- The empty record "" is one empty field: Ok([""]). A trailing comma gives a final empty field: "a," is Ok(["a", ""]); "," is Ok(["", ""]); "a,,b" is Ok(["a", "", "b"]).
+
+Formatting rules. Fields are joined with ",". A field is wrapped in double quotes if and only if it contains a comma, a double quote, a carriage return or a line feed; inside the quotes every double quote is doubled. Nothing else is quoted (a field with only spaces is written as is). The empty list gives the empty string.
+
+Worked examples (the answers are exact):
+
+- csv_parse_line("a,\"b,c\",d") is Ok(["a", "b,c", "d"]); csv_parse_line("\"a\"\"b\",c") is Ok(["a\"b", "c"]); csv_parse_line("") is Ok([""]); csv_parse_line("\"a\nb\",c") is Ok(["a\nb", "c"]); csv_parse_line(" a , b ") is Ok([" a ", " b "]).
+- csv_parse_line("\"a") (never closed), csv_parse_line("a\"b") (quote inside an unquoted field), csv_parse_line("\"a\"b,c") (text after the closing quote), csv_parse_line("  \"a\"") (quote not first) and csv_parse_line("a\nb") (line break outside quotes) are all Err.
+- csv_format_line(["a,b"]) is "\"a,b\""; csv_format_line(["a\"b"]) is "\"a\"\"b\""; csv_format_line(["", ""]) is ","; csv_format_line([""]) is "".
+
+Properties that must hold and be checked: for every non-empty list of fields, csv_parse_line(csv_format_line(fields)) is Ok(fields); csv_parse_line never panics on any string; non-ASCII text such as "é" and "日本" passes through unchanged.

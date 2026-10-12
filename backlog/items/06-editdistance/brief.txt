@@ -1,0 +1,17 @@
+Build a small Lex library package named "editdistance": Levenshtein distance and fuzzy matching on text. It is a pure library: no network, no database, no files, no environment. Use only the Lex standard library (std.str, std.list, std.int and the like); do not depend on any other package. Every function is pure (no effect annotation) and every function has examples.
+
+Everything counts Unicode characters (code points), never bytes: "é" is one character, "日本語" is three. Keep that in mind for every length and every position.
+
+The package exposes exactly three functions, taking and returning only plain values:
+
+- edit_distance(a :: Str, b :: Str) -> Int : the Levenshtein distance: the fewest single-character insertions, deletions and substitutions that turn a into b. It must handle strings of 60 characters quickly (a dynamic-programming table or two rows, not exponential recursion).
+- similarity_pct(a :: Str, b :: Str) -> Int : a whole number from 0 to 100. If both strings are empty it is 100. Otherwise, with m the length (in characters) of the longer string and d the edit distance, it is (100 * (m - d)) divided by m using integer division that rounds down.
+- closest(query :: Str, candidates :: List[Str]) -> Option[Str] : the candidate with the smallest edit distance to query; if several tie, the one that comes first in the list; None for an empty list.
+
+Worked examples (the answers are exact):
+
+- edit_distance("kitten", "sitting") is 3; edit_distance("", "abc") is 3; edit_distance("abc", "abc") is 0; edit_distance("abc", "acb") is 2; edit_distance("café", "cafe") is 1; edit_distance("日本語", "日本") is 1.
+- similarity_pct("kitten", "sitting") is 57 (7 is the longer length, distance 3, 100*4/7 rounded down); similarity_pct("", "") is 100; similarity_pct("a", "") is 0; similarity_pct("日本語", "日本") is 66.
+- closest("abc", ["abd", "abe"]) is Some("abd") (tie, first wins); closest("kitten", ["sitting", "mitten", "bitten", "kitchen"]) is Some("mitten"); closest("x", []) is None.
+
+Properties that must hold and be checked: edit_distance(a, b) equals edit_distance(b, a); edit_distance(a, b) is 0 exactly when a equals b; edit_distance(a, c) is at most edit_distance(a, b) plus edit_distance(b, c); similarity_pct is always between 0 and 100; no function ever panics on any string.

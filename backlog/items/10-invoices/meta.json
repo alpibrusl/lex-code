@@ -1,0 +1,1 @@
+{"package": "invoices", "kind": "service", "held_out": false, "est_units": 18, "grants": "net,sql,env,fs_write", "notes": "brief copied from lex-code examples/invoices_demo with INVOICES_DB and the real grants; the earlier build let any tenant 'pay' a foreign or missing id (false 200)"}

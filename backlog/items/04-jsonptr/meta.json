@@ -1,0 +1,1 @@
+{"package": "jsonptr", "kind": "lib", "held_out": false, "est_units": 4, "notes": "escape/unescape ordering (~1 before ~0); RFC 6901 edge cases"}

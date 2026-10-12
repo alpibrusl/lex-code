@@ -1,0 +1,23 @@
+Build a small Lex package named "kvstore": a multi-tenant key-value store with expiry, as a REST API that is safe to put on the internet. Reuse the existing packages lex-web (routing and serving), lex-schema (request validation) and lex-orm (database access, SQLite) instead of writing those layers yourself.
+
+Each customer company ("tenant") has its own bearer token. A request carries "Authorization: Bearer <token>"; the token decides which tenant it acts for. Tokens are loaded at startup from the environment variable KV_TOKENS, formatted "token1:tenantA,token2:tenantB". The server listens on the port in KV_PORT, and the SQLite database path comes from KV_DB. Every tenant has its own separate key space: the same key in two tenants is two unrelated entries.
+
+A key is 1 to 64 characters of lowercase letters, digits, "." , "_" or "-". A value is a string of at most 1000 characters (the empty string is allowed). An entry may have a time to live in whole seconds, from 1 to 86400; with no time to live it never expires. An expired entry behaves exactly as if it had never existed.
+
+Endpoints, all returning JSON:
+
+- PUT /kv/{key} -- body {"value": Str} or {"value": Str, "ttl_seconds": Int}. Stores the entry for the caller's tenant. 201 if the key did not exist (or had expired), 200 if it replaced a live entry. Replacing an entry also replaces its time to live: a PUT without ttl_seconds makes the entry permanent. The response is {"key": ..., "value": ...}. An invalid key in the path is 400.
+- GET /kv/{key} -- 200 with {"key": ..., "value": ..., "expires_in": <whole seconds left, rounded up, or null when permanent>}; 404 if there is no live entry. An invalid key is 404.
+- DELETE /kv/{key} -- 204 with no body if a live entry was deleted; 404 if there was none (including an expired one). An invalid key is 404.
+- GET /kv?prefix=P&limit=N -- the caller's live keys in ascending order as {"keys": [...]}. "prefix" is optional (empty or up to 64 characters from the key alphabet; otherwise 400); only keys that start with it are listed. "limit" is optional, an integer from 1 to 100, default 50 (otherwise 400).
+
+Security requirements. Each one is something an attacker will try, and each must have a test:
+
+1. No token, a malformed Authorization header, or an unknown token: 401, and the database is never touched. A missing and an unknown token give the identical generic 401 body; tokens are compared in constant time against every configured token and are never logged or echoed.
+2. A tenant can never read, overwrite, delete or list another tenant's entries. A key that only another tenant has is a 404, exactly like a key nobody has; never 403.
+3. Every database query is parameterized. A "prefix" such as `a' OR '1'='1` is simply invalid (400), and a key that looks like SQL never reaches the database as text; a prefix containing "%" or "_" must not act as a wildcard (it is either invalid or matches literally).
+4. The PUT body is strictly validated: "value" is required and must be a string of at most 1000 characters; "ttl_seconds", if present, is an integer from 1 to 86400. Unknown fields are rejected with 400. Invalid JSON is 400.
+5. A request body larger than 4096 bytes is rejected with 413 before it is parsed.
+6. The server listens on loopback (127.0.0.1) by default; the host can be overridden by KV_HOST.
+
+Effects. The pure logic -- reading the token header, mapping a token to a tenant, validating a key, validating a PUT body, deciding whether an entry is expired given the time it was stored, its time to live and the current time, computing the seconds left, parsing the list parameters -- must be pure functions with no effect annotation, each with examples. Only the handlers and main may use effects, and only the narrowest ones Lex allows (the database, the network, reading its configuration from the environment, and the clock). Opening the SQLite database declares fs_write in the standard library, so the grants are net, sql, env, fs_write and time and nothing else; the server must never need process or general IO access.

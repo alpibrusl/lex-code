@@ -1,0 +1,1 @@
+{"package": "semver", "kind": "lib", "held_out": false, "est_units": 6, "notes": "string parsing; numeric vs lexical identifier compare; range desugaring"}
