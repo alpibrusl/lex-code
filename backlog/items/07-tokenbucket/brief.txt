@@ -1,0 +1,19 @@
+Build a small Lex library package named "tokenbucket": the arithmetic of a token-bucket rate limiter, with the clock passed in. It is a pure library: no network, no database, no files, no environment, and it never reads a clock. Use only the Lex standard library (std.int and the like); do not depend on any other package. Every function is pure (no effect annotation) and every function has examples. Use integers only, no floats.
+
+A bucket holds up to `capacity` whole tokens and gains `per_sec` whole tokens every second. To stay exact, amounts are kept in milli-tokens (1 token = 1000 milli-tokens), and times are integer milliseconds. Gaining `per_sec` tokens per second is therefore exactly `per_sec` milli-tokens per elapsed millisecond.
+
+The package exposes exactly four functions, taking and returning only plain values (the last returns a record):
+
+- bucket_refill(tokens_milli :: Int, last_ms :: Int, now_ms :: Int, capacity :: Int, per_sec :: Int) -> Int : the milli-tokens after refilling: tokens_milli plus (now_ms - last_ms) * per_sec, but never more than capacity * 1000. If now_ms is earlier than last_ms no time has passed (add nothing).
+- bucket_take(tokens_milli :: Int, cost :: Int) -> Option[Int] : try to remove cost whole tokens. Some(remaining milli-tokens) if tokens_milli is at least cost * 1000; None if there are not enough, or if cost is less than 1.
+- retry_after_ms(tokens_milli :: Int, cost :: Int, per_sec :: Int, capacity :: Int) -> Int : how many milliseconds until cost tokens are available. -1 if cost is less than 1 or greater than capacity (it can never succeed). Otherwise 0 if tokens_milli is already at least cost * 1000. Otherwise -1 if per_sec is 0 or less (it will never refill). Otherwise the missing milli-tokens (cost * 1000 minus tokens_milli) divided by per_sec, rounded UP to a whole millisecond.
+- bucket_allow(tokens_milli :: Int, last_ms :: Int, now_ms :: Int, capacity :: Int, per_sec :: Int, cost :: Int) -> { allowed :: Bool, tokens_milli :: Int, retry_ms :: Int } : refill first, then try to take. If cost is less than 1 or greater than capacity: not allowed, the refilled tokens, retry_ms -1. If the take succeeds: allowed true, the remaining milli-tokens, retry_ms 0. Otherwise: allowed false, the refilled tokens unchanged, and retry_ms from retry_after_ms.
+
+Worked examples (the answers are exact):
+
+- bucket_refill(0, 0, 1000, 10, 1) is 1000; bucket_refill(9500, 0, 1000, 10, 1) is 10000 (capped); bucket_refill(500, 100, 50, 10, 1) is 500 (time went backwards); bucket_refill(0, 0, 10000, 10, 1) is 10000.
+- bucket_take(5000, 5) is Some(0); bucket_take(4999, 5) is None; bucket_take(5000, 0) is None.
+- retry_after_ms(0, 1, 1, 10) is 1000; retry_after_ms(500, 1, 1, 10) is 500; retry_after_ms(0, 5, 3, 10) is 1667 (5000 / 3 rounded up); retry_after_ms(0, 1, 0, 10) is -1; retry_after_ms(0, 11, 5, 10) is -1.
+- bucket_allow(0, 0, 429, 3, 7, 3) is {allowed: true, tokens_milli: 0, retry_ms: 0} (429 ms * 7 = 3003 milli-tokens, capped at 3000 by the capacity of 3, and all 3000 are taken); bucket_allow(0, 0, 428, 3, 7, 3) is {allowed: false, tokens_milli: 2996, retry_ms: 1}; bucket_allow(0, 0, 0, 10, 1, 11) is {allowed: false, tokens_milli: 0, retry_ms: -1}.
+
+Properties that must hold and be checked: bucket_refill never returns more than capacity * 1000 and never less than its input when the input is within capacity; a successful bucket_allow leaves exactly cost * 1000 fewer milli-tokens than the refill gave; when bucket_allow says not allowed with retry_ms r > 0, refilling for r more milliseconds makes the same request succeed, and refilling for r - 1 does not; no function ever panics on any integers.

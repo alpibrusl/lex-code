@@ -1,0 +1,20 @@
+Build a small Lex library package named "jsonptr": work with JSON Pointers (RFC 6901) as strings. It is a pure library: no network, no database, no files, no environment. Use only the Lex standard library (std.str, std.list, std.int and the like); do not depend on any other package. Every function is pure (no effect annotation) and every function has examples.
+
+A JSON Pointer is either the empty string (the whole document) or a sequence of reference tokens, each written as "/" followed by the token. Inside a token, "~0" stands for "~" and "~1" stands for "/"; a "~" that is not followed by 0 or 1 is invalid. Escaping must be undone in the right order (turn "~1" into "/" first, then "~0" into "~", so "~01" means the two characters "~1"). A token may be empty ("/" is a pointer to the key ""), and a pointer may contain empty tokens ("//").
+
+The package exposes exactly four functions, taking and returning only plain values:
+
+- ptr_parse(p :: Str) -> Result[List[Str], Str] : the list of unescaped tokens. "" gives Ok([]). A non-empty pointer that does not start with "/" is an Err, and so is any invalid "~" escape.
+- ptr_format(tokens :: List[Str]) -> Str : the pointer for a list of tokens: each token escaped ("~" becomes "~0", "/" becomes "~1") and prefixed with "/". The empty list gives "".
+- ptr_append(p :: Str, token :: Str) -> Result[Str, Str] : Err if p is not a valid pointer, otherwise p followed by "/" and the escaped token.
+- ptr_parent(p :: Str) -> Result[Str, Str] : Err if p is not a valid pointer or is the empty pointer (the root has no parent), otherwise p without its last token.
+
+Worked examples (the answers are exact):
+
+- ptr_parse("/a~1b") is Ok(["a/b"]); ptr_parse("/~01") is Ok(["~1"]); ptr_parse("//") is Ok(["", ""]); ptr_parse("/") is Ok([""]); ptr_parse("") is Ok([]).
+- ptr_parse("a/b"), ptr_parse("/~"), ptr_parse("/~2") and ptr_parse("/a~") are all Err.
+- ptr_format(["a/b", "c~d", ""]) is "/a~1b/c~0d/"; ptr_format([""]) is "/".
+- ptr_append("/a", "x/y") is Ok("/a/x~1y"); ptr_append("", "~") is Ok("/~0"); ptr_append("a", "x") is an Err.
+- ptr_parent("/a/b") is Ok("/a"); ptr_parent("/a") is Ok(""); ptr_parent("") is an Err.
+
+Properties that must hold and be checked: for every list of tokens, ptr_parse(ptr_format(tokens)) is Ok(tokens); for every valid pointer p, ptr_format of the tokens of p gives back p; no function ever panics on any string; non-ASCII text such as "é" and "日本" passes through unchanged.

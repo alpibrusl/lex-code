@@ -1,0 +1,1 @@
+{"package": "tokenbucket", "kind": "lib", "held_out": true, "est_units": 4, "notes": "integer arithmetic only; ceiling division; clock passed in; record return"}

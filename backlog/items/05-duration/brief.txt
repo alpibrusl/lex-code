@@ -1,0 +1,18 @@
+Build a small Lex library package named "duration": parse and format human durations such as "1h30m". It is a pure library: no network, no database, no files, no environment. Use only the Lex standard library (std.str, std.list, std.int and the like); do not depend on any other package. Every function is pure (no effect annotation) and every function has examples.
+
+All values are whole seconds as plain integers. The package exposes exactly two functions:
+
+- duration_parse(s :: Str) -> Result[Int, Str] : the number of seconds, or Err(message) if s is not a valid duration.
+- duration_format(seconds :: Int) -> Result[Str, Str] : the text for a number of seconds, or Err(message) if it is negative.
+
+Syntax. A duration is one or more parts written one after another with nothing between them; a part is a number of 1 to 9 ASCII digits (0-9 only) followed by one unit letter: "w" (604800 seconds), "d" (86400), "h" (3600), "m" (60) or "s" (1). Letters are lower case only. The units must appear in that order, from largest to smallest, and each unit at most once: "1h30m" and "2d4h" are valid; "30m1h" and "1h1h" are not. There is no sign, no decimal point, no spaces, no "ms", and no normalising: "90m" is valid and means 5400 seconds, "00s" is valid and means 0, "007m" means 420. The empty string, a bare number ("1", "0"), a bare unit ("s") and a number of 10 or more digits are invalid.
+
+Formatting. duration_format(0) is Ok("0s"). Otherwise the seconds are split greedily into weeks, days, hours, minutes and seconds, largest first, and every unit that is zero is left out: 90061 seconds is "1d1h1m1s", 1209600 is "2w", 3600 is "1h". Anything of a week or more uses weeks (there are no months or years).
+
+Worked examples (the answers are exact):
+
+- duration_parse("1h30m") is Ok(5400); duration_parse("90m") is Ok(5400); duration_parse("1w1d1h1m1s") is Ok(694861); duration_parse("00s") is Ok(0); duration_parse("999999999s") is Ok(999999999).
+- duration_parse("") , duration_parse("1"), duration_parse("30m1h"), duration_parse("1h1h"), duration_parse("1.5h"), duration_parse("1 h"), duration_parse("1H"), duration_parse("1ms") and duration_parse("1000000000s") are all Err.
+- duration_format(90061) is Ok("1d1h1m1s"); duration_format(0) is Ok("0s"); duration_format(59) is Ok("59s"); duration_format(604801) is Ok("1w1s"); duration_format(-1) is an Err.
+
+Properties that must hold and be checked: for every n >= 0, duration_parse of duration_format(n) gives Ok(n); duration_parse never panics on any string.

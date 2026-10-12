@@ -1,0 +1,20 @@
+Build a small Lex library package named "iniconf": parse INI-style configuration text. It is a pure library: no network, no database, no files, no environment. Use only the Lex standard library (std.str, std.list, std.int and the like); do not depend on any other package. Every function is pure (no effect annotation) and every function has examples.
+
+The package exposes exactly two functions, taking and returning only plain values:
+
+- ini_parse(text :: Str) -> Result[List[Str], Str] : the settings in the text as a list of "name=value" strings, or Err(message) naming the offending line number (1-based) if the text is malformed.
+- ini_get(text :: Str, section :: Str, key :: Str) -> Result[Option[Str], Str] : Err if the text is malformed, otherwise Some(value) of the setting in that section (the empty string "" means before any section header) or None if there is no such setting.
+
+Syntax. The text is read line by line; lines end with a line feed, and a carriage return just before it is ignored. Whitespace around a line is ignored. Then:
+- A blank line is skipped. A line whose first character is ";" or "#" is a comment and is skipped. Comments only start at the beginning of a line: there are no trailing comments, so in "a = x ; y" the value is "x ; y".
+- "[name]" starts a section. The line must end with "]"; the name is what is between the brackets, trimmed, and must be non-empty and contain none of "[", "]" and "=". Text after the closing bracket makes the line malformed. Settings before the first section header belong to no section.
+- Any other line must be "key = value": it is split at the FIRST "=" (so a value may contain further "=" characters); key and value are each trimmed. The key must be non-empty and use only ASCII letters, digits, "_", "." and "-". A line with no "=" and an invalid key are malformed. The value may be empty. If the trimmed value has at least two characters and begins and ends with a double quote, that one outer pair of quotes is removed (and the text between is kept exactly, spaces included).
+- A setting's full name is "section.key", or just "key" when there is no section. If the same full name is assigned more than once, the LAST value wins but the setting keeps the position of its FIRST appearance in the result list.
+
+Worked examples (the answers are exact):
+
+- ini_parse("a = 1") is Ok(["a=1"]); ini_parse("[s]\na=1\n[t]\na=2") is Ok(["s.a=1", "t.a=2"]); ini_parse("k=1\nj=2\nk=3") is Ok(["k=3", "j=2"]); ini_parse("a=b=c") is Ok(["a=b=c"]); ini_parse("a=\"  padded  \"") is Ok(["a=  padded  "]); ini_parse("; note\n\n# note\na=1\r\nb=2\r\n") is Ok(["a=1", "b=2"]).
+- ini_parse("a=1\njust text") (line 2 has no "="), ini_parse("[unclosed\na=1"), ini_parse("[]\na=1") and ini_parse("=novalue") are all Err.
+- ini_get("a=1\n[s]\nk=v", "s", "k") is Ok(Some("v")); ini_get("a=1\n[s]\nk=v", "", "a") is Ok(Some("1")); ini_get("a=1\n[s]\nk=v", "s", "x") is Ok(None); ini_get("[bad", "", "a") is an Err.
+
+Properties that must hold and be checked: ini_parse never panics on any string; every string in a successful result contains an "="; ini_get(text, s, k) is Some(v) exactly when the result of ini_parse(text) contains the string "s.k=v" ("k=v" when s is empty); non-ASCII text such as "é" and "日本" in values and section names passes through unchanged.

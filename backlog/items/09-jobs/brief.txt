@@ -1,0 +1,26 @@
+Build a small Lex package named "jobs": a multi-tenant job-queue REST API that is safe to put on the internet. Reuse the existing packages lex-web (routing and serving), lex-schema (request validation) and lex-orm (database access, SQLite) instead of writing those layers yourself.
+
+Each customer company ("tenant") has its own bearer token. A request carries "Authorization: Bearer <token>"; the token decides which tenant it acts for. Tokens are loaded at startup from the environment variable JOBS_TOKENS, formatted "token1:tenantA,token2:tenantB". The server listens on the port in JOBS_PORT, and the SQLite database path comes from JOBS_DB.
+
+A job has an integer id, a tenant, a "kind", a "payload", and a "state" that is one of "queued", "running" or "done". A new job starts "queued". The only allowed moves are queued to running (a worker claims it) and running to done (the worker completes it). Nothing moves backwards and nothing is skipped.
+
+Endpoints, all returning JSON:
+
+- POST /jobs -- body {"kind": Str, "payload": Str}. Creates a queued job owned by the caller's tenant and returns it. 201 on success. An optional "Idempotency-Key" header makes the call safe to repeat: the same key sent again by the same tenant returns the original job with 200 and creates nothing. Two different tenants may use the same key independently.
+- GET /jobs/{id} -- returns one job.
+- GET /jobs?state=queued&limit=20&after=7 -- lists the caller's tenant's jobs ordered by id ascending. "state" is optional and must be one of the three states. "limit" is optional, an integer from 1 to 50, default 20. "after" is optional: only jobs with an id greater than it are returned. The response is {"jobs": [...], "next_after": <id of the last job returned, or null when there are no more>}.
+- POST /jobs/{id}/claim -- moves a queued job to running. 200 with the job. 409 if the job is not queued.
+- POST /jobs/{id}/complete -- moves a running job to done. 200 with the job. 409 if the job is not running.
+
+Security requirements. Each one is something an attacker will try, and each must have a test:
+
+1. No token, a malformed Authorization header, or an unknown token: 401, and the database is never touched.
+2. A tenant can never see or change another tenant's job. Asking for an id that belongs to someone else returns 404, exactly the same response as an id that does not exist -- never 403, so existence does not leak. This includes claim and complete.
+3. Every database query is parameterized. A "state" or "after" value such as `queued' OR '1'='1` is simply invalid input (400) and must never reach the database as text.
+4. The create body is strictly validated: kind is 1 to 40 characters of lowercase letters, digits, "_" or "-"; payload is a string of at most 1000 characters. Unknown fields are rejected with 400 -- in particular a body that tries to set "id", "tenant", "tenant_id" or "state" is rejected, so a client can neither choose its owner nor start a job in a later state. Invalid JSON is 400.
+5. A request body larger than 4096 bytes is rejected with 413 before it is parsed.
+6. The id in the path must be a positive integer; anything else (including "1 OR 1=1" and "../etc/passwd") is 404.
+7. Tokens are compared in constant time against every configured token (no early exit on the first mismatch), tokens are never logged or echoed in a response, and a missing token and an unknown token return the identical generic 401 body.
+8. The server listens on loopback (127.0.0.1) by default; the host can be overridden by JOBS_HOST.
+
+Effects. The pure logic -- reading the token header, mapping a token to a tenant, validating a create body, the state-transition rule (which move is allowed from which state), parsing the pagination parameters -- must be pure functions with no effect annotation, each with examples. Only the handlers and main may use effects, and only the narrowest ones Lex allows (the database, the network, and reading its configuration from the environment). The server must never need process or general IO access. Opening the SQLite database declares fs_write in the standard library, so the grants are net, sql, env and fs_write and nothing else.

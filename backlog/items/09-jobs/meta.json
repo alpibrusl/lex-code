@@ -1,0 +1,1 @@
+{"package": "jobs", "kind": "service", "held_out": false, "est_units": 16, "grants": "net,sql,env,fs_write", "notes": "multi-tenant REST; first from-scratch service; 18/18 acceptance yet GET /jobs was 500"}

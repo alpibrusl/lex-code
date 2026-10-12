@@ -1,0 +1,27 @@
+Build a small Lex library package named "glob": match file-path glob patterns against text. It is a pure library: no network, no database, no files, no environment. Use only the Lex standard library (std.str, std.list, std.int and the like); do not depend on any other package. Every function is pure (no effect annotation) and every function has examples.
+
+The package exposes exactly two functions, taking and returning only plain values:
+
+- glob_valid(pattern :: Str) -> Bool : whether the pattern is well formed (rules below).
+- glob_match(pattern :: Str, text :: Str) -> Bool : whether the WHOLE text matches the pattern. An invalid pattern matches nothing (false).
+
+Pattern language. "Character" means one Unicode character (code point), never one byte: "?" matches the single character "é" and "??" does not.
+- "*" matches zero or more characters, none of them "/".
+- "**" (two stars in a row) matches zero or more characters of any kind, including "/". It has no special handling of slashes around it: "a/**/b" matches "a/x/y/b" but not "a/b".
+- "?" matches exactly one character that is not "/".
+- "[...]" is a set matching exactly one character that is not "/". Inside it: a plain character matches itself; "x-y" is a range from x to y inclusive and requires x <= y by code point; a "-" that is first or last in the set is a plain "-". If the first character after "[" is "!" the set is negated: it matches one character that is not in the set and not "/". A set must be closed by the first "]" that follows; a "]" directly after "[" (or after "[!") therefore means an EMPTY set, which is invalid; there is no way to put "]" inside a set. Backslash has no special meaning inside a set.
+- "\" followed by any character matches that character literally (so "\*" matches "*" and "\\" matches one backslash).
+- Every other character matches itself.
+
+A pattern is invalid if: a "[" is never closed, a set is empty, a range has x greater than y, or the pattern ends with a single unpaired "\". The empty pattern is valid and matches only the empty text.
+
+Worked examples (the answers are exact):
+
+- glob_match("*.txt", "a.txt") is true; glob_match("*.txt", ".txt") is true; glob_match("*.txt", "a/b.txt") is false; glob_match("**.txt", "a/b.txt") is true.
+- glob_match("a?c", "a/c") is false; glob_match("?", "é") is true; glob_match("??", "é") is false.
+- glob_match("[a-c]x", "dx") is false; glob_match("[!a-c]", "d") is true; glob_match("[!a]", "/") is false; glob_match("[a-]", "-") is true.
+- glob_match("a\*b", "a*b") is true; glob_match("a\*b", "axb") is false.
+- glob_match("a*a*a*a*b", "aaaaaaaaaaaaaaaaaaaaaaaaa") is false and must return quickly (no exponential backtracking).
+- glob_valid("[abc") is false; glob_valid("[]") is false; glob_valid("[z-a]") is false; glob_valid("a\") is false; glob_valid("") is true; glob_valid("**") is true.
+
+Properties that must hold and be checked: glob_match("**", t) is true for every t; a pattern with no special characters matches only itself; glob_match(p, t) is false whenever glob_valid(p) is false; no function ever panics on any string.

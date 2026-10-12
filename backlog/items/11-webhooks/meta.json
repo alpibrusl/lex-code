@@ -1,0 +1,1 @@
+{"package": "webhooks", "kind": "service", "held_out": true, "est_units": 14, "grants": "net,sql,env,fs_write,crypto,time", "notes": "HMAC-SHA256 over timestamp.body; constant-time compare; replay window; dedupe; no source enumeration"}
